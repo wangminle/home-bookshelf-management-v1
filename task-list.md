@@ -43,14 +43,15 @@
 | BUG-030 | 修复 | 附件 commit 失败时已落盘文件不清理，产生孤儿文件堆积 | 2026-06-28 01:20 | 2026-06-28 13:45 | 已修复 | attachments.py:79-83 IntegrityError 时 dest.unlink(missing_ok) |
 | BUG-031 | 修复 | CLI client._request 当 4xx body 为非 dict 列表（首元素非 dict）时 AttributeError，掩盖真实 HTTP 错误 | 2026-06-28 01:20 | 2026-06-28 13:45 | 已修复 | client.py:35-43 列表首元素非 dict 时 str(first) 兜底 |
 | BUG-032 | 修复 | async 端点（intake/recognize/attachments）内同步调用 urllib/元数据链，阻塞事件循环拖垮并发 | 2026-06-28 01:20 | 2026-06-28 13:45 | 已修复 | intake/recognize/attachments 端点均用 run_in_threadpool 包装同步调用 |
-| BUG-033 | 修复 | intake 在 _find_existing 之前就 save_uploaded_image 落盘封面；命中已有书走 _handle_existing_book 时 image_saved_path 被丢弃，封面文件成孤儿堆积，且已有书缺封面也不会补 | 2026-06-29 10:56 | - | 待修复 | services/intake.py:62 先存图→:99 查重→:101 existing 分支未用 image_saved_path（grep 确认仅:103 新建路径用）。修法：查重后再存图，或 existing 分支在缺封面时回填 existing.cover_path |
-| BUG-034 | 修复 | 用户可见日期仍用 utc_today_iso：reading.py:65 finish_date、intake.py:303 purchase_date、purchase.py:45 purchase_date，东八区 0-8 点记录成前一天（与已修 BUG-019 同类） | 2026-06-29 10:56 | - | 待修复 | time_helpers 已有 local_today_iso（stats streak 已用）；将这 3 处统一改 local_today_iso。用户显式传 --date 不受影响 |
+| BUG-033 | 修复 | intake 在 _find_existing 之前就 save_uploaded_image 落盘封面；命中已有书走 _handle_existing_book 时 image_saved_path 被丢弃，封面文件成孤儿堆积，且已有书缺封面也不会补 | 2026-06-29 10:56 | 2026-06-29 12:09 | 已修复 | services/intake.py:62 先存图→:99 查重→:101 existing 分支未用 image_saved_path（grep 确认仅:103 新建路径用）。修法：查重后再存图，或 existing 分支在缺封面时回填 existing.cover_path |
+| BUG-034 | 修复 | 用户可见日期仍用 utc_today_iso：reading.py:65 finish_date、intake.py:303 purchase_date、purchase.py:45 purchase_date，东八区 0-8 点记录成前一天（与已修 BUG-019 同类） | 2026-06-29 10:56 | 2026-06-29 12:09 | 已修复 | time_helpers 已有 local_today_iso（stats streak 已用）；将这 3 处统一改 local_today_iso。用户显式传 --date 不受影响 |
 
 ## 调整事项
 
 | ID | 动作 | 事项 | 发现时间 | 完成时间 | 状态 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | ADJ-001 | 调整 | M5 飞书 Channel Adapter 不单独开发，改由 OpenClaw/Hermes 加载 Skills | 2026-06-26 19:00 | 2026-06-26 19:00 | 已完成 | 对应 DEV-008 已关闭 |
+| ADJ-002 | 调整 | CLI 版本号 0.1.0 → 0.1.1（cli/pyproject.toml，全仓唯一版本定义点；后端无版本字段） | 2026-06-29 14:13 | 2026-06-29 14:13 | 已完成 | 全仓仅 cli/pyproject.toml:3 一处项目版本；requirements.txt 的 pyzbar>=0.1.9 为依赖版本无关；后端无 __version__，本次未加 |
 
 ## 检查事项
 
@@ -64,6 +65,7 @@
 | CHK-006 | 检查 | 第四轮 bug 审查：services/api/metadata/cli/schema/migration 全量逐文件 | 2026-06-28 01:20 | 2026-06-28 13:45 | 已完成 | 发现 BUG-022~032 共 11 项；本次全部复核确认修复（BUG-023~032 前序会话已修，BUG-022 本次补 schema 枚举+api 422）；compileall 全量通过 |
 | CHK-007 | 检查 | 验证 backend/.venv 可用性 | 2026-06-28 13:30 | 2026-06-28 13:30 | 已完成 | pyvenv.cfg 显示为 macOS 创建（home=/Library/Frameworks/Python.framework，用户 fenix-macmini），布局 bin/+lib/ 无 Windows Scripts/，本机不可用；依赖版本清单完整（fastapi0.138.1/sqlalchemy2.0.51/alembic1.18.5 等），需用 install.bat 重建 |
 | CHK-008 | 检查 | 第五轮 bug 复查：复核 BUG-015~019 修复+扫最近改动文件(attachments/intake/purchase/recognize/storage/reading) | 2026-06-29 10:56 | 2026-06-29 10:56 | 已完成 | BUG-015~019 全部确认已修复（BUG-018 经 ReadingStatus 扩 5 态解决）；app.main 导入通过；发现新 BUG-033(重入库封面孤儿文件)/BUG-034(3 处用户可见日期仍用 UTC) |
+| CHK-009 | 检查 | 修复 BUG-033/034 并补双语 README | 2026-06-29 12:09 | 2026-06-29 12:09 | 已完成 | BUG-033:intake 改为查重后存图+已有书缺封面时回填(临时DB冒烟验证:新建存1次/重入库有封面0次无孤儿/缺封面回填1次落库);BUG-034:reading.finish_date+intake/purchase.purchase_date 3 处 utc→local_today_iso(冒烟验证=local_today);README 补中英双语+切换标签 |
 
 ## 测试数据
 
@@ -86,6 +88,7 @@
 | DOC-010 | 文档 | 设计方案/Schema 文档与代码对齐（表数量、端点路径、进度字段名、交付物清单） | 2026-06-26 18:12 | 2026-06-26 18:12 | 已完成 | 设计方案.md + 数据库Schema对照与一期细化.md |
 | DOC-011 | 文档 | 内部业务流转 SVG 流程图（IM→Agent→Skills→CLI→API→DB） | 2026-06-26 18:13 | 2026-06-26 18:25 | 已完成 | docs/业务流转流程图.svg；修复编码损坏与 XML 非法字符 |
 | DOC-012 | 文档 | README「启动后端」章节补充 Windows CMD 启动命令 + 跨平台一键安装脚本说明 + pyzbar 平台运行时依赖提示 | 2026-06-28 13:30 | 2026-06-28 13:30 | 已完成 | README.md §快速启动；对应 OPR-001 |
+| DOC-013 | 文档 | README 扩为中英双语（中文在前，标题下切换标签），覆盖核心功能/项目结构/CLI/Skills/Agent指南/后端安装 | 2026-06-29 12:09 | 2026-06-29 12:09 | 已完成 | README.md;核对 install.sh/docker-compose/.env.example/zbar 依赖均准确;含安全提示(仅可信局域网) |
 
 ## 功能开发
 
@@ -140,14 +143,14 @@
 
 | 分类 | 总数 | 已完成 | 待开发/待修复 | 完成率 |
 | --- | --- | --- | --- | --- |
-| 代码 Bug | 34 | 32 | 2 | 94% |
-| 调整事项 | 1 | 1 | 0 | 100% |
-| 检查事项 | 8 | 7 | 1 | 88% |
+| 代码 Bug | 34 | 34 | 0 | 100% |
+| 调整事项 | 2 | 2 | 0 | 100% |
+| 检查事项 | 9 | 8 | 1 | 89% |
 | 测试数据 | 0 | 0 | 0 | 0% |
-| 文档维护 | 12 | 12 | 0 | 100% |
+| 文档维护 | 13 | 13 | 0 | 100% |
 | 功能开发 | 12 | 12 | 0 | 100% |
 | 配置运维 | 1 | 1 | 0 | 100% |
 | 规划事项 | 4 | 0 | 4 | 0% |
 | 优化事项 | 4 | 4 | 0 | 100% |
 | 调研事项 | 3 | 3 | 0 | 100% |
-| **总计** | 79 | 72 | 7 | 91% |
+| **总计** | 82 | 77 | 5 | 94% |

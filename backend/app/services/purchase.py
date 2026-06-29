@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.models import Book, BookCopy, Member, PurchaseRecord
 from app.schemas.purchase import PurchaseCreate
 from app.utils.db_errors import rollback_on_integrity
-from app.utils.time_helpers import utc_today_iso
+from app.utils.time_helpers import local_today_iso
 
 
 @dataclass
@@ -42,7 +42,7 @@ def create_purchase(db: Session, book_id: int, payload: PurchaseCreate) -> Purch
         currency=payload.currency,
         channel=payload.channel,
         order_no=payload.order_no,
-        purchase_date=payload.purchase_date or utc_today_iso(),
+        purchase_date=payload.purchase_date or local_today_iso(),
         buyer_member_id=payload.member_id,
         notes=payload.notes,
     )

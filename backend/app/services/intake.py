@@ -22,7 +22,7 @@ from app.utils.book_helpers import (
     serialize_json_list,
 )
 from app.utils.db_errors import rollback_on_integrity
-from app.utils.time_helpers import utc_today_iso
+from app.utils.time_helpers import local_today_iso
 
 
 @dataclass
@@ -50,19 +50,20 @@ class IntakeResult:
     already_exists: bool = False
 
 
+def _cover_target_for_image(isbn_detected: str | None, image_path: Path) -> str:
+    """上传封面落盘文件名：优先 ISBN，其次图片原名 stem。"""
+    return canonical_isbn13(isbn_detected) or isbn_detected or image_path.stem
+
+
 def intake_book(db: Session, payload: IntakeInput) -> IntakeResult:
     _validate_intake(payload)
 
     isbn_detected: str | None = normalize_isbn(payload.isbn)
-    image_saved_path: str | None = None
+    has_image = bool(payload.image_path and payload.image_path.exists())
 
-    if payload.image_path and payload.image_path.exists():
-        if not isbn_detected:
-            isbn_detected = recognize_isbn_from_image(payload.image_path)
-        image_saved_path = save_uploaded_image(
-            payload.image_path,
-            target_name=canonical_isbn13(isbn_detected) or isbn_detected or payload.image_path.stem,
-        )
+    # 仅做条码识别（查重/元数据需要 ISBN），封面落盘推迟到确认新建/回填时，避免重复入库产生孤儿文件
+    if has_image and not isbn_detected:
+        isbn_detected = recognize_isbn_from_image(payload.image_path)
 
     authors = payload.authors or ([payload.author] if payload.author else None)
     metadata = fetch_metadata(isbn=isbn_detected, title=payload.title, author=payload.author)
@@ -98,9 +99,26 @@ def intake_book(db: Session, payload: IntakeInput) -> IntakeResult:
 
     existing = _find_existing(db, isbn13=isbn13, isbn10=isbn10, title=title, authors=authors)
     if existing:
-        return _handle_existing_book(db, existing, payload, metadata, isbn_detected, source)
+        cover_backfilled = False
+        # 已有书：仅当缺封面时才回填上传图，避免每次重复扫码都落盘孤儿文件
+        if has_image and not existing.cover_path:
+            saved = save_uploaded_image(
+                payload.image_path,
+                target_name=_cover_target_for_image(isbn_detected, payload.image_path),
+            )
+            if saved:
+                existing.cover_path = saved
+                cover_backfilled = True
+        return _handle_existing_book(
+            db, existing, payload, metadata, isbn_detected, source, cover_backfilled=cover_backfilled
+        )
 
-    cover_path = image_saved_path
+    cover_path: str | None = None
+    if has_image:
+        cover_path = save_uploaded_image(
+            payload.image_path,
+            target_name=_cover_target_for_image(isbn_detected, payload.image_path),
+        )
     if not cover_path and cover_url:
         cover_target = isbn13 or normalize_title(title)
         cover_path = download_cover(cover_url, target_name=cover_target)
@@ -197,6 +215,8 @@ def _handle_existing_book(
     metadata,
     isbn_detected: str | None,
     source: str | None,
+    *,
+    cover_backfilled: bool = False,
 ) -> IntakeResult:
     created_purchase = False
     created_copy = False
@@ -221,7 +241,7 @@ def _handle_existing_book(
         _create_purchase(db, existing, payload, copy_id=copy_id)
         created_purchase = True
 
-    if created_copy or created_purchase:
+    if created_copy or created_purchase or cover_backfilled:
         try:
             db.commit()
         except IntegrityError as exc:
@@ -232,6 +252,8 @@ def _handle_existing_book(
         message += "，已添加新副本"
     if created_purchase:
         message += "，已记录购买"
+    if cover_backfilled:
+        message += "，已补充封面"
 
     return IntakeResult(
         action="exists",
@@ -300,6 +322,6 @@ def _create_purchase(db: Session, book: Book, payload: IntakeInput, copy_id: int
             price=payload.price,
             channel=payload.channel,
             buyer_member_id=payload.member_id,
-            purchase_date=utc_today_iso(),
+            purchase_date=local_today_iso(),
         )
     )

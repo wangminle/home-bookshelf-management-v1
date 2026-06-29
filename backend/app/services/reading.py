@@ -11,7 +11,7 @@ from app.models import Book, ReadingProgress
 from app.schemas.reading import ProgressUpdate
 from app.utils.db_errors import rollback_on_integrity
 from app.utils.member_helpers import resolve_member_id
-from app.utils.time_helpers import utc_today_iso
+from app.utils.time_helpers import local_today_iso
 
 TERMINAL_STATUSES = frozenset({"finished", "abandoned", "dropped"})
 
@@ -61,8 +61,9 @@ def update_reading_progress(db: Session, book_id: int, payload: ProgressUpdate) 
     if payload.rating is not None:
         progress.rating = payload.rating
 
+    # finish_date 为用户可见的本地日历日，与 reading_logs.log_date / stats streak 同源
     if progress.status in TERMINAL_STATUSES and not progress.finish_date:
-        progress.finish_date = utc_today_iso()
+        progress.finish_date = local_today_iso()
     elif progress.status not in TERMINAL_STATUSES and previous_status in TERMINAL_STATUSES:
         progress.finish_date = None
 

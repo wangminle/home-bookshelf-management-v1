@@ -1,0 +1,21 @@
+[Unit]
+Description=Home Bookshelf API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bookshelf
+Group=bookshelf
+WorkingDirectory=/opt/home-bookshelf/backend
+EnvironmentFile=/opt/home-bookshelf/deploy/systemd/bookshelf.env
+ExecStart=/opt/home-bookshelf/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir .
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# 安全：仅局域网访问时可配合防火墙；生产环境按需调整
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

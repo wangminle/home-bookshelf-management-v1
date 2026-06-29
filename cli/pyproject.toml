@@ -1,0 +1,20 @@
+[project]
+name = "bookshelf-cli"
+version = "0.1.0"
+description = "Home bookshelf management CLI"
+requires-python = ">=3.11"
+dependencies = [
+  "typer>=0.15.0",
+  "httpx>=0.28.0",
+]
+
+[project.scripts]
+bookshelf = "bookshelf.main:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bookshelf*"]

@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# 环境变量与密钥
+.env
+.env.*
+!**/.env.example
+deploy/systemd/bookshelf.env
+
+# 运行时数据
+data/
+backups/
+*.db
+*.db-wal
+*.db-shm
+
+# 测试 / 静态检查
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/

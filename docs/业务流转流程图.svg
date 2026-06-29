@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 960" role="img" aria-labelledby="svg-title svg-desc">
+  <title id="svg-title">家庭图书管理系统 · 内部业务流转</title>
+  <desc id="svg-desc">从 IM 经 Agent、Skills、CLI 到 FastAPI 与 SQLite 的内部业务流转图</desc>
+
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#455A64"/>
+    </marker>
+    <style type="text/css"><![CDATA[
+      .title { font: 700 22px "PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif; fill: #263238; }
+      .subtitle { font: 400 13px "PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif; fill: #607D8B; }
+      .layer-label { font: 600 12px "PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif; fill: #546E7A; }
+      .box-title { font: 600 14px "PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif; fill: #263238; }
+      .box-text { font: 400 12px "PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif; fill: #455A64; }
+      .box-text-sm { font: 400 11px "PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif; fill: #607D8B; }
+      .flow-label { font: 600 11px "PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif; fill: #1565C0; }
+      .flow-num { font: 700 11px sans-serif; fill: #FFFFFF; }
+      .legend-title { font: 600 12px "PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif; fill: #37474F; }
+      .legend-text { font: 400 11px "PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif; fill: #546E7A; }
+    ]]></style>
+  </defs>
+
+  <rect width="1280" height="960" fill="#FAFBFC"/>
+
+  <text x="640" y="42" text-anchor="middle" class="title">家庭图书管理系统 &#183; 内部业务流转</text>
+  <text x="640" y="66" text-anchor="middle" class="subtitle">数据链路：IM &#8594; Agent + Skills &#8594; bookshelf CLI &#8594; FastAPI &#8594; SQLite</text>
+
+  <text x="40" y="108" class="layer-label">用户层</text>
+  <g>
+    <rect x="40" y="118" width="200" height="88" rx="10" fill="#E3F2FD" stroke="#64B5F6" stroke-width="1.5"/>
+    <text x="140" y="148" text-anchor="middle" class="box-title">IM 客户端</text>
+    <text x="140" y="168" text-anchor="middle" class="box-text">飞书 / 微信 / Telegram</text>
+    <text x="140" y="186" text-anchor="middle" class="box-text-sm">语音、图片、ISBN、自然语言</text>
+  </g>
+
+  <text x="280" y="108" class="layer-label">Agent 层</text>
+  <g>
+    <rect x="280" y="118" width="200" height="88" rx="10" fill="#FFF3E0" stroke="#FFB74D" stroke-width="1.5"/>
+    <text x="380" y="148" text-anchor="middle" class="box-title">AI Agent</text>
+    <text x="380" y="168" text-anchor="middle" class="box-text">OpenClaw / Hermes / Cursor</text>
+    <text x="380" y="186" text-anchor="middle" class="box-text-sm">理解意图、选 Skill、调 CLI、回复用户</text>
+  </g>
+
+  <text x="520" y="108" class="layer-label">Skills 能力层</text>
+  <g>
+    <rect x="520" y="118" width="240" height="88" rx="10" fill="#F3E5F5" stroke="#BA68C8" stroke-width="1.5"/>
+    <text x="640" y="142" text-anchor="middle" class="box-title">skills/*.md</text>
+    <text x="640" y="162" text-anchor="middle" class="box-text-sm">setup, intake, query, progress, purchase</text>
+    <text x="640" y="178" text-anchor="middle" class="box-text-sm">note, shelf-report, reading-log</text>
+    <text x="640" y="196" text-anchor="middle" class="box-text-sm">首次推荐 bookshelf-setup</text>
+  </g>
+
+  <text x="800" y="108" class="layer-label">CLI 客户端</text>
+  <g>
+    <rect x="800" y="118" width="200" height="88" rx="10" fill="#E8EAF6" stroke="#7986CB" stroke-width="1.5"/>
+    <text x="900" y="148" text-anchor="middle" class="box-title">bookshelf CLI</text>
+    <text x="900" y="168" text-anchor="middle" class="box-text">doctor, add, find, progress</text>
+    <text x="900" y="186" text-anchor="middle" class="box-text-sm">BOOKSHELF_API_URL &#8594; HTTP JSON</text>
+  </g>
+
+  <text x="1040" y="108" class="layer-label">后端 API</text>
+  <g>
+    <rect x="1040" y="118" width="200" height="88" rx="10" fill="#E8F5E9" stroke="#66BB6A" stroke-width="1.5"/>
+    <text x="1140" y="148" text-anchor="middle" class="box-title">FastAPI</text>
+    <text x="1140" y="168" text-anchor="middle" class="box-text">/api/v1/*</text>
+    <text x="1140" y="186" text-anchor="middle" class="box-text-sm">{ ok, data, error }</text>
+  </g>
+
+  <line x1="240" y1="162" x2="275" y2="162" stroke="#455A64" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="480" y1="162" x2="515" y2="162" stroke="#455A64" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="760" y1="162" x2="795" y2="162" stroke="#455A64" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="1000" y1="162" x2="1035" y2="162" stroke="#455A64" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="40" y="240" width="1200" height="300" rx="12" fill="#FFFFFF" stroke="#CFD8DC" stroke-width="1.5"/>
+  <text x="60" y="268" class="layer-label">服务架构 &#183; 数据层</text>
+
+  <g>
+    <rect x="60" y="286" width="180" height="72" rx="8" fill="#C8E6C9" stroke="#43A047"/>
+    <text x="150" y="312" text-anchor="middle" class="box-title">API Routers</text>
+    <text x="150" y="332" text-anchor="middle" class="box-text-sm">books, intake, progress</text>
+    <text x="150" y="348" text-anchor="middle" class="box-text-sm">purchases, members, stats</text>
+  </g>
+
+  <g>
+    <rect x="280" y="286" width="220" height="120" rx="8" fill="#DCEDC8" stroke="#689F38"/>
+    <text x="390" y="312" text-anchor="middle" class="box-title">Services 层</text>
+    <text x="390" y="332" text-anchor="middle" class="box-text-sm">intake, reading, purchase</text>
+    <text x="390" y="348" text-anchor="middle" class="box-text-sm">books, notes, reading_logs</text>
+    <text x="390" y="364" text-anchor="middle" class="box-text-sm">metadata, cover_recognition</text>
+    <text x="390" y="380" text-anchor="middle" class="box-text-sm">stats, members, operation_log</text>
+  </g>
+
+  <g>
+    <rect x="540" y="286" width="200" height="120" rx="8" fill="#ECEFF1" stroke="#78909C"/>
+    <text x="640" y="312" text-anchor="middle" class="box-title">SQLite (12 表)</text>
+    <text x="640" y="332" text-anchor="middle" class="box-text-sm">books, book_copies, members</text>
+    <text x="640" y="348" text-anchor="middle" class="box-text-sm">reading_progress, reading_logs</text>
+    <text x="640" y="364" text-anchor="middle" class="box-text-sm">purchase_records, reading_notes</text>
+    <text x="640" y="380" text-anchor="middle" class="box-text-sm">tags, attachments, custom_fields</text>
+  </g>
+
+  <g>
+    <rect x="780" y="286" width="160" height="72" rx="8" fill="#E1F5FE" stroke="#29B6F6"/>
+    <text x="860" y="312" text-anchor="middle" class="box-title">本地存储</text>
+    <text x="860" y="332" text-anchor="middle" class="box-text-sm">data/covers/</text>
+    <text x="860" y="348" text-anchor="middle" class="box-text-sm">data/attachments/</text>
+  </g>
+
+  <g>
+    <rect x="980" y="286" width="240" height="120" rx="8" fill="#FFF9C4" stroke="#FBC02D"/>
+    <text x="1100" y="312" text-anchor="middle" class="box-title">外部服务</text>
+    <text x="1100" y="332" text-anchor="middle" class="box-text-sm">OpenLibrary, Google Books</text>
+    <text x="1100" y="348" text-anchor="middle" class="box-text-sm">国家图书馆 (NLC)</text>
+    <text x="1100" y="368" text-anchor="middle" class="box-text-sm">ISBN 条码、封面识别</text>
+    <text x="1100" y="388" text-anchor="middle" class="box-text-sm">元数据 fallback chain</text>
+  </g>
+
+  <g>
+    <rect x="780" y="378" width="160" height="72" rx="8" fill="#FFF3E0" stroke="#FB8C00"/>
+    <text x="860" y="404" text-anchor="middle" class="box-title">识别插件</text>
+    <text x="860" y="424" text-anchor="middle" class="box-text-sm">pyzbar 扫 ISBN</text>
+    <text x="860" y="440" text-anchor="middle" class="box-text-sm">/recognize/cover</text>
+  </g>
+
+  <line x1="240" y1="322" x2="275" y2="322" stroke="#455A64" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <line x1="500" y1="346" x2="535" y2="346" stroke="#455A64" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <line x1="740" y1="322" x2="775" y2="322" stroke="#455A64" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <line x1="940" y1="322" x2="975" y2="322" stroke="#455A64" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <line x1="860" y1="358" x2="860" y2="373" stroke="#455A64" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M 1140 206 L 1140 228 L 150 228 L 150 281" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="40" y="570" width="1200" height="280" rx="12" fill="#FFFFFF" stroke="#CFD8DC" stroke-width="1.5"/>
+  <text x="60" y="598" class="layer-label">5 条主链路 (Skill &#8594; CLI &#8594; API &#8594; 表)</text>
+
+  <circle cx="72" cy="628" r="12" fill="#1565C0"/>
+  <text x="72" y="632" text-anchor="middle" class="flow-num">0</text>
+  <rect x="92" y="610" width="1120" height="44" rx="8" fill="#E3F2FD" stroke="#42A5F5"/>
+  <text x="108" y="636" class="flow-label">冷启动</text>
+  <text x="168" y="636" class="box-text">bookshelf-setup: doctor/health, Open Key, members/bind, stats 概览</text>
+
+  <circle cx="72" cy="688" r="12" fill="#1565C0"/>
+  <text x="72" y="692" text-anchor="middle" class="flow-num">1</text>
+  <rect x="92" y="670" width="1120" height="44" rx="8" fill="#E8F5E9" stroke="#66BB6A"/>
+  <text x="108" y="696" class="flow-label">入库</text>
+  <text x="148" y="696" class="box-text">book-intake: add/recognize &#8594; POST /books/intake &#8594; 元数据链 &#8594; books + book_copies</text>
+
+  <circle cx="72" cy="748" r="12" fill="#1565C0"/>
+  <text x="72" y="752" text-anchor="middle" class="flow-num">2</text>
+  <rect x="92" y="730" width="1120" height="44" rx="8" fill="#F3E5F5" stroke="#AB47BC"/>
+  <text x="108" y="756" class="flow-label">查询</text>
+  <text x="148" y="756" class="box-text">book-query: find/show &#8594; GET /books, GET /books/{id} (聚合详情/副本/笔记)</text>
+
+  <circle cx="72" cy="808" r="12" fill="#1565C0"/>
+  <text x="72" y="812" text-anchor="middle" class="flow-num">3</text>
+  <rect x="92" y="790" width="1120" height="44" rx="8" fill="#FFF3E0" stroke="#FFA726"/>
+  <text x="108" y="816" class="flow-label">进度</text>
+  <text x="148" y="816" class="box-text">reading-tracker: progress (状态) + reading-log (日历/连续/streak)</text>
+
+  <circle cx="72" cy="868" r="12" fill="#1565C0"/>
+  <text x="72" y="872" text-anchor="middle" class="flow-num">4</text>
+  <rect x="92" y="850" width="1120" height="44" rx="8" fill="#ECEFF1" stroke="#90A4AE"/>
+  <text x="108" y="876" class="flow-label">扩展</text>
+  <text x="148" y="876" class="box-text">purchase, note, stats; PATCH books; copies, attachments, custom-fields</text>
+
+  <text x="40" y="920" class="legend-title">图例</text>
+  <rect x="88" y="908" width="14" height="14" fill="#E3F2FD" stroke="#64B5F6"/>
+  <text x="108" y="920" class="legend-text">用户层</text>
+  <rect x="188" y="908" width="14" height="14" fill="#FFF3E0" stroke="#FFB74D"/>
+  <text x="208" y="920" class="legend-text">Agent</text>
+  <rect x="268" y="908" width="14" height="14" fill="#F3E5F5" stroke="#BA68C8"/>
+  <text x="288" y="920" class="legend-text">Skills</text>
+  <rect x="348" y="908" width="14" height="14" fill="#E8EAF6" stroke="#7986CB"/>
+  <text x="368" y="920" class="legend-text">CLI</text>
+  <rect x="408" y="908" width="14" height="14" fill="#E8F5E9" stroke="#66BB6A"/>
+  <text x="428" y="920" class="legend-text">API/服务</text>
+  <rect x="508" y="908" width="14" height="14" fill="#ECEFF1" stroke="#78909C"/>
+  <text x="528" y="920" class="legend-text">数据库</text>
+  <rect x="588" y="908" width="14" height="14" fill="#FFF9C4" stroke="#FBC02D"/>
+  <text x="608" y="920" class="legend-text">外部</text>
+  <text x="680" y="920" class="legend-text">注：未来 Channel Adapter，IM 经 Agent 选 Skills</text>
+</svg>

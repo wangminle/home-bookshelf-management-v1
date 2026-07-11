@@ -55,6 +55,7 @@ def purchase_to_out(purchase) -> PurchaseOut:
         id=purchase.id,
         book_id=purchase.book_id,
         price=purchase.price or 0,
+        original_price=purchase.original_price,
         channel=purchase.channel,
         order_no=purchase.order_no,
         purchase_date=purchase.purchase_date,

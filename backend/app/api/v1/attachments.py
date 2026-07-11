@@ -11,7 +11,7 @@ from app.schemas.attachment import AttachmentCreate, AttachmentOut
 from app.schemas.book import ApiResponse
 from app.services.attachments import create_attachment
 from app.utils.db_errors import ConflictError
-from app.utils.operation_log import log_operation
+from app.utils.operation_log import log_and_commit
 
 router = APIRouter(prefix="/attachments", tags=["attachments"])
 
@@ -61,8 +61,7 @@ async def add_attachment(
         if temp_file and temp_file.exists():
             temp_file.unlink(missing_ok=True)
 
-    log_operation(db, action="attachment.create", payload={"attachment_id": result.attachment.id})
-    db.commit()
+    log_and_commit(db, action="attachment.create", payload={"attachment_id": result.attachment.id})
     data = AttachmentOut.model_validate(result.attachment).model_dump()
     data["message"] = result.message
     return ApiResponse(data=data)

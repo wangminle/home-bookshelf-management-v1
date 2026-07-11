@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Book, CustomField
+from app.models import Book, BookCopy, CustomField, Member, ReadingNote
 from app.schemas.custom_field import CustomFieldCreate
 from app.utils.db_errors import rollback_on_integrity
 
@@ -21,6 +21,12 @@ class CustomFieldResult:
 def _validate_entity(db: Session, entity_type: str, entity_id: int) -> None:
     if entity_type == "book" and not db.get(Book, entity_id):
         raise ValueError(f"书籍 ID {entity_id} 不存在")
+    if entity_type == "copy" and not db.get(BookCopy, entity_id):
+        raise ValueError(f"副本 ID {entity_id} 不存在")
+    if entity_type == "member" and not db.get(Member, entity_id):
+        raise ValueError(f"成员 ID {entity_id} 不存在")
+    if entity_type == "note" and not db.get(ReadingNote, entity_id):
+        raise ValueError(f"笔记 ID {entity_id} 不存在")
 
 
 def upsert_custom_field(db: Session, payload: CustomFieldCreate) -> CustomFieldResult:

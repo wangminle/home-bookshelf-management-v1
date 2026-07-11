@@ -33,6 +33,13 @@ bookshelf health
 
 可选 `--member-id`；未指定时使用系统默认成员（首个成员或自动创建的「默认用户」）。
 
+> **渠道鉴权**（Agent 走后端时）：调用 `/progress` 端点时，后端读取 HTTP 头 `X-Channel` / `X-External-User-Id`：
+> - 无渠道头 → 回退到默认成员（一期可信局域网兜底）
+> - 有渠道头但未绑定 → 403
+> - 有渠道头且绑定，但与 body `member_id` 不一致 → 403
+>
+> CLI 本身不带渠道头，由 Agent/适配层在请求时注入。
+
 ## 执行步骤
 
 ### 1. 更新页码
@@ -102,6 +109,7 @@ bookshelf progress --book-id 12 --percent 45
 | book_id 不存在 | 提示重新查询 |
 | 页码 > 总页数 | 仍记录，但可提醒用户确认 |
 | 用户未指明哪本书 | 追问书名或 ID |
+| API 403 | 渠道身份未绑定/与 member_id 不一致，提示先 `bind` 或核对成员 |
 
 ## 与其他技能协作
 

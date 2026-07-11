@@ -46,3 +46,4 @@ bookshelf note --book-id <ID> --content "..." [--type excerpt|review|thought] [-
 |------|------|
 | 找不到书 | 提示先入库或提供更准确书名 |
 | 多本同名 | 列出候选让用户选择 |
+| API 403 | 渠道身份未绑定/与 member_id 不一致，提示先 `bind` 或核对成员（`/notes` 端点接入渠道鉴权，行为同 reading-tracker） |

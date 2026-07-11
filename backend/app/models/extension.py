@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -23,6 +23,9 @@ class Attachment(Base, TimestampMixin):
 
 class CustomField(Base, TimestampMixin):
     __tablename__ = "custom_fields"
+    __table_args__ = (
+        UniqueConstraint("entity_type", "entity_id", "field_key", name="uq_custom_fields_entity_key"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     entity_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)

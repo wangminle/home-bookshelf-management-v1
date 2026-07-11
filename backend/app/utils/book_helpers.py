@@ -25,6 +25,9 @@ def isbn10_to_isbn13(isbn10: str) -> str:
 
 
 def canonical_isbn13(raw: str | None) -> str | None:
+    """规范化为 ISBN-13；校验位错误时返回 None，避免脏 ISBN 入库。"""
+    if not is_valid_isbn(raw):
+        return None
     normalized = normalize_isbn(raw)
     if not normalized:
         return None
@@ -41,6 +44,40 @@ def isbn_lookup_keys(raw: str | None) -> set[str]:
     if len(normalized) == 10:
         keys.add(isbn10_to_isbn13(normalized))
     return keys
+
+
+def is_valid_isbn(raw: str | None) -> bool:
+    normalized = normalize_isbn(raw)
+    if not normalized:
+        return False
+    if len(normalized) == 10:
+        return _isbn10_check(normalized)
+    if len(normalized) == 13:
+        return _isbn13_check(normalized)
+    return False
+
+
+def _isbn10_check(isbn10: str) -> bool:
+    if len(isbn10) != 10:
+        return False
+    total = 0
+    for i, ch in enumerate(isbn10[:-1]):
+        if not ch.isdigit():
+            return False
+        total += int(ch) * (10 - i)
+    check_ch = isbn10[-1]
+    check_val = 10 if check_ch in ("X", "x") else (int(check_ch) if check_ch.isdigit() else -1)
+    if check_val < 0:
+        return False
+    total += check_val
+    return total % 11 == 0
+
+
+def _isbn13_check(isbn13: str) -> bool:
+    if len(isbn13) != 13 or not isbn13.isdigit():
+        return False
+    total = sum(int(d) * (1 if i % 2 == 0 else 3) for i, d in enumerate(isbn13[:-1]))
+    return (10 - total % 10) % 10 == int(isbn13[-1])
 
 
 def author_in_json_list(book_authors_raw: str | None, author: str) -> bool:

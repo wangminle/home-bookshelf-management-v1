@@ -5,11 +5,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, Upl
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
+from app.auth import ChannelIdentity, channel_headers, enforce_channel_member
 from app.db import get_db
 from app.schemas.book import ApiResponse
 from app.schemas.intake import IntakeOut, IntakeRequest
 from app.services.intake import IntakeInput, IntakeResult, intake_book
 from app.utils.db_errors import ConflictError
+from app.utils.operation_log import log_and_commit
 from app.utils.serializers import book_to_out
 
 router = APIRouter(prefix="/books", tags=["books"])
@@ -41,8 +43,15 @@ async def intake(
     location: str | None = Form(default=None),
     member_id: int | None = Form(default=None),
     image: UploadFile | None = File(default=None),
+    identity: ChannelIdentity = Depends(channel_headers),
     db: Session = Depends(get_db),
 ) -> ApiResponse:
+    resolved_member_id = enforce_channel_member(
+        db,
+        body_member_id=member_id,
+        channel=identity.channel,
+        external_user_id=identity.external_user_id,
+    )
     image_path: Path | None = None
     temp_file: Path | None = None
 
@@ -66,7 +75,7 @@ async def intake(
                 price=price,
                 channel=channel,
                 location=location,
-                member_id=member_id,
+                member_id=resolved_member_id,
             ),
         )
     except ValueError as exc:
@@ -79,13 +88,32 @@ async def intake(
         if temp_file and temp_file.exists():
             temp_file.unlink(missing_ok=True)
 
+    log_and_commit(
+        db,
+        action="book.intake",
+        member_id=resolved_member_id,
+        channel=identity.channel,
+        payload={"book_id": result.book.id, "action": result.action, "isbn_detected": result.isbn_detected},
+    )
     data, status_code = _build_intake_response(result)
     response.status_code = status_code
     return ApiResponse(data=data.model_dump())
 
 
 @router.post("/intake/json", response_model=ApiResponse)
-def intake_json(payload: IntakeRequest, response: Response, db: Session = Depends(get_db)) -> ApiResponse:
+def intake_json(
+    payload: IntakeRequest,
+    response: Response,
+    identity: ChannelIdentity = Depends(channel_headers),
+    db: Session = Depends(get_db),
+) -> ApiResponse:
+    resolved_member_id = enforce_channel_member(
+        db,
+        body_member_id=payload.member_id,
+        channel=identity.channel,
+        external_user_id=identity.external_user_id,
+    )
+    payload = payload.model_copy(update={"member_id": resolved_member_id})
     try:
         result = intake_book(
             db,
@@ -96,7 +124,7 @@ def intake_json(payload: IntakeRequest, response: Response, db: Session = Depend
                 price=payload.price,
                 channel=payload.channel,
                 location=payload.location,
-                member_id=payload.member_id,
+                member_id=resolved_member_id,
             ),
         )
     except ValueError as exc:
@@ -106,6 +134,13 @@ def intake_json(payload: IntakeRequest, response: Response, db: Session = Depend
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    log_and_commit(
+        db,
+        action="book.intake",
+        member_id=resolved_member_id,
+        channel=identity.channel,
+        payload={"book_id": result.book.id, "action": result.action, "isbn_detected": result.isbn_detected},
+    )
     data, status_code = _build_intake_response(result)
     response.status_code = status_code
     return ApiResponse(data=data.model_dump())

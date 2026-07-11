@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.utils.book_helpers import normalize_isbn
+from app.utils.book_helpers import canonical_isbn13, is_valid_isbn, normalize_isbn
 
 
 def recognize_isbn_from_image(image_path: Path) -> str | None:
@@ -18,10 +18,7 @@ def recognize_isbn_from_image(image_path: Path) -> str | None:
         for symbol in decode(img):
             raw = symbol.data.decode("utf-8", errors="ignore")
             normalized = normalize_isbn(raw)
-            if normalized:
-                if len(normalized) == 10:
-                    from app.utils.book_helpers import isbn10_to_isbn13
-
-                    return isbn10_to_isbn13(normalized)
-                return normalized
+            if not normalized or not is_valid_isbn(normalized):
+                continue
+            return canonical_isbn13(normalized)
     return None

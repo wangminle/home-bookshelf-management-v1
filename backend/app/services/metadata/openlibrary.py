@@ -101,25 +101,37 @@ class OpenLibraryProvider(MetadataProvider):
         )
 
     def _parse_data(self, data: dict, isbn13: str, isbn10: str | None) -> BookMetadata:
-        authors = [a.get("name") for a in data.get("authors") or [] if a.get("name")]
+        authors = [a.get("name") for a in data.get("authors") or [] if isinstance(a, dict) and a.get("name")]
         publishers = data.get("publishers") or []
         subjects = data.get("subjects") or []
         publish_date = None
         if data.get("publish_date"):
             publish_date = str(data["publish_date"])
         elif data.get("publish_dates"):
-            publish_date = str(data["publish_dates"][0])
+            try:
+                publish_date = str(data["publish_dates"][0])
+            except (IndexError, TypeError):
+                publish_date = None
 
         identifiers = data.get("identifiers") or {}
+        if not isinstance(identifiers, dict):
+            identifiers = {}
         ol_id = None
-        if data.get("key"):
+        if data.get("key") and isinstance(data["key"], str):
             ol_id = data["key"].split("/")[-1]
+
+        isbn10_val = isbn10
+        if not isbn10_val:
+            isbn10_list = identifiers.get("isbn_10")
+            if isinstance(isbn10_list, list) and isbn10_list:
+                cand = isbn10_list[0]
+                isbn10_val = cand if isinstance(cand, str) else None
 
         return BookMetadata(
             title=data.get("title") or "Unknown",
             subtitle=data.get("subtitle"),
             isbn13=isbn13,
-            isbn10=isbn10 or (identifiers.get("isbn_10") or [None])[0],
+            isbn10=isbn10_val,
             authors=authors,
             publisher=publishers[0]["name"] if publishers and isinstance(publishers[0], dict) else (publishers[0] if publishers else None),
             publish_date=publish_date,

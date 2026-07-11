@@ -24,9 +24,10 @@ bookshelf health
 |------|------|------|
 | book_id | 是 | 通过 find 或用户提供的 ID |
 | price | 是 | 购买价格（元） |
+| original_price | 可选 | 定价/原价（用于折扣/打折统计） |
 | channel | 推荐 | 当当 / 京东 / 孔夫子 / 线下书店 等 |
 | order_no | 可选 | 订单号 |
-| purchase_date | 可选 | 默认今天 |
+| purchase_date | 可选 | 默认今天，格式 YYYY-MM-DD |
 
 ## 执行步骤
 
@@ -40,6 +41,7 @@ bookshelf find --keyword "活着"
 
 ```bash
 bookshelf purchase --book-id 12 --price 38 --channel 当当
+bookshelf purchase --book-id 12 --price 38 --original-price 45 --channel 当当   # 记录原价 45 元
 bookshelf purchase --book-id 12 --price 45 --channel 京东 --order-no JD20260101001
 bookshelf purchase --book-id 12 --price 30 --date 2026-01-15 --notes 二手九成新
 ```
@@ -69,6 +71,7 @@ bookshelf purchase --book-id 12 --price 30 --date 2026-01-15 --notes 二手九�
     "id": 5,
     "book_id": 12,
     "price": 38.0,
+    "original_price": 45.0,
     "channel": "当当",
     "message": "已为《活着》记录购买：¥38.0（当当）"
   }

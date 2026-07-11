@@ -105,7 +105,11 @@ bookshelf doctor
    ```
    或调用 `GET /api/v1/members`
 
-2. 默认可能有「默认用户」（ID=1）。若需区分家庭成员，可先使用默认成员完成绑定，后续再扩展。
+2. 默认可能有「默认用户」（ID=1）。如需区分多位家庭成员，先创建新成员：
+   ```bash
+   bookshelf member --name "你" --role owner     # role 可选 owner / member / guest
+   ```
+   > 空库首次直接 `bookshelf bind --member-id 1 ...` 会自动创建默认 owner，无需先手动建成员。
 
 3. 绑定飞书用户（示例）：
    ```bash
@@ -116,6 +120,7 @@ bookshelf doctor
 
 4. 绑定后 `bookshelf doctor` 应显示 `members_bound >= 1`
 
+> 绑定后所有业务写端点（progress/notes/reading-logs/purchases/intake）会校验 `X-Channel`/`X-External-User-Id`，未绑定的渠道身份返回 403。
 > 一期不做飞书 Webhook 自动配置；Agent 侧收到消息后映射成员 ID 即可。
 
 ---
@@ -145,12 +150,14 @@ bookshelf stats           # 空库也应正常
 | 用户想在聊天里发 Key | 拒绝并说明安全风险，引导编辑 .env |
 | 绑定 ID 不知道 | 说明从飞书事件/开放平台获取 open_id，或二期 Web 配置 |
 | doctor ready 但入库失败 | 转 book-intake 排查；必要时查服务端日志 |
+| 业务端点返回 403 | 渠道身份未绑定/与 member_id 不一致，提示先 `bind` 或核对成员 |
 
 ## 相关命令速查
 
 ```bash
 bookshelf doctor
 bookshelf health
+bookshelf member --name "你" --role owner
 bookshelf bind --member-id 1 --channel feishu --external-user-id ou_xxx
 bookshelf stats
 export BOOKSHELF_API_URL=http://<host>:8000

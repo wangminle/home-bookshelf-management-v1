@@ -6,7 +6,7 @@ from app.schemas.book import ApiResponse
 from app.schemas.custom_field import CustomFieldCreate, CustomFieldOut
 from app.services.custom_fields import upsert_custom_field
 from app.utils.db_errors import ConflictError
-from app.utils.operation_log import log_operation
+from app.utils.operation_log import log_and_commit
 
 router = APIRouter(prefix="/custom-fields", tags=["custom-fields"])
 
@@ -20,8 +20,16 @@ def upsert_field(payload: CustomFieldCreate, db: Session = Depends(get_db)) -> A
     except ConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    log_operation(db, action="custom_field.upsert", payload={"field_id": result.field.id})
-    db.commit()
+    log_and_commit(
+        db,
+        action="custom_field.upsert",
+        payload={
+            "field_id": result.field.id,
+            "entity_type": payload.entity_type,
+            "entity_id": payload.entity_id,
+            "field_key": payload.field_key,
+        },
+    )
     data = CustomFieldOut.model_validate(result.field).model_dump()
     data["message"] = result.message
     return ApiResponse(data=data)

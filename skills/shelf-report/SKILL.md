@@ -24,6 +24,8 @@ bookshelf health
 bookshelf stats
 ```
 
+> **一期范围说明**：一期 `stats` 为基础版，**不接受任何参数**。设计方案中提到的按年（`--year`）、按分类细分（`--by`）、按渠道花费细分（`--spending`）等命令为二期示意，一期未实现。当前返回的是全库聚合的 `total_spent`（仅 CNY）与 `by_category` 全量分类。
+
 返回字段包括：
 
 - `total_books`：藏书总数

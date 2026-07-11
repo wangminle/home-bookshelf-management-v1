@@ -1,16 +1,25 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+CopyType = Literal["physical", "digital"]
+CopyStatus = Literal["in_shelf", "lent_out", "lost", "damaged", "storage", "discarded"]
+AcquireType = Literal["purchased", "gift", "borrowed", "found", "inherited", "other"]
+
+COPY_TYPES = frozenset(("physical", "digital"))
+COPY_STATUSES = frozenset(("in_shelf", "lent_out", "lost", "damaged", "storage", "discarded"))
+ACQUIRE_TYPES = frozenset(("purchased", "gift", "borrowed", "found", "inherited", "other"))
+
 
 class CopyCreate(BaseModel):
-    copy_type: str = Field(default="physical", description="physical | digital")
+    copy_type: CopyType = Field(default="physical", description="physical | digital")
     format: str | None = None
     location: str | None = None
     file_path: str | None = None
     owner_member_id: int | None = None
-    acquire_type: str | None = None
-    status: str = Field(default="in_shelf")
+    acquire_type: AcquireType | None = None
+    status: CopyStatus = Field(default="in_shelf")
     condition: str | None = None
 
 

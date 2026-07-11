@@ -78,7 +78,25 @@ class BookshelfClient:
     def members(self) -> dict[str, Any]:
         return self._request("GET", "/members")
 
+    def add_member(self, *, name: str, role: str = "member", avatar_path: str | None = None) -> dict[str, Any]:
+        body = {k: v for k, v in {
+            "name": name,
+            "role": role,
+            "avatar_path": avatar_path,
+        }.items() if v is not None}
+        return self._request("POST", "/members", json=body)
+
     def bind_member(self, *, member_id: int, channel: str, external_user_id: str) -> dict[str, Any]:
+        headers: dict[str, str] = {}
+        setup_token = os.environ.get("BOOKSHELF_SETUP_TOKEN") or os.environ.get("SETUP_TOKEN")
+        if setup_token:
+            headers["X-Setup-Token"] = setup_token
+        x_channel = os.environ.get("BOOKSHELF_CHANNEL")
+        x_external = os.environ.get("BOOKSHELF_EXTERNAL_USER_ID")
+        if x_channel:
+            headers["X-Channel"] = x_channel
+        if x_external:
+            headers["X-External-User-Id"] = x_external
         return self._request(
             "POST",
             "/members/bind",
@@ -87,6 +105,7 @@ class BookshelfClient:
                 "channel": channel,
                 "external_user_id": external_user_id,
             },
+            headers=headers or None,
         )
 
     def find(self, keyword: str | None = None, author: str | None = None, isbn: str | None = None) -> dict[str, Any]:

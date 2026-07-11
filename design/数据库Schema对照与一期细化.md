@@ -1,9 +1,9 @@
 # 数据库 Schema 对照与一期细化
 
 > 对照来源：mybibliotheca（v1 SQLite + v2 KuzuDB）、jelu（SQLite + Exposed ORM）
-> 日期：2026-06-26
-> 目的：逐字段对照参考项目，细化家庭图书管理系统一期表设计
-
+> 日期：2026-07-11（与主设计方案 v1.3 / 代码对齐修订）
+> 目的：逐字段对照参考项目，细化家庭图书管理系统一期表设计；并与当前实现保持一致
+> 说明：本文件属于 **design/**（开发与需求）。用户向说明见 [`docs/get-started.md`](../docs/get-started.md)。
 ---
 
 ## 1. 参考项目 Schema 摘要
@@ -90,7 +90,7 @@ User ──< UserBook >── Book ──< ReadingEvent
 |---|---|---|
 | id | INTEGER PK | |
 | name | TEXT NOT NULL | jelu.login / myb. username |
-| role | TEXT | admin/member |
+| role | TEXT | `owner` / `member` / `guest`（与代码 Literal 一致；一期记录角色，不强制 RBAC） |
 | channel_bindings | TEXT(JSON) | **我们独有**：飞书/微信/Telegram 映射 |
 | avatar_path | TEXT | |
 | reading_streak_offset | INTEGER DEFAULT 0 | 借鉴 myb. 阅读 streak |
@@ -135,19 +135,18 @@ User ──< UserBook >── Book ──< ReadingEvent
 |---|---|---|---|
 | id | INTEGER PK | | |
 | book_id | INTEGER FK | | |
-| copy_type | TEXT | myb media_type | physical/ebook/audiobook |
+| copy_type | TEXT | myb media_type | 一期：`physical` / `digital`（audiobook 等 🔶 二期） |
 | format | TEXT | | 平装/EPUB/PDF… |
 | location | TEXT | myb STORED_AT | 客厅书架A-3层 |
 | file_path | TEXT | | 二期电子书 |
 | owner_member_id | INTEGER FK | jelu user | 可空=家庭共有 |
-| acquire_type | TEXT | | purchased/gift/borrowed |
-| status | TEXT | jelu is_borrowed | in_shelf/lent_out/lost/reading |
+| acquire_type | TEXT | | purchased/gift/borrowed/found/inherited/other |
+| status | TEXT | jelu is_borrowed | 一期：`in_shelf` / `lent_out` / `lost` / `damaged` / `storage` / `discarded` |
 | condition | TEXT | | 品相 |
 | extra | TEXT(JSON) | | 借给谁、归还日期 |
 | created_at / updated_at | TEXT | | |
 
-> 一期入库默认创建一条 `physical` 副本；jelu 的 is_owned 映射为「有副本即拥有」。
-
+> **副本创建策略（与代码一致，BUG-029）**：`POST /books/intake` **默认不创建副本**；仅当请求携带 `location` 时才创建一条 `physical` 副本，避免单书多副本膨胀。jelu 的 is_owned 仍可映射为「有副本即拥有」。手动 `POST /books/{id}/copies` 可随时补登记。
 ### 3.4 `reading_progress`（≈ jelu.user_book 快照 / myb HAS_PERSONAL_METADATA）
 
 | 字段 | 类型 | 对照 | 变更说明 |
@@ -224,12 +223,12 @@ User ──< UserBook >── Book ──< ReadingEvent
 
 ### 3.9 `attachments` + `custom_fields`（≈ myb v2 HAS_CUSTOM_FIELD + 我们原设计）
 
-保持不变，作为扩展机制。
+- **attachments**：一期 `entity_type ∈ {book, copy, member, note}`，`attach_type ∈ {link, file, markdown}`；实体存在性校验已实现。
+- **custom_fields**：一期同样限定上述实体类型；`(entity_type, entity_id, field_key)` **唯一约束**（迁移 `d4f1a2b3c5e7`，升级前对历史重复去重）。
 
 ### 3.10 `operation_logs`
 
-保持不变，便于 IM/Agent 链路调试。
-
+关键写操作经 `log_and_commit` 记录；日志失败不回滚已成功业务。
 ---
 
 ## 4. 一期不做的表（二期预留）

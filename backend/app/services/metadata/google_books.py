@@ -70,6 +70,8 @@ class GoogleBooksProvider(MetadataProvider):
         found_isbn13 = preferred_isbn
         found_isbn10 = isbn10
         for ident in identifiers:
+            if not isinstance(ident, dict):
+                continue
             kind = ident.get("type")
             value = ident.get("identifier")
             if not value:

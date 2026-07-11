@@ -51,6 +51,8 @@ bookshelf add --image /path/to/cover.jpg
 bookshelf add --isbn 9787506365437
 ```
 
+> 后端会校验 ISBN-10/13 校验位：手工传入错误校验位返回 400/422；条码识别结果无效则回退到书名匹配。
+
 ### 3. 只有书名/作者时
 
 ```bash
@@ -69,6 +71,8 @@ bookshelf add --isbn 9787506365437 --price 38 --channel 当当
 
 - `978-7` 中文书：国图 NLC → Google Books → Open Library → 搜索兜底
 - 其他：Google Books → Open Library → 搜索兜底
+
+> 任意 provider 异常会被隔离，不影响后续回退链；元数据返回的 ISBN 仍走相同的校验位规则。
 
 ## 回复规范
 
@@ -91,7 +95,8 @@ bookshelf add --isbn 9787506365437 --price 38 --channel 当当
 | 情况 | 处理 |
 |------|------|
 | `recognize` 未找到条码 | 请用户补 ISBN，或描述封面文字后 `--title --author` 入库 |
-| API 400 | 转述错误，提示补 ISBN/书名/更清晰照片 |
+| API 400 / 422 | 转述错误，提示补 ISBN/书名/更清晰照片；ISBN 校验位错误请用户核对 ISBN |
+| API 403 | 渠道身份未绑定/与 member_id 不一致，提示先 `bind` 或核对成员 |
 | API 503 | 后端或识别服务不可用，稍后重试 |
 | 重复入库 | 告知已存在，询问是否记购买/加副本 |
 

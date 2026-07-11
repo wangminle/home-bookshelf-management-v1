@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
+
 from app.config import settings
 from app.services.metadata.base import BookMetadata, MetadataProvider
 from app.services.metadata.google_books import GoogleBooksProvider
 from app.services.metadata.nlc import NLCProvider
 from app.services.metadata.openlibrary import OpenLibraryProvider
 from app.utils.book_helpers import isbn10_to_isbn13, normalize_isbn
+
+logger = logging.getLogger(__name__)
 
 
 def is_chinese_isbn(isbn: str | None) -> bool:
@@ -41,6 +45,15 @@ def get_search_fallback_provider_names(*, chinese: bool) -> list[str]:
     return ["google_books", "openlibrary"]
 
 
+def _safe_call(provider: MetadataProvider, method_name: str, *args, **kwargs) -> BookMetadata | None:
+    try:
+        method = getattr(provider, method_name)
+        return method(*args, **kwargs)
+    except Exception as exc:
+        logger.warning("元数据 provider %s.%s 异常: %s", provider.name, method_name, exc, exc_info=False)
+        return None
+
+
 def fetch_metadata(
     isbn: str | None = None,
     title: str | None = None,
@@ -52,18 +65,18 @@ def fetch_metadata(
 
     if normalized_isbn:
         for name in get_primary_provider_names(chinese=chinese):
-            result = providers[name].fetch_by_isbn(normalized_isbn)
+            result = _safe_call(providers[name], "fetch_by_isbn", normalized_isbn)
             if result:
                 return result
 
         for name in get_auxiliary_provider_names():
-            result = providers[name].fetch_by_isbn(normalized_isbn)
+            result = _safe_call(providers[name], "fetch_by_isbn", normalized_isbn)
             if result:
                 return result
 
     if title and title.strip():
         for name in get_search_fallback_provider_names(chinese=chinese or _looks_chinese(title)):
-            result = providers[name].search(title.strip(), author)
+            result = _safe_call(providers[name], "search", title.strip(), author)
             if result:
                 return result
 

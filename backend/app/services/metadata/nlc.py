@@ -189,7 +189,9 @@ class NLCProvider(MetadataProvider):
 
     def _abs_url(self, href: str) -> str:
         if href.startswith("http"):
+            if href.startswith("http://opac.nlc.cn"):
+                return "https://opac.nlc.cn" + href[len("http://opac.nlc.cn"):]
             return href
         if href.startswith("/"):
-            return f"http://opac.nlc.cn{href}"
+            return f"https://opac.nlc.cn{href}"
         return f"{BASE_URL.rstrip('/')}/{href.lstrip('/')}"

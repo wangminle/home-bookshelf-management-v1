@@ -5,7 +5,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class AttachmentCreate(BaseModel):
-    entity_type: Literal["book", "member", "note"] = Field(description="book | member | note")
+    entity_type: Literal["book", "member", "note", "copy"] = Field(
+        description="book | member | note | copy"
+    )
     entity_id: int
     attach_type: Literal["link", "file", "markdown"] = Field(description="link | file | markdown")
     title: str | None = None

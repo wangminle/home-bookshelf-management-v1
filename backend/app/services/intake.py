@@ -15,6 +15,7 @@ from app.utils.book_helpers import (
     author_in_json_list,
     canonical_isbn13,
     deserialize_json_list,
+    is_valid_isbn,
     isbn_lookup_keys,
     normalize_isbn,
     normalize_title,
@@ -59,25 +60,33 @@ def intake_book(db: Session, payload: IntakeInput) -> IntakeResult:
     _validate_intake(payload)
 
     isbn_detected: str | None = normalize_isbn(payload.isbn)
+    # 手工传入的 ISBN 必须校验位正确（条码识别失败时回退到 None，不在此拒绝）
+    if payload.isbn and isbn_detected and not is_valid_isbn(isbn_detected):
+        raise ValueError("ISBN 校验位不正确")
+
     has_image = bool(payload.image_path and payload.image_path.exists())
 
     # 仅做条码识别（查重/元数据需要 ISBN），封面落盘推迟到确认新建/回填时，避免重复入库产生孤儿文件
     if has_image and not isbn_detected:
         isbn_detected = recognize_isbn_from_image(payload.image_path)
 
+    # 条码识别结果同样要校验位，无效则忽略，回退到书名匹配
+    if isbn_detected and not is_valid_isbn(isbn_detected):
+        isbn_detected = None
+
     authors = payload.authors or ([payload.author] if payload.author else None)
     metadata = fetch_metadata(isbn=isbn_detected, title=payload.title, author=payload.author)
 
     if metadata:
-        title = metadata.title
-        subtitle = metadata.subtitle
+        title = (metadata.title or payload.title or "未知书名").strip()[:500]
+        subtitle = (metadata.subtitle[:500] if metadata.subtitle else None)
         isbn13, isbn10 = _resolve_isbn_fields(metadata.isbn13, metadata.isbn10, isbn_detected)
         authors = metadata.authors or authors
-        publisher = metadata.publisher
-        publish_date = metadata.publish_date
-        page_count = metadata.page_count
-        language = metadata.language
-        category = metadata.category
+        publisher = (metadata.publisher[:200] if metadata.publisher else None)
+        publish_date = (metadata.publish_date[:20] if metadata.publish_date else None)
+        page_count = metadata.page_count if metadata.page_count is not None and metadata.page_count >= 0 else None
+        language = (metadata.language[:10] if metadata.language else None)
+        category = (metadata.category[:200] if metadata.category else None)
         summary = metadata.summary
         source = metadata.source
         openlibrary_id = metadata.openlibrary_id
@@ -87,7 +96,7 @@ def intake_book(db: Session, payload: IntakeInput) -> IntakeResult:
     else:
         if not payload.title and not isbn_detected:
             raise ValueError("无法识别书籍信息，请提供 ISBN、书名或清晰的书封条码照片")
-        title = payload.title or f"ISBN {isbn_detected}"
+        title = (payload.title or f"ISBN {isbn_detected}").strip()[:500]
         subtitle = None
         isbn13, isbn10 = _resolve_isbn_fields(None, None, isbn_detected)
         publisher = publish_date = page_count = language = category = summary = None
@@ -200,11 +209,12 @@ def _resolve_isbn_fields(
     detected: str | None,
 ) -> tuple[str | None, str | None]:
     isbn13 = canonical_isbn13(meta_isbn13) or canonical_isbn13(meta_isbn10) or canonical_isbn13(detected)
-    isbn10 = normalize_isbn(meta_isbn10)
-    if not isbn10:
-        normalized = normalize_isbn(detected)
-        if normalized and len(normalized) == 10:
+    isbn10 = None
+    for candidate in (meta_isbn10, detected):
+        normalized = normalize_isbn(candidate)
+        if normalized and len(normalized) == 10 and is_valid_isbn(normalized):
             isbn10 = normalized
+            break
     return isbn13, isbn10
 
 

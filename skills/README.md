@@ -24,6 +24,7 @@ Agent 能力层：每个 Skill 描述**何时触发、如何调用 CLI、如何�
 3. **默认 JSON**：所有 CLI 命令保持 `--json`，便于解析 `data.message`
 4. **用户确认**：入库、消歧、识别存疑时先确认再执行
 5. **单一职责**：入库用 book-intake，查询用 book-query，不要混用命令
+6. **渠道鉴权**：业务写端点（progress/notes/reading-logs/purchases/intake）由后端读取 `X-Channel`/`X-External-User-Id` 鉴权——无渠道头回退默认成员、未绑定 403、与 body `member_id` 不一致 403；CLI 本身不带渠道头，由 Agent/适配层注入
 
 ## 本地模拟对话
 
@@ -51,7 +52,8 @@ export BOOKSHELF_API_URL=http://127.0.0.1:8000   # 家庭服务器地址
 ```bash
 bookshelf doctor          # 首次初始化诊断（推荐）
 bookshelf health
-bookshelf bind --member-id 1 --channel feishu --external-user-id ou_xxx
+bookshelf member --name "你" --role owner          # 新建家庭成员（需要多成员时）
+bookshelf bind --member-id 1 --channel feishu --external-user-id ou_xxx   # 空库首次 member_id=1 会自动创建默认 owner
 bookshelf add --isbn ... [--price ... --channel ...]
 bookshelf add --image ...
 bookshelf add --title ... --author ...
@@ -59,7 +61,7 @@ bookshelf find --keyword ... [--author ...]
 bookshelf show --id ...
 bookshelf progress --book-id ... [--page ... --status ... --rating ...]
 bookshelf reading-log --book-id ... --date YYYY-MM-DD [--pages ... --minutes ...]
-bookshelf purchase --book-id ... --price ... [--channel ...]
+bookshelf purchase --book-id ... --price ... [--original-price ... --channel ...]
 bookshelf note --book-id ... --content "..."
 bookshelf stats
 bookshelf recognize --image ...

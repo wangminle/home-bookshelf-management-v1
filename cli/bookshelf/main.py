@@ -201,5 +201,17 @@ def bind_member(
     emit(result, json_output)
 
 
+@app.command("member")
+def add_member(
+    name: str = typer.Option(..., "--name", help="成员名称"),
+    role: str = typer.Option("member", "--role", help="角色：owner / member / guest"),
+    avatar: Optional[str] = typer.Option(None, "--avatar", help="头像路径（可选）"),
+    json_output: bool = typer.Option(True, "--json/--no-json", help="JSON 输出"),
+):
+    """新建家庭成员"""
+    result = client.add_member(name=name, role=role, avatar_path=avatar)
+    emit(result, json_output)
+
+
 if __name__ == "__main__":
     app()

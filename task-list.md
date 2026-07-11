@@ -45,6 +45,21 @@
 | BUG-032 | 修复 | async 端点（intake/recognize/attachments）内同步调用 urllib/元数据链，阻塞事件循环拖垮并发 | 2026-06-28 01:20 | 2026-06-28 13:45 | 已修复 | intake/recognize/attachments 端点均用 run_in_threadpool 包装同步调用 |
 | BUG-033 | 修复 | intake 在 _find_existing 之前就 save_uploaded_image 落盘封面；命中已有书走 _handle_existing_book 时 image_saved_path 被丢弃，封面文件成孤儿堆积，且已有书缺封面也不会补 | 2026-06-29 10:56 | 2026-06-29 12:09 | 已修复 | services/intake.py:62 先存图→:99 查重→:101 existing 分支未用 image_saved_path（grep 确认仅:103 新建路径用）。修法：查重后再存图，或 existing 分支在缺封面时回填 existing.cover_path |
 | BUG-034 | 修复 | 用户可见日期仍用 utc_today_iso：reading.py:65 finish_date、intake.py:303 purchase_date、purchase.py:45 purchase_date，东八区 0-8 点记录成前一天（与已修 BUG-019 同类） | 2026-06-29 10:56 | 2026-06-29 12:09 | 已修复 | time_helpers 已有 local_today_iso（stats streak 已用）；将这 3 处统一改 local_today_iso。用户显式传 --date 不受影响 |
+| BUG-035 | 修复 | 全新空库没有成员创建/初始化入口，doctor 提示绑定 member_id=1 但 POST /members/bind 必然返回 400 | 2026-07-11 19:35 | 2026-07-11 20:30 | 已修复 | 新增 POST /members 创建成员端点 + MemberCreate schema + CLI `member` 命令 + client.add_member；bind_member_channel 在空库 member_id=1 时自动创建默认 owner；doctor 提示补充 member 命令。TestClient 冒烟：空库 bind member_id=1 返回 200 |
+| BUG-036 | 修复 | 书籍详情序列化购买记录时遗漏 original_price，新增购买接口返回 80，随后 GET /books/{id} 变成 null | 2026-07-11 19:35 | 2026-07-11 20:30 | 已修复 | utils/serializers.py purchase_to_out 补 original_price=purchase.original_price；TestClient GET /books/{id} purchase_records 含 original_price=20.0 |
+| BUG-037 | 修复 | 附件只校验 book 实体，member/note 不校验存在性；file 类型无上传文件也能创建空附件 | 2026-07-11 19:35 | 2026-07-11 20:30 | 已修复 | services/attachments.py _validate_entity 扩展 member/note/copy 存在性校验；attach_type="file" 无 upload_path 时 raise ValueError。TestClient：未知 member/file 无上传 均 400/422 |
+| BUG-038 | 修复 | 同一实体、同一标题的附件落盘文件名固定，后上传文件会静默覆盖先前附件内容 | 2026-07-11 19:35 | 2026-07-11 20:30 | 已修复 | services/attachments.py 文件名追加 uuid.uuid4().hex[:8] 唯一后缀；实测两同标题上传生成不同文件名，内容互不覆盖 |
+| BUG-039 | 修复 | 自定义字段允许任意 entity_type、负 entity_id，且数据库缺少(entity_type,entity_id,field_key)唯一约束，并发 upsert 可产生重复记录 | 2026-07-11 19:35 | 2026-07-11 20:25 | 已修复 | 迁移 d4f1a2b3c5e7 升级前 DELETE 保留 MAX(id) 去重后再建 uq_custom_fields_entity_key；pytest 预置两条重复记录后 upgrade head 成功且仅留较新一行 |
+| BUG-040 | 修复 | 核心输入校验不足：空白书名、负页数、非法购买日期、任意副本类型/状态等可写入数据库 | 2026-07-11 19:35 | 2026-07-11 20:25 | 已修复 | BookCreate/Update 对齐 ORM：title/subtitle≤500、language≤10、publisher≤200 等；PurchaseCreate.currency≤10；intake 元数据字段落库前截断。pytest：501 标题/11 字符 language·currency 均 ValidationError |
+| BUG-041 | 修复 | ISBN 只清洗长度、不验证 ISBN-10/13 校验位，错误 ISBN 会被规范化、查元数据并持久化 | 2026-07-11 19:35 | 2026-07-11 20:25 | 已修复 | canonical_isbn13 先 is_valid_isbn；intake._resolve_isbn_fields 与 recognition 条码结果均丢弃错误校验位；脏元数据 ISBN 不再入库。pytest 覆盖 intake+recognize |
+| BUG-042 | 修复 | 外部元数据响应结构异常时解析器可抛 AttributeError，chain 未隔离 provider 异常，导致后续数据源不再回退并使入库失败 | 2026-07-11 19:35 | 2026-07-11 20:30 | 已修复 | services/metadata/chain.py 新增 _safe_call 逐 provider 异常隔离+logger.warning；openlibrary.py _parse_data 对 authors/publishers/subjects/identifiers 加 isinstance 守卫；google_books.py identifiers 循环加 isinstance(dict) 守卫。单元测试：BoomProvider 异常被隔离返回 None 继续回退 |
+| BUG-043 | 修复 | NLC 搜索结果相对链接被拼成 http://opac.nlc.cn，回退到明文 HTTP，与已完成的 HTTPS 加固目标不一致 | 2026-07-11 19:35 | 2026-07-11 20:30 | 已修复 | services/metadata/nlc.py _abs_url 相对链接改 https://opac.nlc.cn；绝对 http://opac.nlc.cn 链接也升级为 https |
+| BUG-044 | 修复 | channel_bindings 仅可写入和展示，所有业务 API 均不校验外部渠道身份且可任意指定 member_id，“渠道白名单鉴权”需求实际未生效 | 2026-07-11 19:35 | 2026-07-11 20:25 | 已修复 | 半组渠道头→400；非空库匿名 /members/bind→403（空库引导仍可用；可用 X-Setup-Token 或已绑定 owner 代绑）；CLI 透传 BOOKSHELF_SETUP_TOKEN/渠道头。pytest：匿名自绑+半组头均被拒，空库 bind 仍 200 |
+| BUG-045 | 修复 | operation_logs 未覆盖 intake、progress、purchase、member bind 等关键写操作，且现有日志在业务提交后另行提交，日志失败会返回 500 但业务已生效 | 2026-07-11 19:35 | 2026-07-11 20:30 | 已修复 | utils/operation_log.py 新增 log_and_commit：日志失败 logger.warning+rollback 不破坏已成功业务结果；books/copies/attachments/notes/reading-logs/progress/purchases/members-bind/members-create/custom-fields/intake 全部接入 log_and_commit 覆盖关键写操作。TestClient：operation_logs 含 book.create/member.create/member.bind/progress.update/purchase.create |
+| BUG-046 | 修复 | 当前工作区 deploy/backup.sh 丢失可执行位，Linux 上直接运行备份脚本会 Permission denied | 2026-07-11 19:35 | 2026-07-11 20:30 | 已修复 | git update-index --chmod=+x deploy/backup.sh + backend/install.sh（顺手补）；git ls-files -s 确认三者均 100755 |
+| BUG-047 | 修复 | 提交 65596f7 的新增成员流程使空库先创建成员后无法匿名绑定渠道 | 2026-07-11 20:44 | 2026-07-11 20:50 | 已修复 | authorize_member_bind：系统尚无任何渠道绑定时允许首次初始化 bind（兼容 README 先 member 后 bind）；白名单建立后匿名仍 403。pytest：create→bind=200 |
+| BUG-048 | 修复 | 渠道绑定缺少全局唯一性，重复外部身份会被解析为不确定成员 | 2026-07-11 20:44 | 2026-07-11 20:50 | 已修复 | bind_member_channel 拒绝同一 (channel,external_user_id) 绑到其他成员→409；resolve 对历史脏数据按 member.id 升序取确定性首个。pytest：重复绑定 409 |
+| BUG-049 | 修复 | 附件服务新增 copy 实体支持但请求 schema 仍拒绝 copy | 2026-07-11 20:44 | 2026-07-11 20:50 | 已修复 | AttachmentCreate.entity_type Literal 增加 copy，与 attachments 服务 ALLOWED_ENTITY_TYPES 对齐。pytest：copy markdown 附件 201 |
 
 ## 调整事项
 
@@ -52,6 +67,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | ADJ-001 | 调整 | M5 飞书 Channel Adapter 不单独开发，改由 OpenClaw/Hermes 加载 Skills | 2026-06-26 19:00 | 2026-06-26 19:00 | 已完成 | 对应 DEV-008 已关闭 |
 | ADJ-002 | 调整 | CLI 版本号 0.1.0 → 0.1.1（cli/pyproject.toml，全仓唯一版本定义点；后端无版本字段） | 2026-06-29 14:13 | 2026-06-29 14:13 | 已完成 | 全仓仅 cli/pyproject.toml:3 一处项目版本；requirements.txt 的 pyzbar>=0.1.9 为依赖版本无关；后端无 __version__，本次未加 |
+| ADJ-003 | 调整 | CLI 版本号 0.1.1 → 0.1.8（cli/pyproject.toml 唯一版本点；后端无版本字段） | 2026-07-11 20:40 | 2026-07-11 20:40 | 已完成 | cli/pyproject.toml:3 0.1.1→0.1.8；home-bookshelf/1.0 等为元数据 User-Agent 与项目版本无关，不动；后端无 __version__ 未加 |
 
 ## 检查事项
 
@@ -66,11 +82,18 @@
 | CHK-007 | 检查 | 验证 backend/.venv 可用性 | 2026-06-28 13:30 | 2026-06-28 13:30 | 已完成 | pyvenv.cfg 显示为 macOS 创建（home=/Library/Frameworks/Python.framework，用户 fenix-macmini），布局 bin/+lib/ 无 Windows Scripts/，本机不可用；依赖版本清单完整（fastapi0.138.1/sqlalchemy2.0.51/alembic1.18.5 等），需用 install.bat 重建 |
 | CHK-008 | 检查 | 第五轮 bug 复查：复核 BUG-015~019 修复+扫最近改动文件(attachments/intake/purchase/recognize/storage/reading) | 2026-06-29 10:56 | 2026-06-29 10:56 | 已完成 | BUG-015~019 全部确认已修复（BUG-018 经 ReadingStatus 扩 5 态解决）；app.main 导入通过；发现新 BUG-033(重入库封面孤儿文件)/BUG-034(3 处用户可见日期仍用 UTC) |
 | CHK-009 | 检查 | 修复 BUG-033/034 并补双语 README | 2026-06-29 12:09 | 2026-06-29 12:09 | 已完成 | BUG-033:intake 改为查重后存图+已有书缺封面时回填(临时DB冒烟验证:新建存1次/重入库有封面0次无孤儿/缺封面回填1次落库);BUG-034:reading.finish_date+intake/purchase.purchase_date 3 处 utc→local_today_iso(冒烟验证=local_today);README 补中英双语+切换标签 |
+| CHK-010 | 检查 | 第六轮全项目逻辑/需求审查：模型、迁移、API、服务、CLI、Skills、部署与文档 | 2026-07-11 19:35 | 2026-07-11 19:35 | 已完成 | compileall、空库 alembic upgrade/check、pip check 通过；临时库 API 边界冒烟完成；发现 BUG-035~046、TST-001、DOC-014；未修改业务代码 |
+| CHK-011 | 检查 | 复验 BUG-035~046 修复及 TST-001/DOC-014 完成情况 | 2026-07-11 20:10 | 2026-07-11 20:10 | 已完成 | BUG-035/036/037/038/042/043/045/046 通过；BUG-039/040/041/044 边界复验未通过并恢复待修复；TST-001、DOC-014 仍待开发。compileall/pip check/空库迁移+alembic check/task-list check 通过；旧重复数据迁移、鉴权绕过、元数据脏 ISBN 均稳定复现 |
+| CHK-012 | 检查 | 复验 BUG-039/040/041/044 二次修复 | 2026-07-11 20:25 | 2026-07-11 20:25 | 已完成 | pytest 10 项全过：迁移去重、schema 长度、ISBN 全入口、半组头 400、匿名自绑 403、空库 bind 200；compileall/pip check/空库 alembic upgrade+check 通过 |
+| CHK-013 | 检查 | 审查提交 65596f75a4a05dd4b9f3d684dee489b09a2d17f0 | 2026-07-11 20:44 | 2026-07-11 20:44 | 已完成 | 发现 BUG-047~049；pytest 本机执行 4 项通过、6 项因沙箱 Temp 目录 PermissionError 未运行 |
+| CHK-014 | 检查 | 修复并复验 BUG-047/048/049 | 2026-07-11 20:50 | 2026-07-11 20:50 | 已完成 | 三项均确认存在并已修复；backend/tests 13 passed（含初始化 bind、重复身份 409、copy 附件） |
+| CHK-015 | 检查 | 审计 design/ 目录文档完成度与一期实现对照 | 2026-07-11 20:52 | 2026-07-11 20:52 | 已完成 | design 主方案 v1.2 约 90% 写完、一期实现约 85-90%；docs/ 镜像滞后；缺口 CHK-001/TST-001/DOC-014；二期 PLN 未做属预期 |
 
 ## 测试数据
 
 | ID | 动作 | 事项 | 发现时间 | 完成时间 | 状态 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
+| TST-001 | 检查 | 补齐后端/CLI 自动化回归测试，覆盖空库初始化、入库去重、购买详情、附件/自定义字段完整性、日期/ISBN 边界和鉴权 | 2026-07-11 19:35 | - | 待开发 | 已落地 backend/tests/ 覆盖 BUG-039/040/041/044 回归（pytest 10 项）；仍缺空库初始化/入库去重/购买详情/附件等更广覆盖，pytest 未写入 requirements |
 
 ## 文档维护
 
@@ -89,6 +112,9 @@
 | DOC-011 | 文档 | 内部业务流转 SVG 流程图（IM→Agent→Skills→CLI→API→DB） | 2026-06-26 18:13 | 2026-06-26 18:25 | 已完成 | docs/业务流转流程图.svg；修复编码损坏与 XML 非法字符 |
 | DOC-012 | 文档 | README「启动后端」章节补充 Windows CMD 启动命令 + 跨平台一键安装脚本说明 + pyzbar 平台运行时依赖提示 | 2026-06-28 13:30 | 2026-06-28 13:30 | 已完成 | README.md §快速启动；对应 OPR-001 |
 | DOC-013 | 文档 | README 扩为中英双语（中文在前，标题下切换标签），覆盖核心功能/项目结构/CLI/Skills/Agent指南/后端安装 | 2026-06-29 12:09 | 2026-06-29 12:09 | 已完成 | README.md;核对 install.sh/docker-compose/.env.example/zbar 依赖均准确;含安全提示(仅可信局域网) |
+| DOC-014 | 文档 | 设计方案 CLI 示例与实际一期范围不一致：list/attach/field、find --status、stats --by/--spending/--year、--member 姓名均未实现；入库“默认创建副本”也与当前仅 location 时创建不符 | 2026-07-11 19:35 | 2026-07-11 21:00 | 已完成 | design/ 主方案升至 v1.3：§5.1 二期命令已注释、§6.1 仅 location 创建副本、§7.2/§9 去掉独立 channels/、补 POST /members；Schema §3.3/role 对齐代码（用户向说明改写至 docs/，见 DOC-016） |
+| DOC-015 | 文档 | 误将 design 设计稿镜像到 docs/ | 2026-07-11 21:00 | 2026-07-11 21:05 | 已完成 | 已撤销「docs=design 镜像」做法；docs/ 改为用户向说明（DOC-016） |
+| DOC-016 | 文档 | 按 Cursor 风格重建 docs/：快速开始、使用指南、CLI 参考、部署、Agent 接入、FAQ | 2026-07-11 21:05 | 2026-07-11 21:05 | 已完成 | docs/ 与 design/ 职责分离；根 README 作唯一入口索引；docs/ 不设 README，避免与项目 README 定位冲突 |
 
 ## 功能开发
 
@@ -143,14 +169,14 @@
 
 | 分类 | 总数 | 已完成 | 待开发/待修复 | 完成率 |
 | --- | --- | --- | --- | --- |
-| 代码 Bug | 34 | 34 | 0 | 100% |
-| 调整事项 | 2 | 2 | 0 | 100% |
-| 检查事项 | 9 | 8 | 1 | 89% |
-| 测试数据 | 0 | 0 | 0 | 0% |
-| 文档维护 | 13 | 13 | 0 | 100% |
+| 代码 Bug | 49 | 46 | 3 | 94% |
+| 调整事项 | 3 | 3 | 0 | 100% |
+| 检查事项 | 13 | 12 | 1 | 92% |
+| 测试数据 | 1 | 0 | 1 | 0% |
+| 文档维护 | 14 | 13 | 1 | 93% |
 | 功能开发 | 12 | 12 | 0 | 100% |
 | 配置运维 | 1 | 1 | 0 | 100% |
 | 规划事项 | 4 | 0 | 4 | 0% |
 | 优化事项 | 4 | 4 | 0 | 100% |
 | 调研事项 | 3 | 3 | 0 | 100% |
-| **总计** | 82 | 77 | 5 | 94% |
+| **总计** | 104 | 94 | 10 | 90% |

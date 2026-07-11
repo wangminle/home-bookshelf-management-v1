@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.book import BookOut
+from app.utils.book_helpers import is_valid_isbn, normalize_isbn
 
 
 class IntakeRequest(BaseModel):
@@ -11,6 +12,15 @@ class IntakeRequest(BaseModel):
     channel: str | None = None
     location: str | None = None
     member_id: int | None = None
+
+    @field_validator("isbn", mode="before")
+    @classmethod
+    def _validate_isbn(cls, v):
+        if v is None or v == "":
+            return None
+        if not is_valid_isbn(v):
+            raise ValueError("ISBN 校验位不正确")
+        return normalize_isbn(v)
 
     @field_validator("price", mode="before")
     @classmethod

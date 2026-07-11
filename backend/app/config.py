@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     data_dir: Path = Path("./data")
     google_books_api_key: str | None = None
     metadata_user_agent: str = "home-bookshelf/1.0"
+    # 非空库时匿名 bind 的可选管理口令（请求头 X-Setup-Token）
+    setup_token: str | None = None
 
     @property
     def covers_dir(self) -> Path:

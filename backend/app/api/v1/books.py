@@ -17,7 +17,7 @@ from app.utils.book_helpers import (
     serialize_json_list,
 )
 from app.utils.db_errors import ConflictError, rollback_on_integrity
-from app.utils.operation_log import log_operation
+from app.utils.operation_log import log_and_commit
 from app.utils.serializers import book_to_out
 
 router = APIRouter(prefix="/books", tags=["books"])
@@ -119,8 +119,7 @@ def create_book(payload: BookCreate, db: Session = Depends(get_db)) -> ApiRespon
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail=str(rollback_on_integrity(db, exc))) from exc
     db.refresh(book)
-    log_operation(db, action="book.create", payload={"book_id": book.id})
-    db.commit()
+    log_and_commit(db, action="book.create", payload={"book_id": book.id, "isbn13": book.isbn13, "title": book.title})
     return ApiResponse(data=book_to_out(book))
 
 
@@ -142,6 +141,5 @@ def patch_book(book_id: int, payload: BookUpdate, db: Session = Depends(get_db))
     except ConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    log_operation(db, action="book.update", payload={"book_id": book_id})
-    db.commit()
+    log_and_commit(db, action="book.update", payload={"book_id": book_id})
     return ApiResponse(data={**book_to_out(result.book).model_dump(), "message": result.message})

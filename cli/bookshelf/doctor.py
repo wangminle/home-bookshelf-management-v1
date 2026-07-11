@@ -118,7 +118,9 @@ def run_doctor(client: BookshelfClient | None = None) -> DoctorReport:
         report.members_bound = sum(1 for m in items if m.get("channel_bindings"))
         if report.members_bound == 0:
             report.warnings.append("尚无成员绑定 IM 渠道（members.channel_bindings 为空）")
-            report.hints.append("绑定示例：bookshelf bind --member-id 1 --channel feishu --external-user-id ou_xxx")
+            report.hints.append("空库首次绑定：bookshelf bind --member-id 1 --channel feishu --external-user-id ou_xxx")
+            report.hints.append("或先创建成员再绑：bookshelf member --name \"你\" --role owner；然后 bookshelf bind --member-id 1 ...（系统尚无绑定时允许首次初始化）")
+            report.hints.append("白名单建立后新增绑定：使用已绑定 owner 的 BOOKSHELF_CHANNEL/BOOKSHELF_EXTERNAL_USER_ID，或设置 BOOKSHELF_SETUP_TOKEN")
     except RuntimeError as exc:
         msg = str(exc)
         if "404" in msg or "Not Found" in msg:

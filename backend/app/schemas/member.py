@@ -1,7 +1,24 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+MemberRole = Literal["owner", "member", "guest"]
+
+
+class MemberCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    role: MemberRole = Field(default="member")
+    avatar_path: str | None = None
+    reading_streak_offset: int = Field(default=0, ge=0)
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v):
+        if not str(v).strip():
+            raise ValueError("成员名称不能为空")
+        return str(v).strip()
 
 
 class MemberOut(BaseModel):

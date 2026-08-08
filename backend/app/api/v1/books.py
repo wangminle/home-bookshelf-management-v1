@@ -48,13 +48,12 @@ def list_books(
             )
         )
     if author:
-        author_clean = escape_like(author.strip())
-        conditions.append(
-            or_(
-                Book.authors.ilike(f'%"{author_clean}"%', escape="\\"),
-                Book.authors.ilike(f'%"{author_clean.lower()}"%', escape="\\"),
-            )
-        )
+        # authors 以 json.dumps 落库；对检索词做 JSON 字符串转义后再拼 LIKE，避免 " \ 漏配
+        import json as _json
+
+        author_json = _json.dumps(author.strip(), ensure_ascii=False)[1:-1]  # 去掉首尾引号
+        author_pattern = f"%{escape_like(author_json)}%"
+        conditions.append(Book.authors.ilike(author_pattern, escape="\\"))
     if isbn:
         keys = isbn_lookup_keys(normalize_isbn(isbn) or isbn.strip())
         if keys:
@@ -71,6 +70,8 @@ def list_books(
         pattern = like_pattern(category)
         conditions.append(Book.category.ilike(pattern, escape="\\"))
 
+    if member_id is not None and not status:
+        raise HTTPException(status_code=400, detail="member_id 必须配合 status 参数一起使用")
     if status:
         progress_stmt = select(ReadingProgress.book_id).where(ReadingProgress.status == status)
         if member_id is not None:

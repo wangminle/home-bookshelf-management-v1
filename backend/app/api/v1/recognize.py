@@ -8,6 +8,7 @@ from app.schemas.book import ApiResponse
 from app.schemas.intake import CoverRecognizeOut, IsbnRecognizeOut
 from app.services.cover_recognition import recognize_cover
 from app.services.recognition import recognize_isbn_from_image
+from app.utils.uploads import read_upload_limited
 
 router = APIRouter(prefix="/recognize", tags=["recognize"])
 
@@ -20,13 +21,15 @@ async def recognize_isbn(image: UploadFile = File(...)) -> ApiResponse:
     suffix = Path(image.filename).suffix or ".jpg"
     temp_file: Path | None = None
     try:
+        content = await read_upload_limited(image)
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             temp_file = Path(tmp.name)
-            tmp.write(await image.read())
+            tmp.write(content)
 
         isbn13 = await run_in_threadpool(recognize_isbn_from_image, temp_file)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (RuntimeError, OSError, ValueError) as exc:
+        # OSError 覆盖 PIL.UnidentifiedImageError；service 层将 OSError 重写为 ValueError
+        raise HTTPException(status_code=400, detail=f"图片识别失败：{exc}") from exc
     finally:
         if temp_file and temp_file.exists():
             temp_file.unlink(missing_ok=True)
@@ -35,7 +38,10 @@ async def recognize_isbn(image: UploadFile = File(...)) -> ApiResponse:
         return ApiResponse(
             data=IsbnRecognizeOut(isbn13=isbn13, found=True, message=f"识别到 ISBN: {isbn13}").model_dump()
         )
-    return ApiResponse(data=IsbnRecognizeOut(isbn13=None, found=False, message="未识别到 ISBN 条码").model_dump())
+    return ApiResponse(
+        ok=False,
+        data=IsbnRecognizeOut(isbn13=None, found=False, message="未识别到 ISBN 条码").model_dump(),
+    )
 
 
 @router.post("/cover", response_model=ApiResponse)
@@ -50,13 +56,14 @@ async def recognize_cover_endpoint(
     suffix = Path(image.filename).suffix or ".jpg"
     temp_file: Path | None = None
     try:
+        content = await read_upload_limited(image)
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             temp_file = Path(tmp.name)
-            tmp.write(await image.read())
+            tmp.write(content)
 
         result = await run_in_threadpool(recognize_cover, temp_file, title=title, author=author)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (RuntimeError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"封面识别失败：{exc}") from exc
     finally:
         if temp_file and temp_file.exists():
             temp_file.unlink(missing_ok=True)
@@ -71,4 +78,4 @@ async def recognize_cover_endpoint(
         matched_source=result.matched_source,
         message=result.message,
     )
-    return ApiResponse(data=out.model_dump())
+    return ApiResponse(ok=result.found, data=out.model_dump())

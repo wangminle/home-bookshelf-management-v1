@@ -31,7 +31,7 @@ home-bookshelf-management-v1/
 │   │   ├── services/     业务逻辑（intake/metadata/reading/cover_recognition/storage…）
 │   │   ├── models/       SQLAlchemy 2.0 模型
 │   │   ├── schemas/      Pydantic v2 schemas
-│   │   └── alembic/      数据库迁移（SQLite, WAL）
+│   ├── alembic/          数据库迁移（SQLite, WAL）
 │   ├── tests/            pytest 回归
 │   ├── install.sh / install.bat
 │   └── requirements.txt
@@ -126,7 +126,7 @@ home-bookshelf-management-v1/
 │   │   ├── services/     business logic (intake/metadata/reading/cover_recognition/storage…)
 │   │   ├── models/       SQLAlchemy 2.0 models
 │   │   ├── schemas/      Pydantic v2 schemas
-│   │   └── alembic/      migrations (SQLite, WAL)
+│   ├── alembic/          migrations (SQLite, WAL)
 │   ├── tests/            pytest regressions
 │   ├── install.sh / install.bat
 │   └── requirements.txt

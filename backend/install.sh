@@ -10,6 +10,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 PY="${PY:-python3}"
+if ! command -v "$PY" >/dev/null 2>&1; then
+  echo "错误：未找到 Python 解释器（$PY）。请安装 Python ≥3.10。" >&2
+  exit 1
+fi
+PY_VER="$("$PY" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+PY_OK="$("$PY" -c 'import sys; print(1 if sys.version_info >= (3, 10) else 0)')"
+if [[ "$PY_OK" != "1" ]]; then
+  echo "错误：需要 Python ≥3.10，当前为 $PY_VER（$PY）" >&2
+  exit 1
+fi
 echo "==> Interpreter: $($PY --version)"
 
 VENV=".venv"
@@ -32,6 +42,28 @@ echo "==> Upgrading pip"
 echo "==> Installing dependencies (requirements.txt)"
 "$VENV_PY" -m pip install -r requirements.txt
 
+# 可选：安装开发依赖（pytest 等），供运行测试用
+# Usage:  bash install.sh --dev   或   DEV_DEPS=1 bash install.sh
+if [[ "${1:-}" == "--dev" || "${DEV_DEPS:-}" == "1" ]]; then
+  if [[ -f requirements-dev.txt ]]; then
+    echo "==> Installing dev dependencies (requirements-dev.txt)"
+    "$VENV_PY" -m pip install -r requirements-dev.txt
+  fi
+fi
+
+# 与 systemd/bookshelf.env.example 对齐：优先用环境变量中的 DATABASE_URL / DATA_DIR
+if [[ -n "${DATABASE_URL:-}" ]]; then
+  export DATABASE_URL
+elif [[ -n "${DATA_DIR:-}" ]]; then
+  mkdir -p "$DATA_DIR"
+  export DATABASE_URL="sqlite:///${DATA_DIR}/bookshelf.db"
+  export DATA_DIR
+else
+  mkdir -p ./data
+fi
+echo "==> DATABASE_URL=${DATABASE_URL:-sqlite:///./data/bookshelf.db}"
+echo "==> DATA_DIR=${DATA_DIR:-./data}"
+
 echo "==> Running database migrations (alembic upgrade head)"
 "$VENV_PY" -m alembic upgrade head
 
@@ -41,6 +73,9 @@ cat <<EOF
    Activate:  source .venv/bin/activate
    Start:     uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --app-dir .
    Docs:      http://127.0.0.1:8000/docs
+
+NOTE: systemd 部署请先 export DATABASE_URL / DATA_DIR（见 deploy/systemd/bookshelf.env.example），
+      再运行本脚本，确保迁移库与运行库路径一致。
 
 NOTE (barcode recognition): pyzbar needs the zbar shared library at runtime.
    macOS:  brew install zbar

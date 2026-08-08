@@ -120,12 +120,20 @@ class NLCProvider(MetadataProvider):
 
         authors = self._clean_authors(data.get("著者") or "")
         publisher, publish_date = self._parse_publish_info(data.get("出版项") or "", data.get("通用数据") or "")
-        web_isbn = self._parse_isbn_from_html(html) or isbn13
-        if web_isbn and len(web_isbn) == 10:
-            isbn10 = web_isbn
-            web_isbn = isbn10_to_isbn13(web_isbn)
-        elif web_isbn:
-            isbn13 = web_isbn
+        page_isbn = self._parse_isbn_from_html(html)
+        resolved_isbn13 = isbn13
+        resolved_isbn10 = isbn10
+        if page_isbn:
+            if len(page_isbn) == 10:
+                page_isbn13 = isbn10_to_isbn13(page_isbn)
+                if isbn13 and page_isbn13 != isbn13:
+                    return None
+                resolved_isbn10 = page_isbn
+                resolved_isbn13 = page_isbn13
+            else:
+                if isbn13 and page_isbn != isbn13:
+                    return None
+                resolved_isbn13 = page_isbn
 
         clc_code = data.get("中图分类号")
         subject = data.get("主题")
@@ -137,8 +145,8 @@ class NLCProvider(MetadataProvider):
 
         return BookMetadata(
             title=title,
-            isbn13=isbn13 or web_isbn,
-            isbn10=isbn10,
+            isbn13=resolved_isbn13,
+            isbn10=resolved_isbn10,
             authors=authors,
             publisher=publisher,
             publish_date=publish_date,
@@ -166,8 +174,14 @@ class NLCProvider(MetadataProvider):
         return authors
 
     def _parse_publish_info(self, publish_item: str, general_data: str) -> tuple[str | None, str | None]:
-        year_match = re.search(r"\d{9}(\d{4})", general_data)
-        publish_date = year_match.group(1) if year_match else None
+        # MARC 008：位置 0-5 日期，6 类型字母，7-10 出版年（如 160527s2015…）
+        publish_date = None
+        gd = (general_data or "").strip()
+        if len(gd) >= 11 and gd[6:7].isalpha() and gd[7:11].isdigit():
+            publish_date = gd[7:11]
+        if not publish_date:
+            year_match = re.search(r"\d{6}[a-zA-Z](\d{4})", gd)
+            publish_date = year_match.group(1) if year_match else None
         if not publish_date:
             fallback = re.search(r"(\d{4})", publish_item)
             publish_date = fallback.group(1) if fallback else None

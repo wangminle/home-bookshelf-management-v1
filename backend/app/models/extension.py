@@ -18,7 +18,7 @@ class Attachment(Base, TimestampMixin):
     file_path: Mapped[str | None] = mapped_column(String(500))
     content_md: Mapped[str | None] = mapped_column(Text)
     mime_type: Mapped[str | None] = mapped_column(String(100))
-    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
 
 class CustomField(Base, TimestampMixin):
@@ -32,7 +32,7 @@ class CustomField(Base, TimestampMixin):
     entity_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     field_key: Mapped[str] = mapped_column(String(100), nullable=False)
     field_value: Mapped[str | None] = mapped_column(Text)
-    value_type: Mapped[str] = mapped_column(String(20), default="string", nullable=False)
+    value_type: Mapped[str] = mapped_column(String(20), default="string", server_default="string", nullable=False)
 
 
 class OperationLog(Base):

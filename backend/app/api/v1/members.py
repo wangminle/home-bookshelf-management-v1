@@ -1,7 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import ChannelIdentity, authorize_member_bind, channel_headers
+from app.auth import (
+    ChannelIdentity,
+    authorize_member_bind,
+    channel_headers,
+    enforce_channel_member,
+    system_has_channel_bindings,
+)
 from app.db import get_db
 from app.schemas.book import ApiResponse
 from app.schemas.member import MemberBind, MemberCreate, MemberOut
@@ -33,14 +39,46 @@ def get_members(db: Session = Depends(get_db)) -> ApiResponse:
 
 
 @router.post("", response_model=ApiResponse, status_code=201)
-def add_member(payload: MemberCreate, db: Session = Depends(get_db)) -> ApiResponse:
+def add_member(
+    payload: MemberCreate,
+    identity: ChannelIdentity = Depends(channel_headers),
+    db: Session = Depends(get_db),
+) -> ApiResponse:
+    # 引导期（尚无任何渠道绑定）：允许匿名创建成员，与 README 先 member 后 bind 流程兼容；
+    # 白名单建立后：必须有渠道身份，防止匿名无限创建成员。
+    # 带渠道头时始终校验完整性与绑定。
+    if system_has_channel_bindings(db):
+        if not identity.channel and not identity.external_user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="白名单已建立，请使用已绑定渠道身份创建成员",
+            )
+        enforce_channel_member(
+            db,
+            body_member_id=None,
+            channel=identity.channel,
+            external_user_id=identity.external_user_id,
+        )
+    elif identity.channel or identity.external_user_id:
+        enforce_channel_member(
+            db,
+            body_member_id=None,
+            channel=identity.channel,
+            external_user_id=identity.external_user_id,
+        )
+
     try:
         result = create_member(db, payload)
     except ConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     member = result.member
-    log_and_commit(db, action="member.create", payload={"member_id": member.id, "name": member.name})
+    log_and_commit(
+        db,
+        action="member.create",
+        channel=identity.channel,
+        payload={"member_id": member.id, "name": member.name},
+    )
     data = MemberOut(
         id=member.id,
         name=member.name,

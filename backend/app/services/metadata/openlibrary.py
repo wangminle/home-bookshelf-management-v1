@@ -138,7 +138,7 @@ class OpenLibraryProvider(MetadataProvider):
             page_count=data.get("number_of_pages"),
             language=_parse_language(data.get("languages")),
             category=subjects[0]["name"] if subjects and isinstance(subjects[0], dict) else (subjects[0] if subjects else None),
-            summary=(data.get("notes") or data.get("subtitle")),
+            summary=data.get("notes") if isinstance(data.get("notes"), str) else None,
             cover_url=_get_cover_url(data.get("cover")),
             openlibrary_id=ol_id,
             source=self.name,

@@ -48,6 +48,18 @@ def _is_safe_url(url: str) -> bool:
     return True
 
 
+class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """跟随 3xx 前对每个 Location 复检 _is_safe_url，阻断跳转到内网/回环。"""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _is_safe_url(newurl):
+            raise urllib.error.URLError(f"blocked redirect to unsafe URL: {newurl}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_SAFE_OPENER = urllib.request.build_opener(_SafeRedirectHandler)
+
+
 def download_cover(cover_url: str, target_name: str) -> str | None:
     settings.covers_dir.mkdir(parents=True, exist_ok=True)
     suffix = ".jpg"
@@ -59,10 +71,12 @@ def download_cover(cover_url: str, target_name: str) -> str | None:
         return None
 
     dest = settings.covers_dir / f"{sanitize_filename_stem(target_name)}{suffix}"
-    tmp_dest = dest.with_suffix(dest.suffix + ".part")
+    from uuid import uuid4
+
+    tmp_dest = settings.covers_dir / f"{sanitize_filename_stem(target_name)}.{uuid4().hex[:8]}.part{suffix}"
     try:
         req = urllib.request.Request(cover_url, headers={"User-Agent": "home-bookshelf/1.0"})
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with _SAFE_OPENER.open(req, timeout=20) as resp:
             total = 0
             too_large = False
             with open(tmp_dest, "wb") as out:
@@ -93,10 +107,16 @@ def download_cover(cover_url: str, target_name: str) -> str | None:
         return None
 
 
-def save_uploaded_image(source_path: Path, target_name: str) -> str | None:
+def save_uploaded_image(source_path: Path, target_name: str, *, overwrite: bool = False) -> str | None:
     settings.covers_dir.mkdir(parents=True, exist_ok=True)
     suffix = source_path.suffix or ".jpg"
-    dest = settings.covers_dir / f"{sanitize_filename_stem(target_name)}{suffix}"
+    stem = sanitize_filename_stem(target_name)
+    dest = settings.covers_dir / f"{stem}{suffix}"
+    if dest.exists() and not overwrite:
+        # 避免扫描图覆盖已下载封面：追加短后缀
+        from uuid import uuid4
+
+        dest = settings.covers_dir / f"{stem}_{uuid4().hex[:8]}{suffix}"
     try:
         shutil.copy2(source_path, dest)
         return str(dest.relative_to(settings.data_dir))

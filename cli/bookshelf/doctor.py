@@ -82,9 +82,15 @@ def run_doctor(client: BookshelfClient | None = None) -> DoctorReport:
     report.api_http_status = http_status
 
     if health_payload is None:
-        report.errors.append(f"无法连接 API：{api_url}（请确认后端已启动且 BOOKSHELF_API_URL 正确）")
-        report.hints.append("本机启动：cd backend && uvicorn app.main:app --reload --host 127.0.0.1 --port 8000")
-        report.hints.append("Docker：cd deploy && docker compose up -d")
+        if http_status is None:
+            report.errors.append(f"无法连接 API：{api_url}（请确认后端已启动且 BOOKSHELF_API_URL 正确）")
+            report.hints.append("本机启动：cd backend && uvicorn app.main:app --reload --host 127.0.0.1 --port 8000")
+            report.hints.append("Docker：cd deploy && docker compose up -d")
+        else:
+            report.errors.append(
+                f"API 可达但返回非 JSON 响应（HTTP {http_status}），可能被反向代理拦截或后端版本过旧"
+            )
+            report.hints.append("检查反向代理（nginx/caddy）配置，或拉取最新代码重启后端")
         return report
 
     report.api_reachable = True
@@ -123,7 +129,7 @@ def run_doctor(client: BookshelfClient | None = None) -> DoctorReport:
             report.hints.append("白名单建立后新增绑定：使用已绑定 owner 的 BOOKSHELF_CHANNEL/BOOKSHELF_EXTERNAL_USER_ID，或设置 BOOKSHELF_SETUP_TOKEN")
     except RuntimeError as exc:
         msg = str(exc)
-        if "404" in msg or "Not Found" in msg:
+        if "[HTTP 404]" in msg or msg.strip().endswith("404"):
             report.warnings.append("API 可能未更新到最新版本（缺少 GET /members），请拉取代码并重启后端")
         else:
             report.warnings.append(f"无法读取成员列表：{exc}")

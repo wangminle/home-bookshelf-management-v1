@@ -18,38 +18,60 @@ class BookshelfClient:
     def _url(self, path: str) -> str:
         return f"{self.base_url}/api/v1{path}"
 
+    def _auth_headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        setup_token = os.environ.get("BOOKSHELF_SETUP_TOKEN") or os.environ.get("SETUP_TOKEN")
+        if setup_token:
+            headers["X-Setup-Token"] = setup_token
+        x_channel = os.environ.get("BOOKSHELF_CHANNEL")
+        x_external = os.environ.get("BOOKSHELF_EXTERNAL_USER_ID")
+        if x_channel:
+            headers["X-Channel"] = x_channel
+        if x_external:
+            headers["X-External-User-Id"] = x_external
+        return headers
+
     def _request(self, method: str, path: str, *, timeout: httpx.Timeout | float | None = None, **kwargs) -> dict[str, Any]:
         request_timeout = timeout if timeout is not None else self.timeout
-        with httpx.Client(timeout=request_timeout) as client:
-            resp = client.request(method, self._url(path), **kwargs)
-            try:
-                payload = resp.json()
-            except Exception as exc:
-                raise RuntimeError(f"API 返回非 JSON（{resp.status_code}）: {resp.text[:200]}") from exc
+        headers = dict(kwargs.pop("headers", None) or {})
+        for key, value in self._auth_headers().items():
+            headers.setdefault(key, value)
+        try:
+            with httpx.Client(timeout=request_timeout) as client:
+                resp = client.request(method, self._url(path), headers=headers or None, **kwargs)
+        except httpx.TimeoutException as exc:
+            raise RuntimeError(f"连接 API 超时：{self.base_url}（{method} {path}）") from exc
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"无法连接 API：{self.base_url}（{exc.__class__.__name__}）") from exc
 
-            if resp.status_code >= 400:
-                if isinstance(payload, dict):
-                    detail = payload.get("detail")
-                else:
-                    detail = payload
-                if isinstance(detail, list):
-                    if detail:
-                        first = detail[0]
-                        if isinstance(first, dict):
-                            detail = first.get("msg", str(detail))
-                        else:
-                            detail = str(first)
-                    else:
-                        detail = str(detail)
-                prefix = f"[HTTP {resp.status_code}] "
-                raise RuntimeError(prefix + str(detail or resp.text))
+        try:
+            payload = resp.json()
+        except Exception as exc:
+            raise RuntimeError(f"API 返回非 JSON（{resp.status_code}）: {resp.text[:200]}") from exc
 
-            if isinstance(payload, dict) and payload.get("ok") is False:
-                raise RuntimeError(payload.get("error") or "API 请求失败")
-
+        if resp.status_code >= 400:
             if isinstance(payload, dict):
-                payload["_http_status"] = resp.status_code
-            return payload
+                detail = payload.get("detail")
+            else:
+                detail = payload
+            if isinstance(detail, list):
+                if detail:
+                    first = detail[0]
+                    if isinstance(first, dict):
+                        detail = first.get("msg", str(detail))
+                    else:
+                        detail = str(first)
+                else:
+                    detail = str(detail)
+            prefix = f"[HTTP {resp.status_code}] "
+            raise RuntimeError(prefix + str(detail or resp.text))
+
+        if isinstance(payload, dict) and payload.get("ok") is False:
+            raise RuntimeError(payload.get("error") or "API 请求失败")
+
+        if isinstance(payload, dict):
+            payload["_http_status"] = resp.status_code
+        return payload
 
     def health_probe(self) -> tuple[dict[str, Any] | None, int | None]:
         request_timeout = self.timeout
@@ -87,16 +109,6 @@ class BookshelfClient:
         return self._request("POST", "/members", json=body)
 
     def bind_member(self, *, member_id: int, channel: str, external_user_id: str) -> dict[str, Any]:
-        headers: dict[str, str] = {}
-        setup_token = os.environ.get("BOOKSHELF_SETUP_TOKEN") or os.environ.get("SETUP_TOKEN")
-        if setup_token:
-            headers["X-Setup-Token"] = setup_token
-        x_channel = os.environ.get("BOOKSHELF_CHANNEL")
-        x_external = os.environ.get("BOOKSHELF_EXTERNAL_USER_ID")
-        if x_channel:
-            headers["X-Channel"] = x_channel
-        if x_external:
-            headers["X-External-User-Id"] = x_external
         return self._request(
             "POST",
             "/members/bind",
@@ -105,7 +117,6 @@ class BookshelfClient:
                 "channel": channel,
                 "external_user_id": external_user_id,
             },
-            headers=headers or None,
         )
 
     def find(self, keyword: str | None = None, author: str | None = None, isbn: str | None = None) -> dict[str, Any]:
@@ -234,11 +245,12 @@ class BookshelfClient:
 
 
 def emit(payload: dict[str, Any], as_json: bool) -> None:
+    clean = {k: v for k, v in payload.items() if k != "_http_status"} if isinstance(payload, dict) else payload
     if as_json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(json.dumps(clean, ensure_ascii=False, indent=2, default=str))
         return
 
-    data = payload.get("data", payload)
+    data = clean.get("data", clean) if isinstance(clean, dict) else clean
     if isinstance(data, dict) and "message" in data:
         print(data["message"])
         book = data.get("book")
@@ -258,16 +270,64 @@ def emit(payload: dict[str, Any], as_json: bool) -> None:
             if extra:
                 print(f"  进度: {', '.join(extra)}")
         if data.get("price") is not None:
-            print(f"  价格: ¥{data['price']}")
+            currency = data.get("currency") or "CNY"
+            symbol = "¥" if currency == "CNY" else f"{currency} "
+            print(f"  价格: {symbol}{data['price']}")
         return
 
     if isinstance(data, dict) and "items" in data:
         items = data["items"]
         total = data.get("total", len(items))
-        print(f"共 {total} 本，显示 {len(items)} 本：")
+        label = "本" if items and isinstance(items[0], dict) and "title" in items[0] else "条"
+        print(f"共 {total} {label}，显示 {len(items)} {label}：")
         for item in items:
-            authors = ", ".join(item.get("authors") or []) or "未知作者"
-            print(f"  [{item.get('id')}] 《{item.get('title')}》 — {authors}")
+            if not isinstance(item, dict):
+                print(f"  {item}")
+                continue
+            if "title" in item:
+                authors = ", ".join(item.get("authors") or []) or "未知作者"
+                print(f"  [{item.get('id')}] 《{item.get('title')}》 — {authors}")
+            elif "name" in item:
+                print(f"  [{item.get('id')}] {item.get('name')} ({item.get('role') or ''})")
+            else:
+                print(f"  {json.dumps(item, ensure_ascii=False)}")
         return
 
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    # health / stats / show 等
+    if isinstance(data, dict):
+        if "database" in data or "app" in data:
+            print(f"状态: {data.get('status', 'ok')}")
+            if data.get("app"):
+                print(f"  应用: {data['app']}")
+            if data.get("database"):
+                print(f"  数据库: {data['database']}")
+            if "barcode_scan_available" in data:
+                print(f"  条码识别: {'可用' if data['barcode_scan_available'] else '不可用'}")
+            return
+        if "total_books" in data:
+            print(f"藏书 {data.get('total_books', 0)} 本")
+            by_status = data.get("by_status") or {}
+            if by_status:
+                parts = [f"{k}:{v}" for k, v in by_status.items() if v]
+                if parts:
+                    print(f"  状态: {', '.join(parts)}")
+            print(f"  花费: ¥{data.get('total_spent', 0)}（{data.get('purchase_count', 0)} 笔 CNY）")
+            print(f"  阅读页数: {data.get('reading_logs_pages_total', 0)}")
+            for m in data.get("members") or []:
+                print(
+                    f"  成员 {m.get('name')}: 在读 {m.get('books_reading', 0)} / "
+                    f"读完 {m.get('books_finished', 0)} / 连续 {m.get('reading_streak', 0)} 天"
+                )
+            return
+        if "title" in data and "id" in data:
+            authors = ", ".join(data.get("authors") or []) or "未知作者"
+            print(f"[{data.get('id')}] 《{data.get('title')}》 — {authors}")
+            if data.get("isbn13"):
+                print(f"  ISBN: {data.get('isbn13')}")
+            if data.get("publisher"):
+                print(f"  出版社: {data.get('publisher')}")
+            if data.get("category"):
+                print(f"  分类: {data.get('category')}")
+            return
+
+    print(json.dumps(clean, ensure_ascii=False, indent=2, default=str))

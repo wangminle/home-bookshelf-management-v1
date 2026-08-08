@@ -20,7 +20,11 @@ class GoogleBooksProvider(MetadataProvider):
             return None
 
         isbn13 = normalized if len(normalized) == 13 else isbn10_to_isbn13(normalized)
-        return self._search_volumes(f"isbn:{isbn13}", preferred_isbn=isbn13, isbn10=normalized if len(normalized) == 10 else None)
+        return self._search_volumes(
+            f"isbn:{isbn13}",
+            preferred_isbn=isbn13,
+            isbn10=normalized if len(normalized) == 10 else None,
+        )
 
     def search(self, title: str, author: str | None = None) -> BookMetadata | None:
         query_parts = [f'intitle:"{title.strip()}"']
@@ -67,8 +71,8 @@ class GoogleBooksProvider(MetadataProvider):
             return None
 
         identifiers = volume_info.get("industryIdentifiers") or []
-        found_isbn13 = preferred_isbn
-        found_isbn10 = isbn10
+        found_isbn13: str | None = None
+        found_isbn10: str | None = None
         for ident in identifiers:
             if not isinstance(ident, dict):
                 continue
@@ -81,8 +85,23 @@ class GoogleBooksProvider(MetadataProvider):
             elif kind == "ISBN_10" and not found_isbn10:
                 found_isbn10 = normalize_isbn(value)
 
-        if preferred_isbn and found_isbn13 and found_isbn13 != preferred_isbn:
-            return None
+        if preferred_isbn:
+            if found_isbn13 and found_isbn13 != preferred_isbn:
+                return None
+            if not found_isbn13 and found_isbn10:
+                derived = isbn10_to_isbn13(found_isbn10)
+                if derived != preferred_isbn:
+                    return None
+                found_isbn13 = derived
+            if not found_isbn13 and not found_isbn10:
+                found_isbn13 = preferred_isbn
+            if not found_isbn10 and isbn10:
+                found_isbn10 = isbn10
+        else:
+            if not found_isbn13 and found_isbn10:
+                found_isbn13 = isbn10_to_isbn13(found_isbn10)
+            if not found_isbn10 and isbn10:
+                found_isbn10 = isbn10
 
         published_date = volume_info.get("publishedDate")
         page_count = volume_info.get("pageCount")

@@ -14,13 +14,13 @@ ACQUIRE_TYPES = frozenset(("purchased", "gift", "borrowed", "found", "inherited"
 
 class CopyCreate(BaseModel):
     copy_type: CopyType = Field(default="physical", description="physical | digital")
-    format: str | None = None
-    location: str | None = None
-    file_path: str | None = None
+    format: str | None = Field(default=None, max_length=50)
+    location: str | None = Field(default=None, max_length=200)
+    file_path: str | None = Field(default=None, max_length=500)
     owner_member_id: int | None = None
     acquire_type: AcquireType | None = None
     status: CopyStatus = Field(default="in_shelf")
-    condition: str | None = None
+    condition: str | None = Field(default=None, max_length=50)
 
 
 class CopyOut(BaseModel):

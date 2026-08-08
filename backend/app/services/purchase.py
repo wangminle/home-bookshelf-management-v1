@@ -54,5 +54,7 @@ def create_purchase(db: Session, book_id: int, payload: PurchaseCreate) -> Purch
     db.refresh(purchase)
 
     channel_hint = f"（{payload.channel}）" if payload.channel else ""
-    message = f"已为《{book.title}》记录购买：¥{payload.price}{channel_hint}"
+    currency = payload.currency or "CNY"
+    price_text = f"¥{payload.price}" if currency == "CNY" else f"{currency} {payload.price}"
+    message = f"已为《{book.title}》记录购买：{price_text}{channel_hint}"
     return PurchaseResult(purchase=purchase, book=book, message=message)

@@ -24,7 +24,7 @@ Agent 能力层：每个 Skill 描述**何时触发、如何调用 CLI、如何�
 3. **默认 JSON**：所有 CLI 命令保持 `--json`，便于解析 `data.message`
 4. **用户确认**：入库、消歧、识别存疑时先确认再执行
 5. **单一职责**：入库用 book-intake，查询用 book-query，不要混用命令
-6. **渠道鉴权**：业务写端点（progress/notes/reading-logs/purchases/intake）由后端读取 `X-Channel`/`X-External-User-Id` 鉴权——无渠道头回退默认成员、未绑定 403、与 body `member_id` 不一致 403；CLI 本身不带渠道头，由 Agent/适配层注入
+6. **渠道鉴权**：业务写端点（progress/notes/reading-logs/purchases/intake，以及 attachments/copies/custom-fields 等写接口）由后端读取 `X-Channel`/`X-External-User-Id` 鉴权——无渠道头回退默认成员、未绑定 403、与 body `member_id` 不一致 403；CLI 若设置了 `BOOKSHELF_CHANNEL` / `BOOKSHELF_EXTERNAL_USER_ID` 会自动注入，不必再手工拼头
 
 ## 本地模拟对话
 
@@ -45,6 +45,9 @@ Agent：→ book-query find → reading-tracker progress --book-id N --page 50
 
 ```bash
 export BOOKSHELF_API_URL=http://127.0.0.1:8000   # 家庭服务器地址
+export BOOKSHELF_CHANNEL=feishu                  # 可选：按绑定成员身份执行写操作
+export BOOKSHELF_EXTERNAL_USER_ID=ou_xxx         # 可选：与 bind 时一致
+export BOOKSHELF_SETUP_TOKEN=...                 # 可选：白名单建立后代绑成员
 ```
 
 ## CLI 命令速查

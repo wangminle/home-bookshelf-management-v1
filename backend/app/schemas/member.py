@@ -10,7 +10,7 @@ MemberRole = Literal["owner", "member", "guest"]
 class MemberCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     role: MemberRole = Field(default="member")
-    avatar_path: str | None = None
+    avatar_path: str | None = Field(default=None, max_length=500)
     reading_streak_offset: int = Field(default=0, ge=0)
 
     @field_validator("name")

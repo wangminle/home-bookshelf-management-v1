@@ -38,6 +38,28 @@ class BookBase(BaseModel):
             raise ValueError("页数不能为负数")
         return n
 
+    @field_validator("publish_date")
+    @classmethod
+    def _validate_publish_date(cls, v):
+        if v is None or v == "":
+            return None
+        cleaned = str(v).strip()
+        if not cleaned:
+            return None
+        # 允许 YYYY / YYYY-MM / YYYY-MM-DD，并校验真实日期合法性（月13、2月30等拒收）
+        import re
+        from datetime import date
+
+        m = re.fullmatch(r"(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?", cleaned)
+        if not m:
+            raise ValueError("publish_date 须为 YYYY、YYYY-MM 或 YYYY-MM-DD")
+        year, month, day = m.group(1), m.group(2) or "01", m.group(3) or "01"
+        try:
+            date.fromisoformat(f"{year}-{month}-{day}")
+        except ValueError as exc:
+            raise ValueError(f"publish_date 不是合法日期：{cleaned}") from exc
+        return cleaned
+
 
 class BookCreate(BookBase):
     @field_validator("title")
@@ -109,6 +131,9 @@ class BookOut(BookBase):
     id: int
     cover_path: str | None = None
     source: str | None = None
+    openlibrary_id: str | None = None
+    google_books_id: str | None = None
+    extra: dict[str, Any] | list[Any] | str | None = None
     created_at: datetime
     updated_at: datetime
 

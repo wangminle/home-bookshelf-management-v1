@@ -98,6 +98,15 @@ bookshelf bind --member-id 2 --channel feishu --external-user-id ou_yyy
 
 白名单建立后，匿名再绑会被拒绝；可用已绑定的 owner 身份代绑，或配置 `SETUP_TOKEN` / `BOOKSHELF_SETUP_TOKEN`。详见 [FAQ](./faq.md)。
 
+如果你希望平时直接在 CLI 里按某个已绑定成员身份操作，可设置：
+
+```bash
+export BOOKSHELF_CHANNEL=feishu
+export BOOKSHELF_EXTERNAL_USER_ID=ou_yyy
+```
+
+设置后，`add` / `progress` / `purchase` / `note` / `reading-log` 等命令都会自动带上渠道身份头；只设置其中一个会返回 `400`。
+
 ---
 
 ## 识别与健康检查

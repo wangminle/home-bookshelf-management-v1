@@ -43,6 +43,18 @@ echo ==^> Installing dependencies ^(requirements.txt^)
 "%VENV_PY%" -m pip install -r requirements.txt
 if errorlevel 1 ( echo [ERROR] dependency install failed. & exit /b 1 )
 
+REM Optional: install dev dependencies (pytest etc.) for running tests
+REM Usage:  install.bat --dev   or   set DEV_DEPS=1 && install.bat
+if "%~1"=="--dev" ( set "INSTALL_DEV=1" )
+if "%DEV_DEPS%"=="1" ( set "INSTALL_DEV=1" )
+if "%INSTALL_DEV%"=="1" (
+  if exist requirements-dev.txt (
+    echo ==^> Installing dev dependencies ^(requirements-dev.txt^)
+    "%VENV_PY%" -m pip install -r requirements-dev.txt
+    if errorlevel 1 ( echo [ERROR] dev dependency install failed. & exit /b 1 )
+  )
+)
+
 echo ==^> Running database migrations ^(alembic upgrade head^)
 "%VENV_PY%" -m alembic upgrade head
 if errorlevel 1 ( echo [ERROR] alembic migration failed. & exit /b 1 )

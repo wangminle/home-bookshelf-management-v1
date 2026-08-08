@@ -35,7 +35,11 @@ def test_anonymous_bind_blocked_after_whitelist_exists(client):
     assert book.status_code == 201
     book_id = book.json()["data"]["id"]
 
-    m2 = client.post("/api/v1/members", json={"name": "乙", "role": "member"})
+    m2 = client.post(
+        "/api/v1/members",
+        json={"name": "乙", "role": "member"},
+        headers={"X-Channel": "feishu", "X-External-User-Id": "ou_owner"},
+    )
     assert m2.status_code == 201
     id2 = m2.json()["data"]["id"]
 

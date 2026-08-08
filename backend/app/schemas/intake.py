@@ -6,11 +6,11 @@ from app.utils.book_helpers import is_valid_isbn, normalize_isbn
 
 class IntakeRequest(BaseModel):
     isbn: str | None = None
-    title: str | None = None
-    author: str | None = None
+    title: str | None = Field(default=None, max_length=500)
+    author: str | None = Field(default=None, max_length=200)
     price: float | None = Field(default=None, gt=0)
-    channel: str | None = None
-    location: str | None = None
+    channel: str | None = Field(default=None, max_length=100)
+    location: str | None = Field(default=None, max_length=200)
     member_id: int | None = None
 
     @field_validator("isbn", mode="before")

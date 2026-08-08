@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.auth import ChannelIdentity, channel_headers, enforce_channel_member
 from app.db import get_db
 from app.schemas.book import ApiResponse
 from app.schemas.copy import CopyCreate, CopyOut
@@ -13,7 +14,20 @@ router = APIRouter(prefix="/books", tags=["copies"])
 
 
 @router.post("/{book_id}/copies", response_model=ApiResponse, status_code=201)
-def add_copy(book_id: int, payload: CopyCreate, db: Session = Depends(get_db)) -> ApiResponse:
+def add_copy(
+    book_id: int,
+    payload: CopyCreate,
+    identity: ChannelIdentity = Depends(channel_headers),
+    db: Session = Depends(get_db),
+) -> ApiResponse:
+    member_id = enforce_channel_member(
+        db,
+        body_member_id=payload.owner_member_id,
+        channel=identity.channel,
+        external_user_id=identity.external_user_id,
+        require_channel=True,
+    )
+    payload = payload.model_copy(update={"owner_member_id": member_id})
     try:
         result = create_copy(db, book_id, payload)
     except ValueError as exc:
@@ -21,7 +35,13 @@ def add_copy(book_id: int, payload: CopyCreate, db: Session = Depends(get_db)) -
     except ConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    log_and_commit(db, action="copy.create", payload={"book_id": book_id, "copy_id": result.copy.id})
+    log_and_commit(
+        db,
+        action="copy.create",
+        member_id=member_id,
+        channel=identity.channel,
+        payload={"book_id": book_id, "copy_id": result.copy.id},
+    )
     data = copy_to_out(result.copy).model_dump()
     data["message"] = result.message
     return ApiResponse(data=data)

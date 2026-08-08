@@ -3,17 +3,44 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import ValidationError
-from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from app.db import get_db
+from app import db as db_module
+from app.auth import ChannelIdentity, channel_headers, enforce_channel_member
 from app.schemas.attachment import AttachmentCreate, AttachmentOut
 from app.schemas.book import ApiResponse
 from app.services.attachments import create_attachment
 from app.utils.db_errors import ConflictError
 from app.utils.operation_log import log_and_commit
+from app.utils.uploads import read_upload_limited
 
 router = APIRouter(prefix="/attachments", tags=["attachments"])
+
+
+def _create_attachment_in_thread(
+    *,
+    payload: AttachmentCreate,
+    upload_path: Path | None,
+    identity: ChannelIdentity,
+) -> dict:
+    with db_module.SessionLocal() as db:
+        member_id = enforce_channel_member(
+            db,
+            body_member_id=None,
+            channel=identity.channel,
+            external_user_id=identity.external_user_id,
+        )
+        result = create_attachment(db, payload, upload_path=upload_path)
+        log_and_commit(
+            db,
+            action="attachment.create",
+            member_id=member_id,
+            channel=identity.channel,
+            payload={"attachment_id": result.attachment.id},
+        )
+        data = AttachmentOut.model_validate(result.attachment).model_dump()
+        data["message"] = result.message
+        return data
 
 
 @router.post("", response_model=ApiResponse, status_code=201)
@@ -27,7 +54,7 @@ async def add_attachment(
     mime_type: str | None = Form(default=None),
     sort_order: int = Form(default=0),
     file: UploadFile | None = File(default=None),
-    db: Session = Depends(get_db),
+    identity: ChannelIdentity = Depends(channel_headers),
 ) -> ApiResponse:
     temp_file: Path | None = None
     try:
@@ -47,12 +74,18 @@ async def add_attachment(
 
         if file and file.filename:
             suffix = Path(file.filename).suffix or ".bin"
+            content = await read_upload_limited(file)
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                 temp_file = Path(tmp.name)
-                tmp.write(await file.read())
+                tmp.write(content)
 
         try:
-            result = await run_in_threadpool(create_attachment, db, payload, upload_path=temp_file)
+            data = await run_in_threadpool(
+                _create_attachment_in_thread,
+                payload=payload,
+                upload_path=temp_file,
+                identity=identity,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except ConflictError as exc:
@@ -61,7 +94,4 @@ async def add_attachment(
         if temp_file and temp_file.exists():
             temp_file.unlink(missing_ok=True)
 
-    log_and_commit(db, action="attachment.create", payload={"attachment_id": result.attachment.id})
-    data = AttachmentOut.model_validate(result.attachment).model_dump()
-    data["message"] = result.message
     return ApiResponse(data=data)

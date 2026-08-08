@@ -24,8 +24,16 @@ def _reading_streak(db: Session, member_id: int) -> int:
         return offset
 
     date_set = set(dates)
+    today = date.fromisoformat(local_today_iso())
+    # 今天还没记日志时从昨天起算，避免白天看报表显示连续 0 天
+    if today.isoformat() in date_set:
+        current = today
+    elif (today - timedelta(days=1)).isoformat() in date_set:
+        current = today - timedelta(days=1)
+    else:
+        return offset
+
     streak = 0
-    current = date.fromisoformat(local_today_iso())
     while current.isoformat() in date_set:
         streak += 1
         current -= timedelta(days=1)
@@ -42,6 +50,11 @@ def get_stats(db: Session) -> StatsOut:
     by_status = {row[0]: row[1] for row in status_rows}
     for key in ("unread", "reading", "finished", "abandoned", "dropped"):
         by_status.setdefault(key, 0)
+    # 无进度记录的书视为 unread
+    books_with_progress = db.scalar(
+        select(func.count(func.distinct(ReadingProgress.book_id)))
+    ) or 0
+    by_status["unread"] = by_status.get("unread", 0) + max(total_books - books_with_progress, 0)
 
     category_rows = db.execute(
         select(Book.category, func.count())
@@ -51,15 +64,12 @@ def get_stats(db: Session) -> StatsOut:
     ).all()
     by_category = [CategoryCount(category=row[0] or "未分类", count=row[1]) for row in category_rows]
 
+    cny_filter = func.coalesce(PurchaseRecord.currency, "CNY") == "CNY"
     total_spent = float(
-        db.scalar(
-            select(func.coalesce(func.sum(PurchaseRecord.price), 0)).where(
-                func.coalesce(PurchaseRecord.currency, "CNY") == "CNY"
-            )
-        )
-        or 0
+        db.scalar(select(func.coalesce(func.sum(PurchaseRecord.price), 0)).where(cny_filter)) or 0
     )
-    purchase_count = db.scalar(select(func.count()).select_from(PurchaseRecord)) or 0
+    # 与 total_spent 同口径：仅统计 CNY（缺省视为 CNY）购买笔数
+    purchase_count = db.scalar(select(func.count()).select_from(PurchaseRecord).where(cny_filter)) or 0
     pages_total = db.scalar(select(func.coalesce(func.sum(ReadingLog.pages_read), 0))) or 0
 
     members = db.scalars(select(Member).order_by(Member.id)).all()

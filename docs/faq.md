@@ -75,6 +75,13 @@ bookshelf add --isbn ... --location "书房"
 
 只传一个头会得到 `400`。
 
+如果你不是直接调 HTTP，而是通过 CLI 执行命令，也要确认运行环境里已经设置：
+
+```bash
+export BOOKSHELF_CHANNEL=feishu
+export BOOKSHELF_EXTERNAL_USER_ID=ou_xxx
+```
+
 ### 如何给第二位家人绑定？
 
 用已绑定 owner 的渠道头调用 bind，或设置 `SETUP_TOKEN` 后：
@@ -84,7 +91,7 @@ export BOOKSHELF_SETUP_TOKEN=你的口令
 bookshelf bind --member-id 2 --channel feishu --external-user-id ou_yyy
 ```
 
-后端需配置相同的 `SETUP_TOKEN`。
+后端需配置相同的 `SETUP_TOKEN`；CLI 会自动把 `BOOKSHELF_SETUP_TOKEN` / `SETUP_TOKEN` 透传成 `X-Setup-Token`。
 
 ---
 

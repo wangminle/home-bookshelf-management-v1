@@ -95,11 +95,14 @@ def enforce_channel_member(
     body_member_id: int | None,
     channel: str | None,
     external_user_id: str | None,
+    require_channel: bool = False,
 ) -> int:
     """渠道身份鉴权：
 
     - 渠道头必须成对；只传一个 → 400。
-    - 无渠道头：回退到 resolve_member_id（一期可信局域网兜底，自动创建默认成员）。
+    - 无渠道头：
+      - require_channel=True -> 403，拒绝匿名。
+      - require_channel=False -> 回退到 resolve_member_id（一期可信局域网兜底）。
     - 有渠道头但未绑定：返回 403，拒绝冒用。
     - 有渠道头且已绑定：以绑定成员为准；若 body 同时指定了不同的 member_id，则 403。
     """
@@ -108,7 +111,15 @@ def enforce_channel_member(
     require_complete_channel_headers(channel, external_user_id)
 
     if not channel and not external_user_id:
-        return resolve_member_id(db, body_member_id)
+        if require_channel:
+            raise HTTPException(
+                status_code=403,
+                detail="此端点要求渠道身份鉴权，请提供 X-Channel 与 X-External-User-Id",
+            )
+        try:
+            return resolve_member_id(db, body_member_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     member = resolve_member_by_binding(db, channel, external_user_id)  # type: ignore[arg-type]
     if member is None:

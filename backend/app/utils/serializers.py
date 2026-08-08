@@ -7,7 +7,7 @@ from app.schemas.copy import CopyOut
 from app.schemas.note import NoteOut
 from app.schemas.purchase import PurchaseOut
 from app.schemas.reading import ProgressOut
-from app.utils.book_helpers import deserialize_json_list
+from app.utils.book_helpers import deserialize_json_dict, deserialize_json_list
 
 
 def book_to_out(book) -> BookOut:
@@ -26,6 +26,9 @@ def book_to_out(book) -> BookOut:
         summary=book.summary,
         cover_path=book.cover_path,
         source=book.source,
+        openlibrary_id=book.openlibrary_id,
+        google_books_id=book.google_books_id,
+        extra=deserialize_json_dict(book.extra),
         created_at=book.created_at,
         updated_at=book.updated_at,
     )
@@ -36,17 +39,33 @@ def copy_to_out(copy) -> CopyOut:
 
 
 def progress_to_out(progress) -> ProgressOut:
+    status = progress.status or "unread"
+    if status == "finished":
+        message = "已读完"
+    elif status == "reading":
+        if progress.current_page is not None:
+            message = f"在读至第 {progress.current_page} 页"
+        elif progress.percent is not None:
+            message = f"在读 {progress.percent}%"
+        else:
+            message = "在读"
+    elif status == "abandoned":
+        message = "已弃读"
+    elif status == "dropped":
+        message = "已放弃"
+    else:
+        message = "未读"
     return ProgressOut(
         id=progress.id,
         book_id=progress.book_id,
         member_id=progress.member_id,
-        status=progress.status,
+        status=status,
         current_page=progress.current_page,
         percent=progress.percent,
         rating=progress.rating,
         finish_date=progress.finish_date,
         updated_at=progress.updated_at,
-        message="",
+        message=message,
     )
 
 

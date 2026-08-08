@@ -53,7 +53,18 @@ bookshelf bind --member-id 1 --channel feishu --external-user-id <飞书用户ID
 
 未绑定账号会收到 `403`。只传其中一个头会 `400`。
 
-CLI 本身默认不发渠道头（适合局域网直接操作）；由 Agent 在 HTTP 调用时注入。`bind` 命令可透传环境变量 `BOOKSHELF_CHANNEL` / `BOOKSHELF_EXTERNAL_USER_ID`。
+如果 Agent 直接调 HTTP，就显式带上这两个请求头；如果 Agent 通过 CLI 执行命令，直接在运行环境里设置：
+
+```bash
+export BOOKSHELF_CHANNEL=feishu
+export BOOKSHELF_EXTERNAL_USER_ID=<同一用户ID>
+```
+
+CLI 现在会把这两个环境变量自动注入到所有请求；若白名单建立后还要代绑其他成员，也可额外设置：
+
+```bash
+export BOOKSHELF_SETUP_TOKEN=<管理口令>
+```
 
 ---
 
@@ -81,7 +92,7 @@ bookshelf add --title "活着" --author "余华"
 | 现象 | 处理 |
 | --- | --- |
 | Agent 找不到 bookshelf | 检查 PATH / 虚拟环境；在 Agent 机器 `pip install -e cli` |
-| doctor 报未绑定 | 先 `bind`；或确认 Agent 是否注入了渠道头 |
+| doctor 报未绑定 | 先 `bind`；或确认 Agent 是否带了 `X-Channel`/`X-External-User-Id`，若走 CLI 则确认已设置对应环境变量 |
 | 403 未绑定 | `external_user_id` 是否与 bind 时一致 |
 | 识别失败 | 换清晰条码图，或改用 `--isbn` / `--title` |
 

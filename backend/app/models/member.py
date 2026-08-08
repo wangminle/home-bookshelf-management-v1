@@ -17,10 +17,10 @@ class Member(Base, TimestampUpdateMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    role: Mapped[str] = mapped_column(String(20), default="member", nullable=False)
+    role: Mapped[str] = mapped_column(String(20), default="member", server_default="member", nullable=False)
     avatar_path: Mapped[str | None] = mapped_column(String(500))
     channel_bindings: Mapped[str | None] = mapped_column(Text)  # JSON: {"feishu":"ou_xxx"}
-    reading_streak_offset: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    reading_streak_offset: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
     reading_progress: Mapped[list[ReadingProgress]] = relationship(back_populates="member")
     reading_logs: Mapped[list[ReadingLog]] = relationship(back_populates="member")

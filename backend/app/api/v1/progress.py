@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from app.auth import ChannelIdentity, channel_headers, enforce_channel_member
@@ -16,6 +16,7 @@ router = APIRouter(prefix="/books", tags=["reading"])
 def update_progress(
     book_id: int,
     payload: ProgressUpdate,
+    response: Response,
     identity: ChannelIdentity = Depends(channel_headers),
     db: Session = Depends(get_db),
 ) -> ApiResponse:
@@ -33,6 +34,7 @@ def update_progress(
     except ConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    response.status_code = 201 if result.created else 200
     log_and_commit(
         db,
         action="progress.update",

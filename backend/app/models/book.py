@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -68,13 +69,13 @@ class BookCopy(Base, TimestampUpdateMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     book_id: Mapped[int] = mapped_column(ForeignKey("books.id", ondelete="CASCADE"), nullable=False, index=True)
-    copy_type: Mapped[str] = mapped_column(String(20), default="physical", nullable=False)
+    copy_type: Mapped[str] = mapped_column(String(20), default="physical", server_default="physical", nullable=False)
     format: Mapped[str | None] = mapped_column(String(50))
     location: Mapped[str | None] = mapped_column(String(200))
     file_path: Mapped[str | None] = mapped_column(String(500))
     owner_member_id: Mapped[int | None] = mapped_column(ForeignKey("members.id", ondelete="SET NULL"))
     acquire_type: Mapped[str | None] = mapped_column(String(30))
-    status: Mapped[str] = mapped_column(String(20), default="in_shelf", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="in_shelf", server_default="in_shelf", nullable=False)
     condition: Mapped[str | None] = mapped_column(String(50))
     extra: Mapped[str | None] = mapped_column(Text)
 
@@ -90,10 +91,10 @@ class ReadingProgress(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     book_id: Mapped[int] = mapped_column(ForeignKey("books.id", ondelete="CASCADE"), nullable=False, index=True)
     member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"), nullable=False, index=True)
-    status: Mapped[str] = mapped_column(String(20), default="unread", nullable=False)
-    to_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    owned: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    borrowed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="unread", server_default="unread", nullable=False)
+    to_read: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
+    owned: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("1"), nullable=False)
+    borrowed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
     current_page: Mapped[int | None] = mapped_column(Integer)
     percent: Mapped[float | None] = mapped_column(Float)
     personal_notes: Mapped[str | None] = mapped_column(Text)
@@ -120,7 +121,7 @@ class ReadingLog(Base, TimestampMixin):
     book_id: Mapped[int] = mapped_column(ForeignKey("books.id", ondelete="CASCADE"), nullable=False, index=True)
     member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"), nullable=False, index=True)
     log_date: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
-    pages_read: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    pages_read: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     minutes_read: Mapped[int | None] = mapped_column(Integer)
     notes: Mapped[str | None] = mapped_column(Text)
     session_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -139,7 +140,7 @@ class PurchaseRecord(Base, TimestampMixin):
     purchase_date: Mapped[str | None] = mapped_column(String(10))
     price: Mapped[float | None] = mapped_column(Float)
     original_price: Mapped[float | None] = mapped_column(Float)
-    currency: Mapped[str] = mapped_column(String(10), default="CNY", nullable=False)
+    currency: Mapped[str] = mapped_column(String(10), default="CNY", server_default="CNY", nullable=False)
     channel: Mapped[str | None] = mapped_column(String(100))
     order_no: Mapped[str | None] = mapped_column(String(100))
     seller: Mapped[str | None] = mapped_column(String(200))
@@ -158,7 +159,7 @@ class ReadingNote(Base, TimestampUpdateMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     book_id: Mapped[int] = mapped_column(ForeignKey("books.id", ondelete="CASCADE"), nullable=False, index=True)
     member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"), nullable=False, index=True)
-    note_type: Mapped[str] = mapped_column(String(20), default="excerpt", nullable=False)
+    note_type: Mapped[str] = mapped_column(String(20), default="excerpt", server_default="excerpt", nullable=False)
     content_md: Mapped[str] = mapped_column(Text, nullable=False)
     page: Mapped[int | None] = mapped_column(Integer)
     chapter: Mapped[str | None] = mapped_column(String(200))

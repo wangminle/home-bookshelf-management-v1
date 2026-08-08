@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from app.config import settings
 from app.services.metadata.base import BookMetadata, MetadataProvider
@@ -10,6 +11,9 @@ from app.services.metadata.openlibrary import OpenLibraryProvider
 from app.utils.book_helpers import isbn10_to_isbn13, normalize_isbn
 
 logger = logging.getLogger(__name__)
+
+# 元数据链总超时，避免中文 ISBN 串行阻塞超设计验收（约 10 秒入库）
+METADATA_CHAIN_DEADLINE_SEC = 12.0
 
 
 def is_chinese_isbn(isbn: str | None) -> bool:
@@ -62,20 +66,33 @@ def fetch_metadata(
     providers = _build_providers()
     normalized_isbn = normalize_isbn(isbn)
     chinese = is_chinese_isbn(normalized_isbn)
+    deadline = time.monotonic() + METADATA_CHAIN_DEADLINE_SEC
+
+    def _within_deadline() -> bool:
+        return time.monotonic() < deadline
 
     if normalized_isbn:
         for name in get_primary_provider_names(chinese=chinese):
+            if not _within_deadline():
+                logger.warning("元数据链超时，中止后续 provider（isbn=%s）", normalized_isbn)
+                return None
             result = _safe_call(providers[name], "fetch_by_isbn", normalized_isbn)
             if result:
                 return result
 
         for name in get_auxiliary_provider_names():
+            if not _within_deadline():
+                logger.warning("元数据链超时，中止辅助 provider（isbn=%s）", normalized_isbn)
+                return None
             result = _safe_call(providers[name], "fetch_by_isbn", normalized_isbn)
             if result:
                 return result
 
     if title and title.strip():
         for name in get_search_fallback_provider_names(chinese=chinese or _looks_chinese(title)):
+            if not _within_deadline():
+                logger.warning("元数据链超时，中止书名搜索（title=%s）", title.strip()[:80])
+                return None
             result = _safe_call(providers[name], "search", title.strip(), author)
             if result:
                 return result

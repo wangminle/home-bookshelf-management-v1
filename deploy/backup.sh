@@ -35,10 +35,25 @@ else
 fi
 
 ARCHIVE="${BACKUP_DIR}/data_${STAMP}.tar.gz"
-tar -czf "${ARCHIVE}" -C "${DATA_DIR}" \
-  --exclude='*.db-shm' \
-  --exclude='*.db-wal' \
-  covers attachments 2>/dev/null || true
+ARCHIVE_OK=0
+TAR_TARGETS=()
+[[ -d "${DATA_DIR}/covers" ]] && TAR_TARGETS+=(covers)
+[[ -d "${DATA_DIR}/attachments" ]] && TAR_TARGETS+=(attachments)
+if [[ ${#TAR_TARGETS[@]} -eq 0 ]]; then
+  echo "警告：${DATA_DIR} 下无 covers/attachments 目录，跳过附件包" >&2
+  ARCHIVE="(跳过)"
+else
+  if tar -czf "${ARCHIVE}" -C "${DATA_DIR}" \
+    --exclude='*.db-shm' \
+    --exclude='*.db-wal' \
+    "${TAR_TARGETS[@]}"; then
+    ARCHIVE_OK=1
+  else
+    echo "错误：打包附件失败 ${ARCHIVE}" >&2
+    rm -f "${ARCHIVE}"
+    ARCHIVE="(失败)"
+  fi
+fi
 
 find "${BACKUP_DIR}" -name 'bookshelf_*.db' -mtime +"${KEEP_DAYS}" -delete
 find "${BACKUP_DIR}" -name 'data_*.tar.gz' -mtime +"${KEEP_DAYS}" -delete
@@ -47,3 +62,6 @@ echo "备份完成："
 echo "  数据库 → ${DB_BACKUP}"
 echo "  附件包 → ${ARCHIVE}"
 echo "  保留 ${KEEP_DAYS} 天内的备份"
+if [[ "${ARCHIVE_OK}" != "1" && "${ARCHIVE}" == "(失败)" ]]; then
+  exit 1
+fi

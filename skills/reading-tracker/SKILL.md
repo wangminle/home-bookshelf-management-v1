@@ -38,7 +38,7 @@ bookshelf health
 > - 有渠道头但未绑定 → 403
 > - 有渠道头且绑定，但与 body `member_id` 不一致 → 403
 >
-> CLI 本身不带渠道头，由 Agent/适配层在请求时注入。
+> 若 Agent 通过 CLI 执行命令，只需在运行环境设置 `BOOKSHELF_CHANNEL` / `BOOKSHELF_EXTERNAL_USER_ID`，CLI 会自动透传为请求头。
 
 ## 执行步骤
 

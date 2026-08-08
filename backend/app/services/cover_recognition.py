@@ -36,12 +36,12 @@ def recognize_cover(
     title: str | None = None,
     author: str | None = None,
 ) -> CoverRecognizeResult:
-    saved = save_uploaded_image(image_path, target_name=_cover_target_name(title))
-
     isbn13 = recognize_isbn_from_image(image_path)
     if isbn13:
         metadata = fetch_metadata(isbn=isbn13)
         if metadata:
+            # 识别命中且有元数据：落盘封面（元数据可能已含 cover_url，但上传图更可靠）
+            saved = save_uploaded_image(image_path, target_name=_cover_target_name(metadata.title or title))
             return CoverRecognizeResult(
                 found=True,
                 isbn13=isbn13,
@@ -52,6 +52,8 @@ def recognize_cover(
                 matched_source=metadata.source,
                 message=f"识别到 ISBN {isbn13}，匹配《{metadata.title}》",
             )
+        # 识别命中但无元数据：仍保留扫描图供后续入库使用
+        saved = save_uploaded_image(image_path, target_name=_cover_target_name(title))
         return CoverRecognizeResult(
             found=True,
             isbn13=isbn13,
@@ -68,6 +70,7 @@ def recognize_cover(
     if search_title:
         metadata = fetch_metadata(title=search_title, author=search_author)
         if metadata:
+            saved = save_uploaded_image(image_path, target_name=_cover_target_name(metadata.title))
             return CoverRecognizeResult(
                 found=True,
                 isbn13=metadata.isbn13,
@@ -79,13 +82,14 @@ def recognize_cover(
                 message=f"按书名匹配到《{metadata.title}》",
             )
 
+    # 识别失败：不落盘扫描图，避免孤儿文件堆积
     return CoverRecognizeResult(
         found=False,
         isbn13=None,
         title=search_title,
         authors=[search_author] if search_author else None,
         publisher=None,
-        cover_path=saved,
+        cover_path=None,
         matched_source=None,
         message="未识别到条码；请提供书名/作者或交由 Agent 视觉识别后重试",
     )

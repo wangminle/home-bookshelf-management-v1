@@ -29,11 +29,15 @@ def health_check(response: Response) -> ApiResponse:
         database = "disconnected"
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
 
+    ok = database == "connected"
     return ApiResponse(
+        ok=ok,
         data=HealthOut(
+            status="ok" if ok else "degraded",
             app=settings.app_name,
             database=database,
             google_books_configured=bool(settings.google_books_api_key),
             barcode_scan_available=_barcode_scan_available(),
-        )
+        ),
+        error=None if ok else "database disconnected",
     )

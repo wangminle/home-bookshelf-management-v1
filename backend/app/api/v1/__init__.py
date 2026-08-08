@@ -5,6 +5,7 @@ from app.api.v1 import (
     books,
     copies,
     custom_fields,
+    files,
     health,
     intake,
     members,
@@ -30,3 +31,4 @@ api_router.include_router(custom_fields.router)
 api_router.include_router(stats.router)
 api_router.include_router(members.router)
 api_router.include_router(recognize.router)
+api_router.include_router(files.router)

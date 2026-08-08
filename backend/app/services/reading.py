@@ -61,11 +61,22 @@ def update_reading_progress(db: Session, book_id: int, payload: ProgressUpdate) 
     if payload.rating is not None:
         progress.rating = payload.rating
 
+    # unread → reading 时记录开始日期
+    if progress.status == "reading" and not progress.start_date:
+        if previous_status in (None, "unread") or created:
+            progress.start_date = local_today_iso()
+
     # finish_date 为用户可见的本地日历日，与 reading_logs.log_date / stats streak 同源
     if progress.status in TERMINAL_STATUSES and not progress.finish_date:
         progress.finish_date = local_today_iso()
     elif progress.status not in TERMINAL_STATUSES and previous_status in TERMINAL_STATUSES:
         progress.finish_date = None
+
+    # 标记读完时联动进度为 100%
+    if progress.status == "finished":
+        progress.percent = 100.0
+        if book.page_count and book.page_count > 0:
+            progress.current_page = book.page_count
 
     progress.last_read_at = datetime.now(timezone.utc)
 

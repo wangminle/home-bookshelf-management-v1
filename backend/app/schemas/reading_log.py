@@ -1,6 +1,8 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.utils.time_helpers import local_today_iso
 
 
 class ReadingLogCreate(BaseModel):
@@ -17,10 +19,19 @@ class ReadingLogCreate(BaseModel):
     def validate_log_date(cls, value: str) -> str:
         cleaned = value.strip()
         try:
-            date.fromisoformat(cleaned)
+            d = date.fromisoformat(cleaned)
         except ValueError as exc:
             raise ValueError("log_date 须为有效日期，格式 YYYY-MM-DD") from exc
+        today = date.fromisoformat(local_today_iso())
+        if d > today:
+            raise ValueError("log_date 不能是未来日期")
         return cleaned
+
+    @model_validator(mode="after")
+    def validate_session_range(self) -> "ReadingLogCreate":
+        if self.session_start and self.session_end and self.session_end < self.session_start:
+            raise ValueError("session_end 不能早于 session_start")
+        return self
 
 
 class ReadingLogOut(BaseModel):

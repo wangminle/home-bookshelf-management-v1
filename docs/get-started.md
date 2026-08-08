@@ -52,6 +52,13 @@ bookshelf --help
 export BOOKSHELF_API_URL=http://<家庭服务器IP>:8000
 ```
 
+若你希望 CLI 以后直接按某个已绑定成员身份写入，也可以在本机长期保留：
+
+```bash
+export BOOKSHELF_CHANNEL=feishu
+export BOOKSHELF_EXTERNAL_USER_ID=ou_xxxxxxxx
+```
+
 ---
 
 ## 3. 自检
@@ -105,6 +112,15 @@ bookshelf bind --member-id 1 --channel feishu --external-user-id ou_xxxxxxxx
 bookshelf member --name "你" --role owner
 bookshelf bind --member-id 1 --channel feishu --external-user-id ou_xxxxxxxx
 ```
+
+绑定完成后，若你平时通过 CLI 或 Agent+CLI 直接写入，可设置：
+
+```bash
+export BOOKSHELF_CHANNEL=feishu
+export BOOKSHELF_EXTERNAL_USER_ID=ou_xxxxxxxx
+```
+
+这样 `add` / `progress` / `purchase` / `note` / `reading-log` 等命令都会自动带上绑定身份。
 
 ---
 

@@ -5,11 +5,13 @@
 | 变量 | 作用 |
 | --- | --- |
 | `BOOKSHELF_API_URL` | API 根地址，默认 `http://127.0.0.1:8000` |
-| `BOOKSHELF_SETUP_TOKEN` / `SETUP_TOKEN` | 非首次绑定时的管理口令（请求头 `X-Setup-Token`） |
-| `BOOKSHELF_CHANNEL` | `bind` 时透传 `X-Channel` |
-| `BOOKSHELF_EXTERNAL_USER_ID` | `bind` 时透传 `X-External-User-Id` |
+| `BOOKSHELF_SETUP_TOKEN` / `SETUP_TOKEN` | CLI 全部请求都会自动透传为 `X-Setup-Token`；主要用于白名单建立后的 `bind` |
+| `BOOKSHELF_CHANNEL` | CLI 全部请求都会自动透传为 `X-Channel` |
+| `BOOKSHELF_EXTERNAL_USER_ID` | CLI 全部请求都会自动透传为 `X-External-User-Id` |
 
 多数命令支持 `--json` / `--no-json`（默认 JSON）。
+
+若同时设置了 `BOOKSHELF_CHANNEL` 和 `BOOKSHELF_EXTERNAL_USER_ID`，CLI 写命令会按该绑定身份访问后端；只设置其中一个会被后端判为畸形请求并返回 `400`。
 
 ---
 
@@ -61,7 +63,8 @@ bookshelf progress --book-id ID [--member-id ID] [--status 状态]
 ```bash
 bookshelf purchase --book-id ID --price 价格
                    [--original-price 定价] [--channel 渠道]
-                   [--order-no 单号] [--date YYYY-MM-DD] [--member-id ID]
+                   [--order-no 单号] [--date YYYY-MM-DD] [--notes 备注]
+                   [--member-id ID]
 ```
 
 ## `note`
@@ -94,6 +97,11 @@ bookshelf health
 bookshelf recognize --image 路径
 bookshelf stats
 ```
+
+补充：
+
+- `bookshelf doctor` 在检查未通过时会以退出码 `1` 结束，便于 Agent / 脚本判断失败
+- `bookshelf health` / 其他命令若遇到 API 非 JSON、网络错误或 HTTP 4xx/5xx，会返回更明确的中文错误而不是裸 traceback
 
 ---
 

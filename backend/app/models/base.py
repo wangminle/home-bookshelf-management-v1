@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, MetaData, create_engine
+from sqlalchemy import DateTime, MetaData, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 NAMING_CONVENTION = {
@@ -20,6 +20,7 @@ class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
+        server_default=text("(CURRENT_TIMESTAMP)"),
         nullable=False,
     )
 
@@ -29,6 +30,7 @@ class TimestampUpdateMixin(TimestampMixin):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("(CURRENT_TIMESTAMP)"),
         nullable=False,
     )
 

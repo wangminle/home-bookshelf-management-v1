@@ -1,12 +1,30 @@
 import json
 import re
+import unicodedata
 
 
 def normalize_title(title: str) -> str:
-    return title.strip().lower()
+    """归一书名用于去重：NFKC 全/半角统一、去标点、折叠空白、小写。
+
+    例：'Harry  Potter.' / 'Ｈａｒｒｙ Ｐｏｔｔｅｒ' / 'Harry Potter.'
+    均归一为 'harry potter'，避免同书因排版差异重复入库。
+    """
+    if not title:
+        return ""
+    # NFKC：全角→半角、兼容等价形式统一（如 ﾊ→ハ、①→1）
+    text = unicodedata.normalize("NFKC", str(title))
+    # 去标点符号（含中英文标点），保留字母数字与空白
+    text = "".join(ch for ch in text if not unicodedata.category(ch).startswith("P"))
+    # 折叠连续空白为单个空格
+    text = re.sub(r"\s+", " ", text).strip()
+    return text.lower()
 
 
 def normalize_isbn(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raw = str(raw)
     if not raw:
         return None
     digits = re.sub(r"[^0-9Xx]", "", raw.strip())
@@ -120,5 +138,15 @@ def deserialize_json_list(raw: str | None) -> list[str] | None:
     try:
         value = json.loads(raw)
         return value if isinstance(value, list) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def deserialize_json_dict(raw: str | None) -> dict | None:
+    if not raw:
+        return None
+    try:
+        value = json.loads(raw)
+        return value if isinstance(value, dict) else None
     except json.JSONDecodeError:
         return None

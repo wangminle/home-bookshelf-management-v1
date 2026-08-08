@@ -45,7 +45,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir .
 | `DATABASE_URL` | 默认 `sqlite:///./data/bookshelf.db` |
 | `DATA_DIR` | 数据根目录（封面、附件） |
 | `GOOGLE_BOOKS_API_KEY` | 可选 |
-| `SETUP_TOKEN` | 可选；保护非首次 `/members/bind` |
+| `SETUP_TOKEN` | 可选；保护白名单建立后的 `/members/bind`。CLI 侧可用 `BOOKSHELF_SETUP_TOKEN` / `SETUP_TOKEN` 自动透传 |
 
 完整示例见 `backend/.env.example`、`deploy/.env.example`。
 
@@ -58,6 +58,8 @@ bash deploy/backup.sh
 ```
 
 脚本会对 SQLite 做 `.backup` 并打包 `data/`。请按家庭习惯配置 cron / 计划任务，并视需要拷到 NAS。
+
+若当前数据目录还没有 `covers/` / `attachments/`，脚本会跳过附件包并给出警告，但数据库备份仍会生成。
 
 恢复前请先停服务，再替换数据库与数据目录。
 

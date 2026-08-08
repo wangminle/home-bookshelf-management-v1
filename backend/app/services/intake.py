@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Book, BookCopy, Member, PurchaseRecord
+from app.config import settings
 from app.services.metadata import fetch_metadata
 from app.services.recognition import recognize_isbn_from_image
 from app.services.storage import download_cover, save_uploaded_image
@@ -24,6 +25,17 @@ from app.utils.book_helpers import (
 )
 from app.utils.db_errors import rollback_on_integrity
 from app.utils.time_helpers import local_today_iso
+
+
+def _cleanup_orphan_cover(cover_path: str | None) -> None:
+    if not cover_path:
+        return
+    try:
+        path = (settings.data_dir / cover_path).resolve()
+        path.relative_to(settings.data_dir.resolve())
+        path.unlink(missing_ok=True)
+    except (OSError, ValueError):
+        pass
 
 
 @dataclass
@@ -60,9 +72,12 @@ def intake_book(db: Session, payload: IntakeInput) -> IntakeResult:
     _validate_intake(payload)
 
     isbn_detected: str | None = normalize_isbn(payload.isbn)
-    # 手工传入的 ISBN 必须校验位正确（条码识别失败时回退到 None，不在此拒绝）
-    if payload.isbn and isbn_detected and not is_valid_isbn(isbn_detected):
-        raise ValueError("ISBN 校验位不正确")
+    # 手工传入的 ISBN：位数不对或校验位错误均应报错，避免静默丢弃
+    if payload.isbn and payload.isbn.strip():
+        if not isbn_detected:
+            raise ValueError("ISBN 格式无效，须为 10 或 13 位")
+        if not is_valid_isbn(isbn_detected):
+            raise ValueError("ISBN 校验位不正确")
 
     has_image = bool(payload.image_path and payload.image_path.exists())
 
@@ -178,6 +193,7 @@ def intake_book(db: Session, payload: IntakeInput) -> IntakeResult:
     try:
         db.commit()
     except IntegrityError as exc:
+        _cleanup_orphan_cover(cover_path)
         raise rollback_on_integrity(db, exc) from exc
     db.refresh(book)
 
@@ -208,9 +224,10 @@ def _resolve_isbn_fields(
     meta_isbn10: str | None,
     detected: str | None,
 ) -> tuple[str | None, str | None]:
-    isbn13 = canonical_isbn13(meta_isbn13) or canonical_isbn13(meta_isbn10) or canonical_isbn13(detected)
+    # 优先采用扫描/手工 ISBN，防止元数据模糊命中张冠李戴
+    isbn13 = canonical_isbn13(detected) or canonical_isbn13(meta_isbn13) or canonical_isbn13(meta_isbn10)
     isbn10 = None
-    for candidate in (meta_isbn10, detected):
+    for candidate in (detected, meta_isbn10):
         normalized = normalize_isbn(candidate)
         if normalized and len(normalized) == 10 and is_valid_isbn(normalized):
             isbn10 = normalized
@@ -255,6 +272,8 @@ def _handle_existing_book(
         try:
             db.commit()
         except IntegrityError as exc:
+            if cover_backfilled:
+                _cleanup_orphan_cover(existing.cover_path)
             raise rollback_on_integrity(db, exc) from exc
 
     message = f"《{existing.title}》已在书架中"

@@ -82,6 +82,9 @@ bookshelf doctor
 3. 设置环境变量：
    ```bash
    export BOOKSHELF_API_URL=http://127.0.0.1:8000   # 或家庭服务器地址
+   export BOOKSHELF_CHANNEL=feishu                  # 可选：Agent 通过 CLI 写入时复用绑定身份
+   export BOOKSHELF_EXTERNAL_USER_ID=ou_xxx         # 可选：与 bind 时一致
+   export BOOKSHELF_SETUP_TOKEN=...                 # 可选：白名单建立后代绑成员
    ```
 4. 确认以下技能已加载：
 
@@ -120,7 +123,8 @@ bookshelf doctor
 
 4. 绑定后 `bookshelf doctor` 应显示 `members_bound >= 1`
 
-> 绑定后所有业务写端点（progress/notes/reading-logs/purchases/intake）会校验 `X-Channel`/`X-External-User-Id`，未绑定的渠道身份返回 403。
+> 绑定后业务写端点（progress/notes/reading-logs/purchases/intake，以及 attachments/copies/custom-fields 等写接口）会校验 `X-Channel`/`X-External-User-Id`，未绑定的渠道身份返回 403。
+> 若 Agent 是通过 CLI 执行命令，只需在运行环境设置 `BOOKSHELF_CHANNEL` / `BOOKSHELF_EXTERNAL_USER_ID`，CLI 会自动透传为请求头。
 > 一期不做飞书 Webhook 自动配置；Agent 侧收到消息后映射成员 ID 即可。
 
 ---

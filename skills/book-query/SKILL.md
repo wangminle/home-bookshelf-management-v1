@@ -30,7 +30,7 @@ bookshelf health
 
 可同时组合 keyword + author 缩小范围。
 
-> **一期范围说明**：`find` 仅支持 `--keyword` / `--author` / `--isbn` 三个过滤参数；不支持按阅读状态、副本位置、分类等过滤（`--status` / `--shelf` / `--category` 等为设计方案中的二期示意命令）。
+> **范围说明**：`find` 仅支持 `--keyword` / `--author` / `--isbn` 三个过滤参数；不支持按阅读状态、副本位置、分类等过滤（`--status` / `--shelf` / `--category` 等为设计方案中的二期示意命令）。
 
 若用户描述模糊（「那本红封面的」），先追问书名/作者/ISBN，不要瞎猜。
 

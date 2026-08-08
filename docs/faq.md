@@ -116,9 +116,19 @@ bookshelf bind --member-id 2 --channel feishu --external-user-id ou_yyy
 | `docs/` | 使用说明：快速开始、指南、FAQ（本文档所在处） |
 | `design/` | 开发与需求：设计方案、Schema、调研 |
 
-### 还要 Web 书架吗？
+### 有 Web 书架页面吗？
 
-二期规划，见 `design/` 与 `task-list.md` 中的 PLN 条目。一期以 CLI + Agent 为主。
+有。二期已实现 Vue 3 SPA Web UI，提供封面墙浏览、筛选、书籍详情、阅读统计仪表盘、书架概览图生成与导出。详见 [Web UI 部署指南](./web-ui.md)。
+
+开发模式：
+```bash
+cd frontend && npm run dev    # http://localhost:3000
+```
+
+生产部署：构建前端拷入 `backend/static/`，后端自动托管：
+```bash
+cd frontend && npm run build && cp -r dist/* ../backend/static/
+```
 
 ---
 

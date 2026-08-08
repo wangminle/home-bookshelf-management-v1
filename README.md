@@ -2,9 +2,9 @@
 
 **[🇨🇳 中文](#中文)** · **[🇬🇧 English](#english)**
 
-> 面向家庭藏书的自托管管理系统：FastAPI 后端 + Typer CLI + Agent 技能，支持 ISBN/拍照/书名入库、多源元数据聚合、阅读追踪与统计。
+> 面向家庭藏书的自托管管理系统：FastAPI 后端 + Vue 3 Web UI + Typer CLI + Agent 技能，支持 ISBN/拍照/书名入库、多源元数据聚合、阅读追踪与统计。
 >
-> A self-hosted home bookshelf manager: FastAPI backend + Typer CLI + Agent skills. Intake by ISBN / photo / title, multi-source metadata, reading tracking & stats.
+> A self-hosted home bookshelf manager: FastAPI backend + Vue 3 Web UI + Typer CLI + Agent skills. Intake by ISBN / photo / title, multi-source metadata, reading tracking & stats.
 
 ---
 
@@ -16,6 +16,7 @@
 - **多源元数据聚合**：OpenLibrary · Google Books · 国图 NLC（中文 `9787` ISBN 自动路由）
 - **副本与购买记录**：多副本管理、购买价格/渠道/订单号、花费统计
 - **阅读追踪**：5 态进度（想读/在读/读完/弃读/放弃）、每日阅读日志、连续天数、读书笔记
+- **Web UI**：Vue 3 SPA 封面墙浏览、筛选、详情页、阅读统计仪表盘、书架概览图生成与导出
 - **附件**：书籍/副本/成员/笔记可挂链接、文件、Markdown
 - **成员与 IM 绑定**：家庭成员 + 渠道白名单（飞书/Telegram 等）鉴权
 - **识别与诊断**：封面/条码识别、`doctor` 自检
@@ -32,22 +33,24 @@ home-bookshelf-management-v1/
 │   │   ├── models/       SQLAlchemy 2.0 模型
 │   │   ├── schemas/      Pydantic v2 schemas
 │   ├── alembic/          数据库迁移（SQLite, WAL）
+│   ├── static/           前端构建产物（gitignore，生产部署用）
 │   ├── tests/            pytest 回归
 │   ├── install.sh / install.bat
 │   └── requirements.txt
+├── frontend/             Vue 3 SPA（封面墙 / 详情 / 统计 / 概览图）
 ├── cli/                  Typer CLI（命令 bookshelf）
 ├── deploy/               docker-compose / systemd / backup.sh
 ├── skills/               Agent 技能（7 个）
-├── design/               开发与需求文档（设计方案 / Schema / 调研）
-├── docs/                 用户说明（get-started / user-guide / faq …）
+├── design/               开发与需求文档（设计方案 / Schema / 调研 / 前端评估）
+├── docs/                 用户说明（get-started / user-guide / web-ui / faq …）
 ├── AGENTS.md / CLAUDE.md
 └── task-list.md
 ```
 
 ### 文档入口
 
-- **使用说明**（`docs/`）：[快速开始](docs/get-started.md) · [使用指南](docs/user-guide.md) · [CLI 参考](docs/cli-reference.md) · [部署](docs/deployment.md) · [接入 Agent](docs/agent-setup.md) · [FAQ](docs/faq.md)
-- **设计与需求**（`design/`）：[设计方案](design/家庭图书管理系统-设计方案.md) · [Schema 细化](design/数据库Schema对照与一期细化.md)
+- **使用说明**（`docs/`）：[快速开始](docs/get-started.md) · [使用指南](docs/user-guide.md) · [CLI 参考](docs/cli-reference.md) · [部署](docs/deployment.md) · [Web UI](docs/web-ui.md) · [接入 Agent](docs/agent-setup.md) · [FAQ](docs/faq.md)
+- **设计与需求**（`design/`）：[设计方案](design/家庭图书管理系统-设计方案.md) · [Schema 细化](design/数据库Schema对照与一期细化.md) · [前端评估报告](design/frontend-evaluation-report.md)
 
 ### 后端安装与运行
 
@@ -68,6 +71,16 @@ Docker 一键部署：
 cd deploy
 cp .env.example .env       # 按需改 BOOKSHELF_BIND / BOOKSHELF_DATA_DIR
 docker compose up -d
+```
+
+### Web UI 构建
+
+前端开发与构建详见 [Web UI 部署指南](docs/web-ui.md)。生产部署时，构建产物拷入 `backend/static/`，由后端 SPA fallback 同时服务 API 和前端：
+
+```bash
+cd frontend
+npm install && npm run build
+cp -r dist/* ../backend/static/
 ```
 
 ### CLI 命令（`bookshelf`）
@@ -111,6 +124,7 @@ docker compose up -d
 - **Multi-source metadata**: OpenLibrary · Google Books · NLC (auto-routes Chinese `9787` ISBNs)
 - **Copies & purchases**: multiple copies, price/channel/order tracking, spending stats
 - **Reading tracking**: 5-state progress (unread/reading/finished/abandoned/dropped), daily logs, streaks, notes
+- **Web UI**: Vue 3 SPA with cover-wall browsing, filters, book details, reading stats dashboard, shelf overview export
 - **Attachments**: link/file/markdown on books, copies, members, notes
 - **Members & IM binding**: family members + channel whitelist (Feishu/Telegram) for auth
 - **Recognition & diagnostics**: cover/barcode recognition, `doctor` self-check
@@ -127,22 +141,24 @@ home-bookshelf-management-v1/
 │   │   ├── models/       SQLAlchemy 2.0 models
 │   │   ├── schemas/      Pydantic v2 schemas
 │   ├── alembic/          migrations (SQLite, WAL)
+│   ├── static/           frontend build output (gitignored, for production)
 │   ├── tests/            pytest regressions
 │   ├── install.sh / install.bat
 │   └── requirements.txt
+├── frontend/             Vue 3 SPA (cover wall / details / stats / overview)
 ├── cli/                  Typer CLI (command: bookshelf)
 ├── deploy/               docker-compose / systemd / backup.sh
 ├── skills/               Agent skills (7)
 ├── design/               design & requirements
-├── docs/                 user guides (get-started / user-guide / faq …)
+├── docs/                 user guides (get-started / user-guide / web-ui / faq …)
 ├── AGENTS.md / CLAUDE.md
 └── task-list.md
 ```
 
 ### Docs
 
-- User: [get-started](docs/get-started.md) · [user guide](docs/user-guide.md) · [FAQ](docs/faq.md) · [CLI](docs/cli-reference.md) · [deploy](docs/deployment.md) · [agent](docs/agent-setup.md)
-- Design: [design方案](design/家庭图书管理系统-设计方案.md)
+- User: [get-started](docs/get-started.md) · [user guide](docs/user-guide.md) · [FAQ](docs/faq.md) · [CLI](docs/cli-reference.md) · [deploy](docs/deployment.md) · [Web UI](docs/web-ui.md) · [agent](docs/agent-setup.md)
+- Design: [design方案](design/家庭图书管理系统-设计方案.md) · [frontend evaluation](design/frontend-evaluation-report.md)
 
 ### Backend Setup & Run
 
@@ -163,6 +179,16 @@ Docker one-shot:
 cd deploy
 cp .env.example .env       # tweak BOOKSHELF_BIND / BOOKSHELF_DATA_DIR as needed
 docker compose up -d
+```
+
+### Web UI Build
+
+See [Web UI deployment guide](docs/web-ui.md) for details. For production, build the frontend and copy it into `backend/static/` — the backend serves both API and SPA via a fallback route:
+
+```bash
+cd frontend
+npm install && npm run build
+cp -r dist/* ../backend/static/
 ```
 
 ### CLI Commands (`bookshelf`)

@@ -133,6 +133,14 @@ export interface StatsOut {
   purchase_count: number
   reading_logs_pages_total: number
   members: MemberStats[]
+  by_year: YearlyStat[]
+}
+
+export interface YearlyStat {
+  year: string
+  books_added: number
+  spent: number
+  pages_read: number
 }
 
 export interface MemberOut {

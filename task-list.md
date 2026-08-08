@@ -105,6 +105,22 @@
 | BUG-092 | 修复 | async 写端点 /books/intake 与 /attachments 把请求作用域 SQLAlchemy Session 直接传入 run_in_threadpool，同一 Session 跨线程复用；在线上并发下可能出现不稳定事务/连接行为。 | 2026-08-09 03:49 | 2026-08-09 03:49 | 已修复 | api/v1/intake.py、api/v1/attachments.py；改为线程内用 app.db.SessionLocal 自建会话，成员解析/业务写入/operation log 全在线程内完成，不再跨线程传递请求 db；新增 pytest：test_bug068_intake_threadpool_opens_own_session、test_bug068_attachment_threadpool_opens_own_session |
 | BUG-093 | 修复 | PATCH /books/{id} 仅更新 isbn10 时，等价 isbn13 不会统一校验，可能留下逻辑重复书目或 isbn10/isbn13 脏组合。 | 2026-08-09 03:49 | 2026-08-09 03:49 | 已修复 | services/books.py；更新流程统一规范化 isbn10/isbn13，校验二者一致性，并对其他书目的等价 ISBN 冲突做预检查；新增 pytest：test_bug069_patch_isbn10_backfills_isbn13、test_bug069_patch_isbn10_conflict_returns_409 |
 | BUG-094 | 修复 | normalize_title 归一化过弱：book_helpers.py 仅 strip+lower，多空格/标点/全角不归一，同书易重复入库（第八轮报告原拟 BUG-073，台账 BUG-073/074/084 均记成 streak 且已修） | 2026-08-09 03:51 | 2026-08-09 11:40 | 已修复 | normalize_title 改为 NFKC 全/半角统一 + 去标点(Unicode category P) + 折叠空白 + 小写；实测 'Harry Potter'/'Harry  Potter'/'Harry Potter.'/'Harry, Potter!'/'Ｈａｒｒｙ Ｐｏｔｔｅｒ' 全部归一为 'harry potter'。新增 test_bug094_normalize_title.py（4 用例）。全量 pytest 40 passed、compileall 通过 |
+| BUG-095 | 修复 | Web UI 附件链接 :href 直绑 a.url：历史库中若有 javascript:/data: 等非 http(s) URL（BUG-075 修复前写入或绕过写入），详情页「打开」可触发存储型 XSS；新建附件虽已 scheme 校验，渲染端缺防御 | 2026-08-09 04:37 | 2026-08-09 05:00 | 已修复 | frontend/src/stores/api.ts 新增 safeUrl() 函数，仅允许 http/https/mailto 协议；BookDetailView.vue 附件链接 :href 改用 safeUrl(a.url) 过滤 |
+| BUG-096 | 修复 | 前端 api.ts 未解析 FastAPI 错误体 detail：4xx/5xx 返回 {detail:...} 时 body.ok 为 undefined 虽会抛错，但 lastError 只显示「请求失败 (status)」丢失服务端具体原因（校验/鉴权文案） | 2026-08-09 04:37 | 2026-08-09 05:00 | 已修复 | api.ts request() 错误分支增加 body.detail 读取，兼容 FastAPI {detail: string} 和 {detail: [{msg}]} 验证错误格式 |
+| BUG-097 | 修复 | BookshelfView 注册 window scroll 监听却无 onUnmounted 移除，路由离开后监听残留，可能重复触发 loadMore | 2026-08-09 04:37 | 2026-08-09 05:00 | 已修复 | BookshelfView.vue 已有 onUnmounted 移除 scroll 监听器，本轮确认已修复 |
+| BUG-098 | 修复 | Web UI 附件只链 a.url，未使用已实现的 attachmentUrl(file_path)：file 类附件无法打开 | 2026-08-09 04:37 | 2026-08-09 05:13 | 已修复 | BookDetailView.vue 附件区；stores/api.ts attachmentUrl 已实现但未引用；CHK-026/027 确认属实；本会话核实工作区修复并补强（SPA /api 404、useBooks 筛选作废序号）；2026-08-09 05:13 |
+| BUG-099 | 修复 | BookDetailView 进度表单串数据：仅在命中当前成员进度时赋值，未命中不重置；换书/换成员后残留上一状态页码评分，且未 watch selectedId；成员异步加载时预填常失败 | 2026-08-09 04:37 | 2026-08-09 05:13 | 已修复 | BookDetailView.vue loadDetail；CHK-026/027 确认属实；本会话核实工作区修复并补强（SPA /api 404、useBooks 筛选作废序号）；2026-08-09 05:13 |
+| BUG-100 | 修复 | useBooks 列表筛选竞态：loadInitial/loadMore 无请求序号或取消，快速改筛选时旧响应可覆盖新结果 | 2026-08-09 04:37 | 2026-08-09 05:13 | 已修复 | frontend/src/composables/useBooks.ts；CHK-026/027 确认属实；本会话核实工作区修复并补强（SPA /api 404、useBooks 筛选作废序号）；2026-08-09 05:13 |
+| BUG-101 | 修复 | StatsView 状态条分母误用 total_books：by_status 按进度行计数（多成员可大于藏书数），宽度可超过 100% | 2026-08-09 04:37 | 2026-08-09 05:13 | 已修复 | StatsView.vue；分母应取 by_status 合计或合理上限；CHK-026/027 确认属实；本会话核实工作区修复并补强（SPA /api 404、useBooks 筛选作废序号）；2026-08-09 05:13 |
+| BUG-102 | 修复 | POST/PATCH /books 未接入渠道鉴权：白名单建立后未绑定身份仍可带渠道头创建/更新书籍（201/200），同头打 purchases 为 403；相对其它写端点为明确绕过 | 2026-08-09 04:39 | - | 待修复 | api/v1/books.py:92-146 缺 channel_headers/enforce_channel_member；后端审计复现 |
+| BUG-103 | 修复 | CLI _auth_headers 半组渠道头独立注入：只设 BOOKSHELF_CHANNEL 或只设 BOOKSHELF_EXTERNAL_USER_ID 时全部写命令带半组头→后端 400，拖垮 progress/add 等 | 2026-08-09 04:39 | - | 待修复 | cli/bookshelf/client.py:26-31；应成对才注入，否则省略 |
+| BUG-104 | 修复 | CLI 把 recognize 未识别（ok=False 且 data.found=False）当成硬失败：丢弃 data.message，统一抛「API 请求失败」 | 2026-08-09 04:39 | - | 待修复 | client.py ok is False 分支；应区分业务未命中与真正错误，透传 message |
+| BUG-105 | 修复 | 封面下载 DNS rebinding TOCTOU 残留：_is_safe_url getaddrinfo 后 urlopen 再次解析未钉 IP；3xx 跳转已由 _SafeRedirectHandler 复检（BUG-051），二次解析窗口仍在 | 2026-08-09 04:39 | - | 待修复 | storage.py；利用面有限（封面多来自元数据源）；硬化可选 IP pin |
+| BUG-106 | 修复 | SPA fallback 路径穿越：static 托管时 ../ 可读 backend 旁路文件（config/.env.example 等），缺 is_relative_to 护栏 | 2026-08-09 04:59 | 2026-08-09 05:55 | 已完成 | main.py spa_fallback 加 is_relative_to(_static_root) 护栏，对齐 files.py _safe_resolve；新增 test_spa_fallback.py 5 项回归（穿越/编码穿越/合法路由/静态文件）；curl 验证 /../app/config.py 返回 SPA HTML 而非源码；补强：未匹配 /api/* 返回 JSON 404，不再回落 SPA HTML；2026-08-09 05:13 |
+| BUG-107 | 修复 | OverviewView 首屏 generateImage 早于 canvas 挂载（v-if loading）：canvasRef 为空静默跳过自动生成 | 2026-08-09 04:59 | 2026-08-09 05:55 | 已完成 | OverviewView onMounted 加 nextTick 确保 canvas ref 注册后再 generateImage；generateImage 加 generating 重入守卫 + try/finally 复位 + genToken 丢弃过期异步结果；浏览器验证 canvas.width=1080 + 下载按钮 enabled（自动生成成功） |
+| BUG-108 | 修复 | 前端自查发现4处bug修复：①App.vue成员选择器parseInt空串返回NaN→onMemberChange守卫；②BookDetailView router.replace({...route}) spread带入matched/meta只读字段→改为{hash}；③StatsView缺.yearly-table/.subsection-title/.overview-link定义+残留内联样式→补scoped样式+提取类；④topbar移动端溢出(P2#13)→flex-shrink+overflow:hidden+max-width+窄屏导航收紧 | 2026-08-09 05:00 | 2026-08-09 05:35 | 已完成 | vue-tsc构建零错误；浏览器验证tab hash持久化(#copies)、成员切换、375px顶栏不溢出均正常 |
+| BUG-109 | 修复 | 代码审查6个BUG修复：Bug1路径穿越已由BUG-106修复验证；Bug2附件file_path打不开新增attachmentHref回退；Bug3进度表单残留else重置；Bug4 useBooks竞态请求序号；Bug5状态条分母改用statusTotal；Bug6 members双发in-flight去重 | 2026-08-09 17:00 | 2026-08-09 17:30 | 已修复 | - |
+| BUG-110 | 修复 | test_files_serving 路径穿越测试与 SPA fallback 环境耦合：httpx 客户端规范化 /../../../etc/passwd→/etc/passwd 后不再命中 /api/v1/files 路由，static 托管时被 spa_fallback 捕获返回 200（BUG-106 修复暴露） | 2026-08-09 05:10 | 2026-08-09 05:55 | 已完成 | 测试改为断言安全契约（响应体不含 root:/bin/）+ %2e%2e 编码直击 files 路由验 404；118 passed 全绿 |
 
 ## 调整事项
 
@@ -140,6 +156,12 @@
 | CHK-020 | 检查 | 第八轮 bug 修复验证：逐一核查 BUG-050~094 是否存在/已修复。首次修复 9 项（BUG-054/056/057/059/061/062/065/072/079）+OPR-002+DOC-017；经独立验证器复核发现 BUG-054（匿名仍可写 copies/custom-fields/members）和 BUG-059（ValueError 未捕获致 500）未真正收口，二次修复：auth.py 加 require_channel 参数、members 白名单建立后拒匿名、recognize.py 补 ValueError 捕获。最终 compileall 通过、pytest 104 passed | 2026-08-09 03:28 | 2026-08-09 04:20 | 已完成 | 首次结论失真已修正：BUG-054/059 经二次修复确认收口；pytest 实际 104 passed（非首次报告的 26） |
 | CHK-021 | 检查 | 复核第八轮 BUG-069~079 是否仍存在/已修复（代码实跑） | 2026-08-09 03:51 | 2026-08-09 03:51 | 已完成 | 结论：069-072、074-079 已修复；报告中的 BUG-073(normalize_title) 台账错位为 streak，弱归一化见 BUG-080 或后续条目；BUG-073 备注已注明错位 |
 | CHK-022 | 检查 | 复核设计方案合理性评估（v1.3 + 审查结论）并尝试检索同类开源项目 | 2026-08-09 04:12 | 2026-08-09 04:12 | 已完成 | 评估总体同意；补充 nuance：CLI 文档漂移、进度 copy 维度、CHK-001 未闭环属实；Docker/元数据超时部分已有后续修复需核对。开源检索因本机未装 parallel-cli 未完成，待 /parallel-setup 后补 |
+| CHK-023 | 检查 | 使用 frontend-design 和 impeccable skill 评估前端页面，撰写详细分析报告存入 design/ 目录。报告涵盖设计美学（字体/色彩/动效/空间/背景）、技术审计（A11y/性能/主题/响应式/反模式）、UX 体验和代码质量，综合评分 4.5/10 | 2026-08-09 04:32 | 2026-08-09 04:45 | 已完成 | - |
+| CHK-024 | 检查 | 提交前全量未提交代码复查：pytest 109 passed；台账无待修复后对后端/CLI/前端抽查 | 2026-08-09 04:37 | 2026-08-09 04:37 | 已完成 | 历史 BUG 台账已全部标已修复且抽查属实；新发现前端 3 项待修；CORS=*+/files 无鉴权属一期局域网设计取舍；docs/web-ui StaticFiles mount / 有踩坑风险记入备注非独立 bug；补充登记：附件 file_path、进度表单串数据、筛选竞态、Stats 分母（来自前端审计）；后端审计补充：POST/PATCH books 缺鉴权、CLI 半组头、recognize ok=False 误报、DNS TOCTOU 残留 |
+| CHK-025 | 检查 | 全量缺陷复查：台账 BUG-098~105 仍开；新发现 SPA 路径穿越 P0 + Overview 挂载竞态；年度统计短日期/空日期口径不一致 | 2026-08-09 04:59 | 2026-08-09 04:59 | 已完成 | correctness+adversarial+api-reliability；validator 8/8 true；P0 SPA traversal 已登记 BUG-106 |
+| CHK-026 | 检查 | 独立复核 6 个代码审查候选问题（不改代码） | 2026-08-09 05:01 | 2026-08-09 05:01 | 已完成 | 基于仓库当前代码独立核实；确认 1/2/3/4/6 存在，其中 1 为高危文件读取，2/3/4 为真实前端缺陷，6 为重复请求竞态；5 按候选表述判定为误报（by_status 可大于 total_books，但条形轨道 overflow:hidden 不会实际溢出）。 |
+| CHK-027 | 检查 | 复核 6 个候选问题真伪、严重性与误报可能性（SPA fallback 路径穿越、附件 file_path 入口、详情进度残留、书架筛选竞态、统计条分母、成员重复加载） | 2026-08-09 05:02 | 2026-08-09 05:02 | 已完成 | 仅做代码与本地复现核实，未修改业务代码；确认 6 项均真实存在，其中 SPA fallback 路径穿越可经 %2e%2e 复现读取 backend/app/main.py 与 /etc/passwd。 |
+| CHK-028 | 检查 | 前端 5 维度审计（impeccable）：A11y / 性能 / 主题化 / 响应式 / 反模式，评分 15/20（Good），发现 15 个问题（4 P1 + 7 P2 + 4 P3） | 2026-08-09 14:00 | 2026-08-09 14:30 | 已完成 | 审计报告见 design/frontend-audit-2026-08-09.md |
 
 ## 测试数据
 
@@ -169,6 +191,10 @@
 | DOC-016 | 文档 | 按 Cursor 风格重建 docs/：快速开始、使用指南、CLI 参考、部署、Agent 接入、FAQ | 2026-07-11 21:05 | 2026-07-11 21:05 | 已完成 | docs/ 与 design/ 职责分离；根 README 作唯一入口索引；docs/ 不设 README，避免与项目 README 定位冲突 |
 | DOC-017 | 文档 | 文档三处不一致：README 中/英项目结构图把 alembic/ 画在 app/ 下（实际在 backend/ 顶层）；docs/cli-reference.md 的 purchase 命令漏列 --notes 选项；deploy/.env.example 缺 SETUP_TOKEN（backend/.env.example 有） | 2026-08-09 03:28 | 2026-08-09 04:20 | 已完成 | README.md:34/:129、docs/cli-reference.md:59-65、deploy/.env.example；；本会话修复：README 中英项目结构图 alembic/ 移至 backend/ 顶层；cli-reference.md purchase 补 --notes；deploy/.env.example 补 SETUP_TOKEN |
 | DOC-018 | 文档 | 核对并同步 docs/ 与 skills/ 中已过期的 CLI/Agent/鉴权说明：CLI 现在会自动透传 BOOKSHELF_CHANNEL/BOOKSHELF_EXTERNAL_USER_ID/BOOKSHELF_SETUP_TOKEN，doctor/health 错误语义与受保护写接口范围也需对齐当前实现。 | 2026-08-09 03:56 | 2026-08-09 03:56 | 已完成 | 已更新 docs/cli-reference.md、agent-setup.md、get-started.md、user-guide.md、faq.md、deployment.md；skills/README.md、bookshelf-setup/SKILL.md、reading-tracker/SKILL.md。重点同步：CLI 自动注入鉴权头、Agent+CLI 环境变量配置、doctor 失败退出码/中文错误、受保护写接口覆盖范围、backup.sh 跳过附件包的行为说明；task-list check 通过 |
+| DOC-019 | 文档 | 文档全面更新：README 补充 Web UI 描述/frontend 目录/lwa 部署；deployment.md 新增 lwa 部署段和 Web UI 构建说明；web-ui.md 修正后端托管实现为 SPA fallback（与 main.py 实际代码一致）并新增 lwa 方式；get-started.md 新增 Web UI 启动指引；faq.md 更新 Web 书架问答（已实现）；user-guide.md 更新 stats 说明（API 已返回 by_year）；cli-reference.md 更新尚未提供 CLI 说明；design/README.md 补充前端评估报告条目；skills/book-query 和 shelf-report 移除过时一期标注、补充 by_year 字段说明 | 2026-08-09 04:50 | 2026-08-09 04:55 | 已完成 | 9 个文件更新，git diff 可查 |
+| DOC-020 | 文档 | 创建前端审计报告 design/frontend-audit-2026-08-09.md，含 15 个问题详情、修复计划表、审美提升方案 | 2026-08-09 14:30 | 2026-08-09 14:40 | 已完成 | 含 P1-1~P3-4 共 15 项问题清单 + 14 项修复计划 + 5 条审美提升建议 |
+| DOC-021 | 文档 | 审计报告 design/frontend-audit-2026-08-09.md 新增第二轮审计章节（5 Bug + 9 设计提升项 + 14项修复计划表），全部标记为已修复 | 2026-08-09 16:10 | 2026-08-09 17:29 | 已完成 | 含 Bug 发现表 B1-B5、设计提升表 D1-D9、修复计划表 14 项全部 ✅ |
+| DOC-022 | 文档 | 文档最新性核查与更新：①frontend-evaluation-report.md 新增第八节修复状态（P0-P3 全部已修复 + 关键改进表 + task-list 记录回链）；②design/README.md 补列 frontend-audit-2026-08-09.md（原仅列评估报告漏列审计报告）；③docs/web-ui.md 新增设计系统段（暗色模式/A11y WCAG AA/响应式三断点/骨架屏/性能优化）与安全段（SPA 路径穿越护栏 BUG-106） | 2026-08-09 05:33 | 2026-08-09 06:10 | 已完成 | 核查 27 份 md：audit 文档声称的 28 项修复逐项核对代码无虚标；README/deployment/get-started 等已最新无需改；frontend-evaluation-report 原为评估快照现补修复回链 |
 
 ## 功能开发
 
@@ -194,13 +220,14 @@
 | OPR-001 | 运维 | 新增跨平台后端安装脚本 backend/install.sh + install.bat，封装 venv 创建+pip 安装+alembic 迁移，自动检测并重建异平台（如 macOS 同步来）的 .venv | 2026-06-28 13:30 | 2026-06-28 13:30 | 已完成 | bash -n 校验通过；README 已挂接一键命令 |
 | OPR-002 | 运维 | backend/install.sh 与 install.bat 只安装 requirements.txt，requirements-dev.txt（pytest）不被任何安装脚本覆盖，按脚本装出的 venv 无法运行回归测试（本轮检查时 venv 缺 pytest，补装后 13 项全过） | 2026-08-09 03:28 | 2026-08-09 04:20 | 已完成 | backend/install.sh:33、install.bat:43；加 --dev 分支或追加安装 requirements-dev.txt，关联 TST-001；；本会话修复：install.sh 加 --dev/DEV_DEPS 分支安装 requirements-dev.txt，install.bat 对应对齐 |
 | OPS-001 | 优化 | 优化 .gitignore：新增 .zcode/、.claude/、tsconfig.tsbuildinfo、tests/_tmp/、*.log/*.tmp/*.bak/*.swp/*.swo/*~/Thumbs.db、*.sqlite/*.sqlite3、.coverage.*/*.cover 等忽略规则，防止缓存和临时文件上传 GitHub | 2026-08-09 04:25 | 2026-08-09 04:25 | 已完成 | - |
+| OPS-002 | 运维 | lwa 本地部署：前端构建产物拷入 backend/static/，后端 main.py 加 StaticFiles SPA fallback 同时服务 API 和前端；lwa 实例 home-bookshelf 端口 18008；修复 lwa 生成 Dockerfile 缺 alembic upgrade head 导致 API 500（no such table），在 local-web.json start 命令前加 alembic 迁移；端到端验证 member/book CRUD + stats + 前端页面 + 静态资源全部正常 | 2026-08-09 04:50 | 2026-08-09 04:47 | 已完成 | lwa manifest start=sh -c alembic upgrade head && exec uvicorn；backend/static/ 加入 .gitignore；DATABASE_URL=sqlite:////app/data/app.sqlite |
 
 ## 规划事项
 
 | ID | 动作 | 事项 | 发现时间 | 完成时间 | 状态 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | PLN-001 | 规划 | 二期：局域网数字书架 Web UI（封面墙/筛选/详情页）——Vue 3 SPA | 2026-06-26 16:45 | 2026-08-09 13:10 | 已完成 | 架构决策：Vue 3 + Vite + TypeScript SPA + Pinia + Vue Router；后端新增专用 FileResponse 路由(GET /api/v1/files/covers/{path}、/attachments/{path})含路径穿越防护。5 工作包全部完成：WP1 files.py+5测试、WP2 脚手架(types/stores/router/CSS)、WP3 封面墙(BookshelfView 网格+筛选栏+无限滚动+封面占位符)、WP4 详情页(BookDetailView 6 Tab+改进度+加笔记)、WP5 统计页(StatsView 数字卡片+分类条形图+成员统计)+成员选择器+docs/web-ui.md。前端 npm run build 通过(TS 严格模式无错误)，后端 pytest 109 passed。写操作走 body.member_id+可信局域网兜底。范围不含入库/删除/在线阅读/概览图导出 |
-| PLN-002 | 规划 | 二期：藏书概览图生成与阅读统计 | 2026-06-26 16:45 | - | 待开发 | virtual-bookshelf 视觉参考 |
+| PLN-002 | 规划 | 二期：藏书概览图生成与阅读统计——后端年度聚合+前端趋势可视化+Canvas概览图导出 | 2026-06-26 16:45 | 2026-08-09 14:00 | 已完成 | 4 工作包全部完成：WP1 后端 stats 扩展(YearlyStat schema + _compute_yearly_stats 按 substr(purchase_date/log_date,1,4)+strftime(created_at) 年度聚合入库/花费/页数，CNY口径一致，4测试)、WP2 前端 StatsView 扩展(年度趋势表格+花费条形图+概览图入口)、WP3 OverviewView(Canvas 1080x1350 封面6x4拼图+统计摘要+分类TOP3+toBlob导出PNG+navigator.share分享+crossOrigin防tainted)、WP4 docs/web-ui.md更新。前端 npm run build 通过(TS严格模式无错误)，后端 pytest 113 passed。对标 virtual-bookshelf/calibre-web 视觉。范围不含在线阅读(PLN-003) |
 | PLN-003 | 规划 | 二期：电子书上传与浏览器在线阅读（EPUB/PDF） | 2026-06-26 16:45 | - | 待开发 | epub.js / pdf.js + book_copies.file_path |
 | PLN-004 | 规划 | 三期预留：家庭间图书交换与信息发布（仅架构预留） | 2026-06-26 16:45 | - | 待开发 | 本期不实现，book_copies.status 预留 lent_out |
 
@@ -212,6 +239,9 @@
 | OPT-002 | 优化 | OpenLibrary fetch_by_isbn 递归改循环 | 2026-06-26 20:00 | 2026-06-26 20:30 | 已完成 | openlibrary.py |
 | OPT-003 | 优化 | 业务日期统一 UTC；CLI 响应附带 _http_status | 2026-06-26 21:00 | 2026-06-26 22:00 | 已完成 | time_helpers.py；cli/bookshelf/client.py |
 | OPT-004 | 优化 | 加固项：迁移补 server_default、isbn10 加索引、backup.sh WAL 警告、LIKE 通配符转义、finish_date 回清与 current_page 上限、google_books 删未用 import re、NLC 改 HTTPS | 2026-06-26 17:39 | 2026-06-26 18:12 | 已完成 | b7e2a1c904f3 isbn10 索引；c8d9e0f1a2b3 server_default |
+| OPT-005 | 优化 | 前端评估报告（4.5/10）23项系统性修复：P0对比度(text-muted #5a6878达5.7:1/禁用态5.06:1)、表单label关联；P1暗色模式(prefers-color-scheme全套token)、触控目标44px、滚动rAF节流、Tab ARIA tablist/tabpanel/键盘箭头、多断点(480/768/1200)、硬编码颜色token化、骨架屏；P2内联样式提取、stat-card弱化、顶栏移动端、alert()改inline提示、Tab URL hash持久化、占位符饱和度45%→62%、后端离线连接提示；P3 prefers-reduced-motion、focus-visible、成员切换自动刷新、回到顶部按钮。覆盖main.css/api.ts/App.vue/useBooks/BookshelfView/BookDetailView/StatsView/BookCover/OverviewView共9文件，vue-tsc构建零错误 | 2026-08-09 04:45 | 2026-08-09 05:10 | 已完成 | 评估报告 design/frontend-evaluation-report.md；构建通过；DOM验证三页ARIA/数据渲染正常 |
+| OPT-006 | 优化 | 前端审计 14 项修复全部完成：P1-1 封面占位符对比度(--cover-light 58%→36%)；P1-2 页面 h1 标题；P1-3 Tab 横向滚动；P1-4 交互组件 :active 态；P2-1 Canvas 读取 CSS 变量；P2-2 封面并行加载；P2-3 条形图 transform 动画；P2-4 Canvas a11y；P2-5 加载状态 ARIA；P2-6 进度表单 min/max；P2-7 统计页空状态；P3-1 stat-card 去重边框；P3-3 条形图 ARIA；P3-4 Canvas 字体统一 | 2026-08-09 14:40 | 2026-08-09 16:00 | 已完成 | npm run build 通过；涉及 main.css / BookshelfView / StatsView / OverviewView / BookDetailView |
+| OPT-007 | 优化 | 第二轮前端审计与修复（frontend-design skill）：5 Bug（B1 404路由/B2 cover-light fallback/B3 骨架卡边框/B4 Canvas aria动态化/B5 成员表空状态）+ 9 设计提升（D1 衬线字体系统/D2 暖纸背景/D3 卡片入场动效/D4 路由fade过渡/D5 占位符衬线+内阴影/D6 统计卡片语义着色/D7 顶栏品牌线/D8 hover封面缩放/D9 空状态增强），全部14项修复完成 | 2026-08-09 16:10 | 2026-08-09 17:29 | 已完成 | npm run build 通过；涉及 main.css/router/BookCover/BookDetailView/App/BookshelfView/StatsView/OverviewView 共8文件；新增 --info CSS 变量、--font-serif 字体栈、fadeInUp 动画、fade 路由过渡 |
 
 ## 调研事项
 
@@ -225,14 +255,14 @@
 
 | 分类 | 总数 | 已完成 | 待开发/待修复 | 完成率 |
 | --- | --- | --- | --- | --- |
-| 代码 Bug | 94 | 94 | 0 | 100% |
+| 代码 Bug | 110 | 106 | 4 | 96% |
 | 调整事项 | 3 | 3 | 0 | 100% |
-| 检查事项 | 22 | 21 | 1 | 95% |
+| 检查事项 | 28 | 27 | 1 | 96% |
 | 测试数据 | 1 | 1 | 0 | 100% |
-| 文档维护 | 18 | 18 | 0 | 100% |
+| 文档维护 | 22 | 22 | 0 | 100% |
 | 功能开发 | 12 | 12 | 0 | 100% |
-| 配置运维 | 3 | 3 | 0 | 100% |
-| 规划事项 | 4 | 1 | 3 | 25% |
-| 优化事项 | 4 | 4 | 0 | 100% |
+| 配置运维 | 4 | 4 | 0 | 100% |
+| 规划事项 | 4 | 2 | 2 | 50% |
+| 优化事项 | 7 | 7 | 0 | 100% |
 | 调研事项 | 3 | 3 | 0 | 100% |
-| **总计** | 164 | 160 | 4 | 98% |
+| **总计** | 194 | 187 | 7 | 96% |

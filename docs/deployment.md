@@ -23,6 +23,39 @@ docker compose logs -f bookshelf-api
 docker compose down
 ```
 
+如需同时托管 Web UI，先构建前端再启动后端：
+
+```bash
+cd frontend && npm install && npm run build && cd ..
+cp -r frontend/dist/* backend/static/
+cd deploy && docker compose up -d
+```
+
+后端 `main.py` 检测到 `backend/static/` 目录后自动启用 SPA fallback，同时服务 API 和前端。
+
+---
+
+## lwa 本地部署（家庭服务器推荐）
+
+[lwa（Local Webpage Access）](https://github.com/nicekate/local-webpage-access) 是轻量本地网页部署工具，自动生成 Dockerfile/compose 并管理端口。适合家庭服务器一键部署。
+
+```bash
+# 从 lwa 工作区导入后端目录
+cd <lwa-workspace>
+lwa import --from-dir <项目路径>/backend --name "家庭图书管理" --yes
+
+# 修改启动命令加入 alembic 迁移（lwa 生成的 Dockerfile 默认不跑迁移）
+# 编辑 apps/<instance-id>/local-web.json，将 start 改为：
+#   sh -c "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir ."
+
+# 启动
+lwa start <instance-id>
+```
+
+部署前需将前端构建产物拷入 `backend/static/`，后端会自动托管。
+
+管理页：`http://<服务器IP>:17800`
+
 ---
 
 ## 本机 / venv
@@ -76,5 +109,6 @@ bash deploy/backup.sh
 ## 下一步
 
 - [快速开始](./get-started.md)  
+- [Web UI 部署](./web-ui.md)  
 - [接入 Agent](./agent-setup.md)  
 - [FAQ](./faq.md)  

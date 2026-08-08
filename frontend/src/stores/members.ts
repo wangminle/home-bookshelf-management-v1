@@ -14,17 +14,28 @@ export const useMembersStore = defineStore('members', () => {
     members.value.find((m) => m.id === selectedId.value) || null,
   )
 
+  // 修复 BUG：in-flight 去重，避免 main.ts 和 App.vue 同时触发两次请求
+  let _loadPromise: Promise<void> | null = null
+
   async function load() {
-    const data = await api.get<{ items: MemberOut[]; total: number }>('/members')
-    members.value = data.items
-    // 恢复 localStorage 中的选择，或默认选第一个
-    const saved = localStorage.getItem(STORAGE_KEY)
-    const savedId = saved ? parseInt(saved, 10) : null
-    if (savedId && members.value.some((m) => m.id === savedId)) {
-      selectedId.value = savedId
-    } else if (members.value.length > 0) {
-      selectedId.value = members.value[0].id
-    }
+    if (_loadPromise) return _loadPromise
+    _loadPromise = (async () => {
+      try {
+        const data = await api.get<{ items: MemberOut[]; total: number }>('/members')
+        members.value = data.items
+        // 恢复 localStorage 中的选择，或默认选第一个
+        const saved = localStorage.getItem(STORAGE_KEY)
+        const savedId = saved ? parseInt(saved, 10) : null
+        if (savedId && members.value.some((m) => m.id === savedId)) {
+          selectedId.value = savedId
+        } else if (members.value.length > 0) {
+          selectedId.value = members.value[0].id
+        }
+      } finally {
+        _loadPromise = null
+      }
+    })()
+    return _loadPromise
   }
 
   function select(id: number) {

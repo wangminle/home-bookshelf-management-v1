@@ -105,11 +105,11 @@ bookshelf stats
 
 ---
 
-## 一期未提供的 CLI（请用 API 或后续版本）
+## 尚未提供的 CLI（请用 API 或 Web UI）
 
 - `list --shelf …`、`find --status …`
 - `attach` / `field`（请用 `POST /api/v1/attachments`、`POST /api/v1/custom-fields`）
-- `stats --by` / `--spending` / `--year`
+- `stats --by` / `--spending` / `--year`（API 已返回 `by_year` 年度聚合，CLI 不接受过滤参数；Web UI 统计页可查看年度趋势）
 - `--member` 按姓名（目前仅 `--member-id`）
 
 设计背景见 [`design/`](../design/)。

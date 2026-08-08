@@ -54,3 +54,6 @@ Thumbs.db
 node_modules/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo
+
+# 前端构建产物（由 lwa 部署时自动生成，不入库）
+backend/static/

@@ -9,10 +9,8 @@ const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 
-// 启动时加载成员列表
+// 启动时加载成员列表；失败时 backendOffline 由 api.ts 设置，App.vue 会显示连接提示
 const members = useMembersStore()
-members.load().catch(() => {
-  // 后端未启动时静默处理，页面内会显示连接提示
-})
+members.load().catch(() => {})
 
 app.mount('#app')

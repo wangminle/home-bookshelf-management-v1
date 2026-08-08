@@ -36,6 +36,23 @@ GOOGLE_BOOKS_API_KEY=你的密钥
 - macOS：`brew install zbar`
 - Debian/Ubuntu：`apt-get install libzbar0`
 
+### 启动 Web UI（可选）
+
+```bash
+cd frontend
+npm install
+npm run dev          # 开发模式，http://localhost:3000，API 自动代理到 :8000
+```
+
+生产部署时构建前端并拷入后端，由后端统一托管：
+
+```bash
+cd frontend && npm run build && cp -r dist/* ../backend/static/
+# 重启后端后访问 http://127.0.0.1:8000/ 即为 Web UI
+```
+
+详见 [Web UI 部署指南](./web-ui.md)。
+
 ---
 
 ## 2. 安装 CLI

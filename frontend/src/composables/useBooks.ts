@@ -14,6 +14,8 @@ export function useBooks() {
   const total = ref(0)
   const loading = ref(false)
   const hasMore = ref(true)
+  // 修复 BUG：请求序号，防止快速切换筛选时旧响应覆盖新结果
+  let requestId = 0
 
   const filters = reactive<BookFilters>({
     keyword: '',
@@ -36,36 +38,48 @@ export function useBooks() {
   }
 
   async function loadInitial() {
+    const currentId = ++requestId
     loading.value = true
     try {
       const data = await api.get<BookListOut>(`/books${buildQuery(40, 0)}`)
+      if (currentId !== requestId) return // 丢弃过期响应
       books.value = data.items
       total.value = data.total
       hasMore.value = books.value.length < total.value
     } finally {
-      loading.value = false
+      if (currentId === requestId) loading.value = false
     }
   }
 
   async function loadMore() {
     if (loading.value || !hasMore.value) return
+    // 分页沿用当前 requestId，不自增——避免误伤并发的 loadInitial；
+    // 筛选触发的 loadInitial 会 ++requestId，从而自动丢弃过期的 loadMore
+    const currentId = requestId
     loading.value = true
     try {
       const offset = books.value.length
       const data = await api.get<BookListOut>(`/books${buildQuery(40, offset)}`)
+      if (currentId !== requestId) return // 丢弃过期响应
       books.value.push(...data.items)
       total.value = data.total
       hasMore.value = books.value.length < total.value
     } finally {
-      loading.value = false
+      if (currentId === requestId) loading.value = false
     }
   }
 
   // 筛选条件变化时重新加载（debounce 由调用方处理 keyword）
+  // 使用 getter 返回各字段值数组，仅在实际值变化时触发
   watch(
-    () => ({ ...filters }),
-    () => loadInitial(),
-    { deep: true },
+    () => [filters.keyword, filters.status, filters.category],
+    () => {
+      // 筛选变化后回到顶部（修复 4.5：用户在滚动较远位置时列表重置但页面不回顶）
+      window.scrollTo({ top: 0 })
+      // 立刻作废进行中的分页请求，再拉第一页
+      requestId += 1
+      loadInitial()
+    },
   )
 
   return { books, total, loading, hasMore, filters, loadInitial, loadMore }

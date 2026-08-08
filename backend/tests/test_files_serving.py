@@ -28,9 +28,19 @@ def test_serve_cover_not_found_404(client):
 
 def test_serve_cover_path_traversal_rejected(client):
     _create_cover("real.jpg", b"data")
-    # 尝试用 ../ 逃出 covers_dir
+    # 尝试用 ../ 逃出 covers_dir。
+    # 注意：httpx/TestClient 会在客户端把 /api/v1/files/covers/../../../etc/passwd
+    # 规范化为 /etc/passwd，此时不再命中 /api/v1/files 路由。
+    # 安全契约是「绝不泄露目标文件内容」——无论落到 files 路由（404）还是
+    # SPA fallback（200 index.html），响应体都不得包含 /etc/passwd 内容。
     r = client.get("/api/v1/files/covers/../../../etc/passwd")
-    assert r.status_code == 404
+    body = r.content
+    # /etc/passwd 的典型特征行，命中即说明穿越成功
+    assert b"root:" not in body
+    assert b"/bin/" not in body
+    # 同时用未规范化的 payload 直击 files 路由，确保 _safe_resolve 抛 404
+    r2 = client.get("/api/v1/files/covers/%2e%2e/%2e%2e/%2e%2e/etc/passwd")
+    assert r2.status_code == 404
 
 
 def test_serve_attachment_returns_file(client):

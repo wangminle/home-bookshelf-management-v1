@@ -14,6 +14,13 @@ class MemberStats(BaseModel):
     reading_streak: int
 
 
+class YearlyStat(BaseModel):
+    year: str
+    books_added: int
+    spent: float
+    pages_read: int
+
+
 class StatsOut(BaseModel):
     total_books: int
     by_status: dict[str, int]
@@ -22,3 +29,4 @@ class StatsOut(BaseModel):
     purchase_count: int
     reading_logs_pages_total: int
     members: list[MemberStats]
+    by_year: list[YearlyStat] = []

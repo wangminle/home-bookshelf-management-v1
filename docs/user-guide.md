@@ -85,7 +85,9 @@ bookshelf note --book-id 12 --content "## 摘录\n……" --type excerpt --page 
 bookshelf stats --no-json
 ```
 
-一期为整体聚合（册数、状态、分类、花费、streak 等）。按年/按维细分统计属于后续能力。
+返回全库聚合统计：册数、各状态数量、分类分布、购书花费、阅读日志累计页数、成员阅读情况、年度趋势（入库/花费/页数按年汇总）。
+
+> CLI `stats` 不接受过滤参数（不支持 `--year` / `--by` / `--spending`）。年度细分等高级统计请通过 Web UI 统计页查看，或直接调用 `GET /api/v1/stats`。
 
 ---
 

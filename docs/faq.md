@@ -82,6 +82,10 @@ export BOOKSHELF_CHANNEL=feishu
 export BOOKSHELF_EXTERNAL_USER_ID=ou_xxx
 ```
 
+### Web UI 绑定后写操作 403？
+
+不应出现。内置 Web UI 前端自动发送 `X-UI-Client: web` 头，后端识别后允许在渠道白名单建立后仍走默认成员回退（BUG-134 修复）。如果你使用第三方前端或自写脚本调用 API，需要像 Agent 一样携带 `X-Channel` / `X-External-User-Id` 渠道头。
+
 ### 如何给第二位家人绑定？
 
 用已绑定 owner 的渠道头调用 bind，或设置 `SETUP_TOKEN` 后：

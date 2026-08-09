@@ -31,6 +31,8 @@ def _create_attachment_in_thread(
             body_member_id=None,
             channel=identity.channel,
             external_user_id=identity.external_user_id,
+
+            ui_client=identity.ui_client,
             require_channel=require_channel,
         )
         result = create_attachment(db, payload, upload_path=upload_path)

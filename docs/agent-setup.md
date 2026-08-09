@@ -66,6 +66,16 @@ CLI 现在会把这两个环境变量自动注入到所有请求；若白名单�
 export BOOKSHELF_SETUP_TOKEN=<管理口令>
 ```
 
+如果后端配置了 `CHANNEL_SIGNING_SECRET`（防止伪造渠道头），还需设置：
+
+```bash
+export BOOKSHELF_CHANNEL_SIGNING_SECRET=<与后端相同的密钥>
+```
+
+CLI 会自动计算 `X-Channel-Signature`（HMAC-SHA256）并附带在请求头中。
+
+> 内置 Web UI 不需要渠道头，前端自动发送 `X-UI-Client: web` 头在白名单建立后仍可写入（BUG-134）。此旁路仅限内置 UI，外部 Agent/CLI 不受影响。
+
 ---
 
 ## 4. 试一条对话

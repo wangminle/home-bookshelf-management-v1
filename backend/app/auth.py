@@ -21,6 +21,9 @@ class ChannelIdentity:
     external_user_id: str | None
     setup_token: str | None = None
     signature: str | None = None
+    # BUG-134：内置 Web UI 通过 X-UI-Client: web 标识自身，
+    # 白名单建立后仍允许受信 UI 匿名写入（回退到默认成员）。
+    ui_client: bool = False
 
 
 def _normalize_header(value: str | None) -> str | None:
@@ -128,6 +131,7 @@ def enforce_channel_member(
     channel: str | None,
     external_user_id: str | None,
     require_channel: bool = False,
+    ui_client: bool = False,
 ) -> int:
     """渠道身份鉴权：
 
@@ -140,6 +144,8 @@ def enforce_channel_member(
 
     BUG-113：白名单（渠道绑定）建立后，所有写操作必须提供已绑定渠道头，
     不再允许匿名回退，杜绝已知外部 ID 即可冒充 owner。
+    BUG-134：内置 Web UI 无法发送渠道头，通过 X-UI-Client: web 标识后
+    仍允许回退到默认成员，维持可信局域网 UI 可用性。
     """
     channel = _normalize_header(channel)
     external_user_id = _normalize_header(external_user_id)
@@ -148,7 +154,7 @@ def enforce_channel_member(
     if not channel and not external_user_id:
         # 显式 require_channel 或系统已建立白名单时，拒绝匿名写
         bindings_established = system_has_channel_bindings(db)
-        if require_channel or bindings_established:
+        if (require_channel or bindings_established) and not ui_client:
             raise HTTPException(
                 status_code=403,
                 detail="此端点要求渠道身份鉴权，请提供 X-Channel 与 X-External-User-Id",
@@ -223,16 +229,20 @@ def channel_headers(
     x_external_user_id: str | None = Header(default=None, alias="X-External-User-Id"),
     x_setup_token: str | None = Header(default=None, alias="X-Setup-Token"),
     x_channel_signature: str | None = Header(default=None, alias="X-Channel-Signature"),
+    x_ui_client: str | None = Header(default=None, alias="X-UI-Client"),
 ) -> ChannelIdentity:
     channel = _normalize_header(x_channel)
     external_user_id = _normalize_header(x_external_user_id)
     signature = _normalize_header(x_channel_signature)
     # BUG-132：统一在这里校验渠道签名，所有使用该依赖的端点都被覆盖
     _verify_channel_signature(channel, external_user_id, signature)
+    # BUG-134：内置 Web UI 通过 X-UI-Client: web 标识自身
+    ui_client = _normalize_header(x_ui_client) == "web"
     return ChannelIdentity(
         member_id=None,
         channel=channel,
         external_user_id=external_user_id,
         setup_token=_normalize_header(x_setup_token),
         signature=signature,
+        ui_client=ui_client,
     )

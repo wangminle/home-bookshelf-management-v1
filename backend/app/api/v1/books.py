@@ -120,6 +120,8 @@ def create_book(
         body_member_id=None,
         channel=identity.channel,
         external_user_id=identity.external_user_id,
+
+        ui_client=identity.ui_client,
     )
     isbn13 = canonical_isbn13(payload.isbn13) or canonical_isbn13(payload.isbn10)
     isbn10 = normalize_isbn(payload.isbn10)
@@ -176,6 +178,8 @@ def patch_book(
         body_member_id=None,
         channel=identity.channel,
         external_user_id=identity.external_user_id,
+
+        ui_client=identity.ui_client,
     )
     try:
         result = update_book(db, book_id, payload)

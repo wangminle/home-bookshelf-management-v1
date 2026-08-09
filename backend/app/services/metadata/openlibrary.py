@@ -25,20 +25,28 @@ def _normalize_publish_date(raw: str | None) -> str | None:
     # 已经是标准格式——但仍需校验真实日期合法性
     if re.fullmatch(r"\d{4}(?:-\d{2}(?:-\d{2})?)?", s):
         return s if is_valid_publish_date(s) else None
-    # 尝试提取 4 位年份 + 月份名（如 "July 2008"、"Sep 1, 2008"）
+    # 尝试提取月份名 + 可选日号 + 年份（如 "July 2008"、"Sep 1, 2008"）
     months = {
         "jan": "01", "feb": "02", "mar": "03", "apr": "04",
         "may": "05", "jun": "06", "jul": "07", "aug": "08",
         "sep": "09", "oct": "10", "nov": "11", "dec": "12",
     }
-    m = re.search(r"([A-Za-z]{3,9})\s+\d{1,2},?\s*(\d{4})", s)
+    m = re.search(r"([A-Za-z]{3,9})\s+(?:\d{1,2},?\s+)?(\d{4})", s)
     if m:
         mon = months.get(m.group(1)[:3].lower())
         if mon:
             candidate = f"{m.group(2)}-{mon}"
             return candidate if is_valid_publish_date(candidate) else None
         return m.group(2)
-    # 尝试提取 "YYYY Month" 或 "Month YYYY"
+    # BUG-137：尝试匹配 "YYYY Month"（如 "2008 July"）
+    m = re.search(r"(\d{4})\s+([A-Za-z]{3,9})", s)
+    if m:
+        mon = months.get(m.group(2)[:3].lower())
+        if mon:
+            candidate = f"{m.group(1)}-{mon}"
+            return candidate if is_valid_publish_date(candidate) else None
+        return m.group(1)
+    # 尝试提取纯年份
     m = re.search(r"(\d{4})", s)
     if m:
         return m.group(1)

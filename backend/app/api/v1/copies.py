@@ -25,6 +25,8 @@ def add_copy(
         body_member_id=payload.owner_member_id,
         channel=identity.channel,
         external_user_id=identity.external_user_id,
+
+        ui_client=identity.ui_client,
         require_channel=True,
     )
     payload = payload.model_copy(update={"owner_member_id": member_id})

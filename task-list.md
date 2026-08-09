@@ -144,6 +144,10 @@
 | BUG-131 | 修复 | BUG-105 IP pinning 后 HTTPS 封面下载可能失败：请求 URL 主机被替换为 IP，默认 check_hostname 对 IP 校验证书且无 server_hostname/SNI 工厂（注释中的 _https_connection_factory 未实现）；IPv6 钉 IP 时 netloc 缺方括号；storage.py 中 _SAFE_OPENER/_build_pinned_request 重复定义 | 2026-08-09 20:52 | 2026-08-09 21:29 | 已修复 | CHK-033 复核发现；DNS rebinding 主路径已 pin，但合法 HTTPS 封面（OpenLibrary 等）有功能回归风险；修复：storage.py 清除 _SAFE_OPENER/_build_pinned_request 重复定义；新增 _PinnedHTTPSConnection/_PinnedHTTPSHandler（原始主机名暂存 request，TLS SNI/证书校验用原始域名，且优先于代理隧道 _tunnel_host）；_format_netloc 处理 IPv6 方括号。冒烟验证：百度（经本机代理 CONNECT 隧道）与 OpenLibrary 封面 HTTPS 钉 IP 下载均成功；pytest test_bug131_133 7 用例 |
 | BUG-132 | 修复 | 渠道身份仍依赖客户端明文 X-Channel/X-External-User-Id：白名单建立后已拒匿名写（BUG-113），但已知 owner 外部 ID 时仍可冒充（可信局域网/网关代填头的既有模型） | 2026-08-09 20:52 | 2026-08-09 21:29 | 已修复 | CHK-033：若接受与 BUG-102 同级设计边界可关闭；若要求防伪造需签名/共享密钥或反代注入不可伪造身份；修复：可选共享密钥 HMAC 签名校验。config 新增 channel_signing_secret（CHANNEL_SIGNING_SECRET）；auth.channel_headers 统一校验 X-Channel-Signature=HMAC-SHA256(secret,'{channel}:{external_user_id}')，缺失/错误→403；CLI 用 BOOKSHELF_CHANNEL_SIGNING_SECRET 透传签名；未配置密钥维持可信局域网边界（README/.env.example/design§7.3 已同步） |
 | BUG-133 | 修复 | 无 ISBN 入库去重仅用进程内 _INTAKE_LOCK，多 worker/多进程部署下仍可并发重复建书；normalized_title 无 DB 唯一约束；现有回归测试为串行两次请求而非真并发 | 2026-08-09 20:52 | 2026-08-09 21:29 | 已修复 | CHK-033：单进程场景 BUG-119 已缓解；完整闭环需唯一约束或跨进程锁；修复：intake 临界区重构——进程锁+跨进程文件锁（fcntl flock/msvcrt locking，锁文件 data_dir/locks/intake.lock）覆盖'复查→新建→副本/购买→commit'全程，多 worker/多进程下同书名无 ISBN 入库不再重复；pytest 6 线程并发用例断言仅建 1 本书 |
+| BUG-134 | 修复 | 渠道绑定建立后内置 Web UI 的写请求全部缺少渠道身份头，创建/更新进度与笔记等核心操作返回 403 | 2026-08-09 22:19 | 2026-08-09 22:15 | 已修复 | commit bde3531 代码审查；auth.py enforce_channel_member 与 frontend stores/api.ts 契约不兼容；已修复：auth.py 新增 X-UI-Client: web 头旁路，enforce_channel_member 接受 ui_client 参数；10 个 API 端点文件同步传递；前端 api.ts 自动发送 X-UI-Client: web |
+| BUG-135 | 修复 | 前端 inflightRequests 在 fetch 返回后即递减，未覆盖响应解析和业务判错阶段，并发成功仍可能清除另一失败的 lastError | 2026-08-09 22:19 | 2026-08-09 22:15 | 已修复 | commit bde3531 代码审查；frontend/src/stores/api.ts；已修复：request() 改为 try-finally 覆盖完整响应处理周期，succeeded 标志确保仅成功且无并发时才清 lastError |
+| BUG-136 | 修复 | 并发重复入库在加锁前已保存或下载封面，持锁后二次查重命中时未清理预生成文件，产生孤儿封面 | 2026-08-09 22:19 | 2026-08-09 22:15 | 已修复 | commit bde3531 代码审查；backend/app/services/intake.py；已修复：intake.py recheck 分支清理或复用预生成封面，IntegrityError 重试路径同样清理；新增 _cleanup_orphan_cover 工具函数含路径遍历防护 |
+| BUG-137 | 修复 | 出版日期规范化未解析无日号的英文月份格式，July 2008 与 2008 July 均降级为仅年份，丢失可用月份 | 2026-08-09 22:19 | 2026-08-09 22:15 | 已修复 | commit bde3531 代码审查；backend/app/services/metadata/openlibrary.py；已修复：_normalize_publish_date 正则日号改为可选 (?:\d{1,2},?\s+)?，新增 YYYY Month 反序匹配；Google Books 同步受益 |
 
 ## 调整事项
 
@@ -190,6 +194,8 @@
 | CHK-031 | 检查 | 复核 BUG-102~129、TST-002、DOC-023 修复结果并执行后端/前端/平台动态回归 | 2026-08-09 17:40 | 2026-08-09 17:40 | 已完成 | 后端 119 passed；前端 build 通过；确认 13 个旧 BUG 仍未闭环，TST-002 未修复，新增 BUG-130；已恢复对应待修复状态 |
 | CHK-032 | 检查 | 修复 CHK-031 遗留的 13 个 BUG（105/113/114/116~119/123~125/127~129/130）与 TST-002，补针对性回归测试 | 2026-08-09 18:00 | 2026-08-09 18:16 | 已完成 | 后端从仓库根 pytest 135 passed（含新增 test_chk032_regression 12 用例 + test_bug051 重写 5 用例）；前端 npm run build 通过；py_compile/shell -n/git diff --check 通过。修复要点：DNS IP pinning(105)、绑定后拒匿名写(113)、真实日期校验(114)、shtml/xht/svgz 黑名单(116)、按书聚合状态(117/123)、null 清空 authors/tags(118)、进程锁串行化无ISBN入库(119)、v-model空串归一+清percent(124)、概览重试重生成画布(125)、backup checkpoint busy 检查(127)、install.sh venv后重测解释器(128)、progress 响应回传 to_read(129)、inflight 计数清错误横幅(130)、conftest 钉 script_location(TST-002) |
 | CHK-033 | 检查 | 复核 CHK-032 对 BUG-105/113/114/116~119/123~125/127~130 与 TST-002 的修复是否真正闭环 | 2026-08-09 20:52 | 2026-08-09 20:52 | 已完成 | 仓库根 pytest 135 passed；前端 build 通过；bash -n 通过。结论：CHK-031 所列项代码层大多已补齐；残留见 BUG-131/132/133（HTTPS 钉 IP TLS、渠道头信任边界、无 ISBN 多进程竞态）。 |
+| CHK-034 | 检查 | 审查提交 bde3531（V0.2.2-Build0704-20260809）的代码变更并给出优先级结论 | 2026-08-09 22:19 | 2026-08-09 22:19 | 已完成 | 后端 145 passed；前端 npm run build 通过；发现 BUG-134~137 |
+| CHK-035 | 检查 | 复核 BUG-131/132/133（及顺带 134~137）修复是否真正闭环 | 2026-08-09 22:11 | 2026-08-09 22:15 | 已完成 | 代码审查 + pytest：test_bug131_133 与关联套件通过；test_bug134_137 25 passed。结论：131 HTTPS SNI/IPv6/去重定义已闭环；132 可选 HMAC 签名防伪造渠道头已闭环（未配密钥仍走可信局域网）；133 跨进程 flock+临界区至 commit+6 线程并发断言已闭环。134~137 台账已标已修复且回归绿。设计备注：X-UI-Client:web 旁路（134）在受信局域网下恢复 Web UI，不恢复「伪造渠道外部 ID 冒充」路径。 |
 
 ## 测试数据
 
@@ -197,6 +203,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | TST-001 | 检查 | 补齐后端/CLI 自动化回归测试，覆盖空库初始化、入库去重、购买详情、附件/自定义字段完整性、日期/ISBN 边界和鉴权 | 2026-07-11 19:35 | 2026-08-09 12:20 | 已完成 | 新增 6 测试文件 64 测试函数：test_purchase_detail.py(10 购买详情+original_price 往返+日期默认+货币消息)、test_custom_fields.py(7 upsert 插入/更新/实体校验)、test_intake_dedup.py(6 无 ISBN 归一化去重+ISBN-10↔13 互查)、test_attachment_entity_validation.py(7 book/member/note/copy 实体校验+link/markdown 内容校验)、test_isbn_unit.py(15 normalize/isbn10→13/is_valid/lookup_keys 单元)、test_reading_log_date.py(13 log_date 必填/合法/未来拒绝/pages/session 校验)。新增 pytest.ini 配置(testpaths+filterwarnings)。8 覆盖区域从 2 空白+5 部分+1 全覆盖 提升到全覆盖。全量 pytest 104 passed(原40+新64)、compileall 无错误。OPR-002 install --dev 已覆盖 pytest 安装路径 |
 | TST-002 | 检查 | 后端测试从仓库根目录执行时 Alembic script_location 依赖 cwd，71 个用例迁移初始化报 Path doesn't exist: alembic；从 backend 目录执行 119 项全绿 | 2026-08-09 15:03 | 2026-08-09 18:16 | 已完成 | tests/conftest.py _run_migrations 与 test_bug039_migration_dedup.py 均钉住 script_location 为 backend/alembic 绝对路径；从仓库根 pytest 全量 135 passed |
+| TST-013 | 检查 | BUG-134~137 回归测试：15 项断言覆盖 Web UI 旁路、孤儿封面清理/复用、日期解析 | 2026-08-09 22:15 | 2026-08-09 22:15 | 已完成 | tests/test_bug134_137.py；后端 160 passed、前端 npm run build 通过 |
 
 ## 文档维护
 
@@ -225,6 +232,7 @@
 | DOC-021 | 文档 | 审计报告 design/frontend-audit-2026-08-09.md 新增第二轮审计章节（5 Bug + 9 设计提升项 + 14项修复计划表），全部标记为已修复 | 2026-08-09 16:10 | 2026-08-09 17:29 | 已完成 | 含 Bug 发现表 B1-B5、设计提升表 D1-D9、修复计划表 14 项全部 ✅ |
 | DOC-022 | 文档 | 文档最新性核查与更新：①frontend-evaluation-report.md 新增第八节修复状态（P0-P3 全部已修复 + 关键改进表 + task-list 记录回链）；②design/README.md 补列 frontend-audit-2026-08-09.md（原仅列评估报告漏列审计报告）；③docs/web-ui.md 新增设计系统段（暗色模式/A11y WCAG AA/响应式三断点/骨架屏/性能优化）与安全段（SPA 路径穿越护栏 BUG-106） | 2026-08-09 05:33 | 2026-08-09 06:10 | 已完成 | 核查 27 份 md：audit 文档声称的 28 项修复逐项核对代码无虚标；README/deployment/get-started 等已最新无需改；frontend-evaluation-report 原为评估快照现补修复回链 |
 | DOC-023 | 文档 | reading-tracker 技能声称超过总页数仍按原值记录，服务实际会静默截断到 page_count，Agent 对用户反馈可能与落库值不一致 | 2026-08-09 15:03 | 2026-08-09 18:30 | 已修复 | skills/reading-tracker/SKILL.md:110 对照 services/reading.py:51-57 |
+| DOC-024 | 文档 | 同步 BUG-134~137 修复到全部文档：README、docs/、design/、skills/ | 2026-08-09 22:15 | 2026-08-09 22:15 | 已完成 | README 安全提示中英双语补 X-UI-Client；docs/web-ui 鉴权模型；docs/faq 新增 Web UI 403 条目；docs/cli-reference+deployment 补 CHANNEL_SIGNING_SECRET；design v1.4 §7.3 补 BUG-134~137；skills/README+bookshelf-setup+reading-tracker+book-intake+note-taker 渠道鉴权说明更新 |
 
 ## 功能开发
 
@@ -242,6 +250,7 @@
 | DEV-010 | 开发 | M6：家庭服务器部署（docker-compose / systemd + 数据备份） | 2026-06-26 16:45 | 2026-06-26 19:00 | 已完成 | deploy/ 目录 |
 | DEV-011 | 开发 | 文档承诺端点全量补全：8 API + 6 表写入 + stats/members/cover + CLI note/reading-log/stats + Skills | 2026-06-26 17:56 | 2026-06-26 17:56 | 已完成 | api/v1/* + services/* + skills/note-taker + shelf-report |
 | DEV-012 | 开发 | 书架初始化：bookshelf-setup Skill + bookshelf doctor/bind CLI + health 诊断字段 | 2026-06-26 18:30 | 2026-06-26 18:30 | 已完成 | skills/bookshelf-setup/；cli/bookshelf/doctor.py；health google_books/barcode 标志 |
+| DEV-013 | 开发 | 可配置部署基址（base path）支持路径别名部署：前端新增 VITE_BASE 环境变量，Vite base/Router/API client 三处通过 import.meta.env.BASE_URL 对齐；后端路由保持绝对根路径（反向代理 handle_path 剥离前缀）；默认 / 行为不变 | 2026-08-09 22:37 | 2026-08-09 21:30 | 已完成 | vite.config.ts base、router/index.ts createWebHistory(BASE_URL)、stores/api.ts BASE 派生、index.html 相对路径；docs/web-ui.md 新增路径别名部署段、deployment.md lwa 段补充、README 中英双语补充 |
 
 ## 配置运维
 
@@ -252,6 +261,7 @@
 | OPS-001 | 优化 | 优化 .gitignore：新增 .zcode/、.claude/、tsconfig.tsbuildinfo、tests/_tmp/、*.log/*.tmp/*.bak/*.swp/*.swo/*~/Thumbs.db、*.sqlite/*.sqlite3、.coverage.*/*.cover 等忽略规则，防止缓存和临时文件上传 GitHub | 2026-08-09 04:25 | 2026-08-09 04:25 | 已完成 | - |
 | OPS-002 | 运维 | lwa 本地部署：前端构建产物拷入 backend/static/，后端 main.py 加 StaticFiles SPA fallback 同时服务 API 和前端；lwa 实例 home-bookshelf 端口 18008；修复 lwa 生成 Dockerfile 缺 alembic upgrade head 导致 API 500（no such table），在 local-web.json start 命令前加 alembic 迁移；端到端验证 member/book CRUD + stats + 前端页面 + 静态资源全部正常 | 2026-08-09 04:50 | 2026-08-09 04:47 | 已完成 | lwa manifest start=sh -c alembic upgrade head && exec uvicorn；backend/static/ 加入 .gitignore；DATABASE_URL=sqlite:////app/data/app.sqlite |
 | OPS-003 | 运维 | lwa 部署更新：前端构建产物同步至 backend/static 并重建 Docker 容器；灌入种子数据（14 本书含 6 本有封面、5 笔购买、5 个阅读进度、3 条阅读日志）供前端实机验收 | 2026-08-09 05:42 | 2026-08-09 06:20 | 已完成 | 端口恢复 18008；清理旧 lwa-backend 容器（restart:unless-stopped 反复抢占端口）；修复容器内 publish_date 脏数据 |
+| OPS-004 | 运维 | lwa 重新导入 home-bookshelf 实例（含 BUG-134~137 全部修复），删除旧实例后全新导入 | 2026-08-09 22:24 | 2026-08-09 22:26 | 已完成 | 删除旧实例（端口 18008）并 --purge --force 清理；重新 --from-dir 导入 backend（含最新前端构建产物）；lwa 分配端口 18006；health ok、DB connected、barcode available；BUG-134 Web UI 旁路端到端验证通过（匿名 403、X-UI-Client: web 201） |
 
 ## 规划事项
 
@@ -287,14 +297,14 @@
 
 | 分类 | 总数 | 已完成 | 待开发/待修复 | 完成率 |
 | --- | --- | --- | --- | --- |
-| 代码 Bug | 133 | 133 | 0 | 100% |
+| 代码 Bug | 137 | 137 | 0 | 100% |
 | 调整事项 | 3 | 3 | 0 | 100% |
-| 检查事项 | 33 | 32 | 1 | 97% |
-| 测试数据 | 2 | 2 | 0 | 100% |
-| 文档维护 | 23 | 23 | 0 | 100% |
-| 功能开发 | 12 | 12 | 0 | 100% |
-| 配置运维 | 5 | 5 | 0 | 100% |
+| 检查事项 | 35 | 34 | 1 | 97% |
+| 测试数据 | 3 | 3 | 0 | 100% |
+| 文档维护 | 24 | 24 | 0 | 100% |
+| 功能开发 | 13 | 13 | 0 | 100% |
+| 配置运维 | 6 | 6 | 0 | 100% |
 | 规划事项 | 4 | 2 | 2 | 50% |
 | 优化事项 | 8 | 8 | 0 | 100% |
 | 调研事项 | 3 | 3 | 0 | 100% |
-| **总计** | 226 | 223 | 3 | 99% |
+| **总计** | 236 | 233 | 3 | 99% |

@@ -34,10 +34,11 @@ bookshelf health
 可选 `--member-id`；未指定时使用系统默认成员（首个成员或自动创建的「默认用户」）。
 
 > **渠道鉴权**（Agent 走后端时）：调用 `/progress` 端点时，后端读取 HTTP 头 `X-Channel` / `X-External-User-Id`：
-> - 无渠道头 → 回退到默认成员（一期可信局域网兜底）
-> - 有渠道头但未绑定 → 403
-> - 有渠道头且绑定，但与 body `member_id` 不一致 → 403
+> - 无渠道头 -> 回退到默认成员（一期可信局域网兜底）
+> - 有渠道头但未绑定 -> 403
+> - 有渠道头且绑定，但与 body `member_id` 不一致 -> 403
 >
+> 内置 Web UI 发送 `X-UI-Client: web` 头在白名单建立后仍可写入（BUG-134），外部 Agent/CLI 不受此旁路影响。
 > 若 Agent 通过 CLI 执行命令，只需在运行环境设置 `BOOKSHELF_CHANNEL` / `BOOKSHELF_EXTERNAL_USER_ID`，CLI 会自动透传为请求头。
 
 ## 执行步骤

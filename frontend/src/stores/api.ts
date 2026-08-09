@@ -2,7 +2,10 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { ApiResponse } from '@/types/models'
 
-const BASE = '/api/v1'
+// 可配置部署基址：路径别名部署时 Vite base=/home-bookshelf/，
+// API 请求需带上同一前缀（Caddy handle_path 会去前缀转发给后端）。
+// hostPort 直连时 BASE_URL 为 '/'，行为与原来一致。
+const BASE = `${import.meta.env.BASE_URL}api/v1`
 
 /** 全局错误提示（简易实现，无 UI 库依赖） */
 export const lastError = ref<string | null>(null)
@@ -24,48 +27,55 @@ let inflightRequests = 0
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   inflightRequests++
-  let res: Response
+  let succeeded = false
   try {
-    res = await fetch(`${BASE}${path}`, {
-      headers: { 'Content-Type': 'application/json', ...(options?.headers || {}) },
-      ...options,
-    })
-  } catch (e) {
-    // 修复 P2：捕获 fetch 本身的网络错误（离线、DNS 失败、连接拒绝）
-    backendOnline.value = false
-    backendOffline.value = true
-    const msg = e instanceof TypeError ? '无法连接到服务器，请检查后端是否启动' : '网络请求失败'
-    lastError.value = msg
-    throw new Error(msg)
-  } finally {
-    inflightRequests--
-  }
-  const body: ApiResponse<T> = await res.json().catch(() => ({
-    ok: false,
-    data: null as any,
-    error: `HTTP ${res.status}`,
-  }))
-  if (!body.ok) {
-    // BUG-096 修复：兼容 FastAPI 错误格式 { detail: "..." } 和验证错误 { detail: [{ msg }] }
-    const raw = body as any
-    let msg = body.error || raw.detail
-    if (Array.isArray(msg)) {
-      msg = msg.map((e: any) => e.msg || JSON.stringify(e)).join('; ')
+    let res: Response
+    try {
+      res = await fetch(`${BASE}${path}`, {
+        headers: { 'Content-Type': 'application/json', 'X-UI-Client': 'web', ...(options?.headers || {}) },
+        ...options,
+      })
+    } catch (e) {
+      // 修复 P2：捕获 fetch 本身的网络错误（离线、DNS 失败、连接拒绝）
+      backendOnline.value = false
+      backendOffline.value = true
+      const msg = e instanceof TypeError ? '无法连接到服务器，请检查后端是否启动' : '网络请求失败'
+      lastError.value = msg
+      throw new Error(msg)
     }
-    msg = msg || `请求失败 (${res.status})`
-    lastError.value = msg
-    throw new Error(msg)
+    const body: ApiResponse<T> = await res.json().catch(() => ({
+      ok: false,
+      data: null as any,
+      error: `HTTP ${res.status}`,
+    }))
+    if (!body.ok) {
+      // BUG-096 修复：兼容 FastAPI 错误格式 { detail: "..." } 和验证错误 { detail: [{ msg }] }
+      const raw = body as any
+      let msg = body.error || raw.detail
+      if (Array.isArray(msg)) {
+        msg = msg.map((e: any) => e.msg || JSON.stringify(e)).join('; ')
+      }
+      msg = msg || `请求失败 (${res.status})`
+      lastError.value = msg
+      throw new Error(msg)
+    }
+    // 请求成功，后端在线
+    backendOnline.value = true
+    backendOffline.value = false
+    succeeded = true
+    return body.data
+  } finally {
+    // BUG-135：计数必须在完整响应处理（含 body 解析与错误检查）结束后才递减，
+    // 否则两个请求的 fetch 均已返回但仍在校验 body 时，finally 已将计数清零，
+    // 导致先完成的成功请求错误地清空了另一个尚未处理完的失败请求设置的错误。
+    inflightRequests--
+    // BUG-121/130：仅当本次成功且无其它进行中请求时才清空全局错误。
+    // 这样并发场景下一个成功不会掩盖另一个失败（inflight>0 不清），
+    // 而失败后单独重试成功时（inflight==0）能正常清除旧错误横幅。
+    if (succeeded && inflightRequests === 0) {
+      lastError.value = null
+    }
   }
-  // 请求成功，后端在线
-  backendOnline.value = true
-  backendOffline.value = false
-  // BUG-121/130：仅当没有其它进行中请求时才清空全局错误。
-  // 这样并发场景下一个成功不会掩盖另一个失败（inflight>0 不清），
-  // 而失败后单独重试成功时（inflight==0）能正常清除旧错误横幅。
-  if (inflightRequests === 0) {
-    lastError.value = null
-  }
-  return body.data
 }
 
 export const useApiStore = defineStore('api', () => {

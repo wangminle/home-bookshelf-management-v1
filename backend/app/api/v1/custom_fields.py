@@ -24,6 +24,8 @@ def upsert_field(
         body_member_id=None,
         channel=identity.channel,
         external_user_id=identity.external_user_id,
+
+        ui_client=identity.ui_client,
         require_channel=True,
     )
     try:

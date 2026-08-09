@@ -203,7 +203,16 @@ def intake_book(db: Session, payload: IntakeInput) -> IntakeResult:
         recheck = _find_existing(db, isbn13=isbn13, isbn10=isbn10, title=title, authors=authors)
         if recheck:
             recheck_backfilled = False
-            if has_image and not recheck.cover_path:
+            # BUG-136：锁外预生成的封面在命中 recheck 时需要清理或复用，避免孤儿文件堆积
+            if cover_path:
+                if recheck.cover_path:
+                    # 已有书已有封面，预生成的是孤儿文件
+                    _cleanup_orphan_cover(cover_path)
+                else:
+                    # 复用预生成封面回填，避免重复生成
+                    recheck.cover_path = cover_path
+                    recheck_backfilled = True
+            elif has_image and not recheck.cover_path:
                 saved = save_uploaded_image(
                     payload.image_path,
                     target_name=_cover_target_for_image(isbn_detected, payload.image_path),
@@ -265,6 +274,8 @@ def intake_book(db: Session, payload: IntakeInput) -> IntakeResult:
             db.rollback()
             retry_existing = _find_existing(db, isbn13=isbn13, isbn10=isbn10, title=title, authors=authors)
             if retry_existing:
+                # BUG-136：命中重试时清理预生成封面，避免孤儿文件
+                _cleanup_orphan_cover(cover_path)
                 return _handle_existing_book(
                     db, retry_existing, payload, metadata, isbn_detected, source, cover_backfilled=False
                 )

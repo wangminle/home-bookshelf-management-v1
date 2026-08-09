@@ -54,6 +54,16 @@ lwa start <instance-id>
 
 部署前需将前端构建产物拷入 `backend/static/`，后端会自动托管。
 
+如果使用 lwa 路径别名（path alias）部署，构建前端时需指定 `VITE_BASE`：
+
+```bash
+cd frontend
+VITE_BASE=/<alias>/ npm run build
+cp -r dist/* ../backend/static/
+```
+
+详见 [Web UI 部署 · 路径别名](./web-ui.md#路径别名部署path-alias)。
+
 管理页：`http://<服务器IP>:17800`
 
 ---
@@ -79,6 +89,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir .
 | `DATA_DIR` | 数据根目录（封面、附件） |
 | `GOOGLE_BOOKS_API_KEY` | 可选 |
 | `SETUP_TOKEN` | 可选；保护白名单建立后的 `/members/bind`。CLI 侧可用 `BOOKSHELF_SETUP_TOKEN` / `SETUP_TOKEN` 自动透传 |
+| `CHANNEL_SIGNING_SECRET` | 可选；配置后渠道头须附带 `X-Channel-Signature`（HMAC-SHA256），防伪造。CLI 侧用 `BOOKSHELF_CHANNEL_SIGNING_SECRET` 透传 |
 
 完整示例见 `backend/.env.example`、`deploy/.env.example`。
 

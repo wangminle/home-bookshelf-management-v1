@@ -8,6 +8,7 @@
 | `BOOKSHELF_SETUP_TOKEN` / `SETUP_TOKEN` | CLI 全部请求都会自动透传为 `X-Setup-Token`；主要用于白名单建立后的 `bind` |
 | `BOOKSHELF_CHANNEL` | CLI 全部请求都会自动透传为 `X-Channel` |
 | `BOOKSHELF_EXTERNAL_USER_ID` | CLI 全部请求都会自动透传为 `X-External-User-Id` |
+| `BOOKSHELF_CHANNEL_SIGNING_SECRET` | 可选；配置后渠道头自动附带 `X-Channel-Signature`（HMAC-SHA256），与后端 `CHANNEL_SIGNING_SECRET` 配合使用 |
 
 多数命令支持 `--json` / `--no-json`（默认 JSON）。
 

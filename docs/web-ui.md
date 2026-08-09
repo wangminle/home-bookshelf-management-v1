@@ -82,6 +82,42 @@ if _STATIC_DIR.is_dir():
 
 详见 [部署](./deployment.md#lwa-本地部署家庭服务器推荐)。lwa 自动生成 Dockerfile 并管理容器，前端构建产物同样需拷入 `backend/static/`。
 
+### 路径别名部署（Path Alias）
+
+当应用部署在非根路径（如反向代理的路径别名 `/home-bookshelf/`）时，前端需要在构建时指定 base path，使静态资源路径、路由基址和 API 请求路径三处对齐。
+
+**构建命令：**
+
+```bash
+cd frontend
+VITE_BASE=/home-bookshelf/ npm run build
+cp -r dist/* ../backend/static/
+```
+
+`VITE_BASE` 会被 Vite 注入为 `import.meta.env.BASE_URL`，前端三处自动对齐：
+
+| 组件 | 默认（`/`） | 别名（`/home-bookshelf/`） |
+|------|------------|--------------------------|
+| 静态资源（JS/CSS） | `/assets/...` | `/home-bookshelf/assets/...` |
+| Vue Router history | `/` | `/home-bookshelf/` |
+| API 请求基址 | `/api/v1` | `/home-bookshelf/api/v1` |
+
+**后端无需修改。** 反向代理（如 Caddy `handle_path`）会剥离别名前缀后转发给后端，后端仍收到 `/api/v1/...`，路由保持绝对根路径。
+
+**反向代理示例（Caddy）：**
+
+```
+/home-bookshelf/* {
+    handle_path /home-bookshelf/* {
+        reverse_proxy 127.0.0.1:8000
+    }
+}
+```
+
+`handle_path` 会自动剥离 `/home-bookshelf` 前缀，后端收到的是 `/`、`/api/v1/...`、`/assets/...` 等标准路径。
+
+> **注意**：直连部署（hostPort 或后端直接托管）时不要设置 `VITE_BASE`（默认 `/`），否则资源路径会多出前缀导致 404。
+
 ## 功能范围
 
 | 功能 | 状态 |
@@ -111,7 +147,7 @@ if _STATIC_DIR.is_dir():
 
 ## 鉴权模型
 
-Web UI 继承一期的局域网信任模型：不做浏览器登录，写操作时从顶栏选择家庭成员，请求体中携带 `member_id`，后端走 `resolve_member_id` 兜底。**请勿将 Web UI 直接暴露到公网。**
+Web UI 继承局域网信任模型：不做浏览器登录，写操作时从顶栏选择家庭成员，请求体中携带 `member_id`。前端所有请求自动附带 `X-UI-Client: web` 头（BUG-134），后端 `enforce_channel_member` 识别此头后允许内置 UI 在渠道白名单建立后仍回退到 `resolve_member_id`，无需浏览器发送渠道身份头。外部 Agent/CLI 不发送此头，仍受完整渠道鉴权约束。**请勿将 Web UI 直接暴露到公网。**
 
 ## 技术栈
 

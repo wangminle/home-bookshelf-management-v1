@@ -96,7 +96,7 @@ bookshelf add --isbn 9787506365437 --price 38 --channel 当当
 |------|------|
 | `recognize` 未找到条码 | 请用户补 ISBN，或描述封面文字后 `--title --author` 入库 |
 | API 400 / 422 | 转述错误，提示补 ISBN/书名/更清晰照片；ISBN 校验位错误请用户核对 ISBN |
-| API 403 | 渠道身份未绑定/与 member_id 不一致，提示先 `bind` 或核对成员 |
+| API 403 | 渠道身份未绑定/与 member_id 不一致，提示先 `bind` 或核对成员（内置 Web UI 不受此限制，通过 `X-UI-Client: web` 头旁路） |
 | API 503 | 后端或识别服务不可用，稍后重试 |
 | 重复入库 | 告知已存在，询问是否记购买/加副本 |
 

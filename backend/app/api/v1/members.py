@@ -69,6 +69,8 @@ def add_member(
             body_member_id=None,
             channel=identity.channel,
             external_user_id=identity.external_user_id,
+
+            ui_client=identity.ui_client,
         )
         caller = db.get(Member, caller_member) if caller_member else None
         caller_role = caller.role if caller else None
@@ -78,6 +80,8 @@ def add_member(
             body_member_id=None,
             channel=identity.channel,
             external_user_id=identity.external_user_id,
+
+            ui_client=identity.ui_client,
         )
         caller = db.get(Member, caller_member) if caller_member else None
         caller_role = caller.role if caller else None

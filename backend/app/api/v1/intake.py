@@ -52,6 +52,8 @@ def _run_intake_in_thread(
             body_member_id=member_id,
             channel=identity.channel,
             external_user_id=identity.external_user_id,
+
+            ui_client=identity.ui_client,
         )
         result = intake_book(
             db,
@@ -140,6 +142,8 @@ def intake_json(
         body_member_id=payload.member_id,
         channel=identity.channel,
         external_user_id=identity.external_user_id,
+
+        ui_client=identity.ui_client,
     )
     payload = payload.model_copy(update={"member_id": resolved_member_id})
     try:

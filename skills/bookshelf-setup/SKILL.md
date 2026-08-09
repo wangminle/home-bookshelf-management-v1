@@ -123,8 +123,8 @@ bookshelf doctor
 
 4. 绑定后 `bookshelf doctor` 应显示 `members_bound >= 1`
 
-> 绑定后业务写端点（progress/notes/reading-logs/purchases/intake，以及 attachments/copies/custom-fields 等写接口）会校验 `X-Channel`/`X-External-User-Id`，未绑定的渠道身份返回 403。
-> 若 Agent 是通过 CLI 执行命令，只需在运行环境设置 `BOOKSHELF_CHANNEL` / `BOOKSHELF_EXTERNAL_USER_ID`，CLI 会自动透传为请求头。
+> 绑定后业务写端点（progress/notes/reading-logs/purchases/intake，以及 attachments/copies/custom-fields 等写接口）会校验 `X-Channel`/`X-External-User-Id`，未绑定的渠道身份返回 403。内置 Web UI 通过 `X-UI-Client: web` 头在白名单建立后仍可写入（BUG-134），外部 Agent/CLI 不受此旁路影响。
+> 若 Agent 是通过 CLI 执行命令，只需在运行环境设置 `BOOKSHELF_CHANNEL` / `BOOKSHELF_EXTERNAL_USER_ID`，CLI 会自动透传为请求头。配置了 `CHANNEL_SIGNING_SECRET` 时还需设置 `BOOKSHELF_CHANNEL_SIGNING_SECRET` 以生成 HMAC 签名。
 > 一期不做飞书 Webhook 自动配置；Agent 侧收到消息后映射成员 ID 即可。
 
 ---

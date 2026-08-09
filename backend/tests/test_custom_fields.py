@@ -14,15 +14,16 @@ def _setup_auth(client):
     return {"X-Channel": "feishu", "X-External-User-Id": "ou_test"}
 
 
-def _seed_book(client):
-    r = client.post("/api/v1/books", json={"title": "自定义字段书"})
+def _seed_book(client, headers):
+    # BUG-113：白名单建立后创建书籍也需渠道头
+    r = client.post("/api/v1/books", json={"title": "自定义字段书"}, headers=headers)
     assert r.status_code == 201, r.text
     return r.json()["data"]["id"]
 
 
 def test_upsert_insert_returns_201(client):
     headers = _setup_auth(client)
-    book_id = _seed_book(client)
+    book_id = _seed_book(client, headers)
     r = client.post(
         "/api/v1/custom-fields",
         json={
@@ -43,7 +44,7 @@ def test_upsert_insert_returns_201(client):
 
 def test_upsert_update_returns_200(client):
     headers = _setup_auth(client)
-    book_id = _seed_book(client)
+    book_id = _seed_book(client, headers)
     client.post(
         "/api/v1/custom-fields",
         json={"entity_type": "book", "entity_id": book_id, "field_key": "series", "field_value": "v1"},
@@ -62,7 +63,7 @@ def test_upsert_update_returns_200(client):
 
 def test_upsert_field_appears_in_book_detail(client):
     headers = _setup_auth(client)
-    book_id = _seed_book(client)
+    book_id = _seed_book(client, headers)
     client.post(
         "/api/v1/custom-fields",
         json={"entity_type": "book", "entity_id": book_id, "field_key": "来源", "field_value": "京东"},
@@ -106,7 +107,7 @@ def test_invalid_entity_id_zero_rejected(client):
 
 def test_field_key_empty_rejected(client):
     headers = _setup_auth(client)
-    book_id = _seed_book(client)
+    book_id = _seed_book(client, headers)
     r = client.post(
         "/api/v1/custom-fields",
         json={"entity_type": "book", "entity_id": book_id, "field_key": "", "field_value": "v"},

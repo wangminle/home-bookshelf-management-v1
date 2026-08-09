@@ -78,6 +78,7 @@ def update_progress(
     page: Optional[int] = typer.Option(None, "--page", help="当前页码"),
     percent: Optional[float] = typer.Option(None, "--percent", help="阅读进度百分比 0-100"),
     rating: Optional[int] = typer.Option(None, "--rating", help="评分 1-5"),
+    to_read: Optional[bool] = typer.Option(None, "--to-read/--no-to-read", help="标记/取消想读"),
     json_output: bool = typer.Option(True, "--json/--no-json", help="JSON 输出"),
 ):
     """更新阅读进度"""
@@ -88,6 +89,7 @@ def update_progress(
         page=page,
         percent=percent,
         rating=rating,
+        to_read=to_read,
     )
     emit(result, json_output)
 

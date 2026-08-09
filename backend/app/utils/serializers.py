@@ -63,6 +63,7 @@ def progress_to_out(progress) -> ProgressOut:
         current_page=progress.current_page,
         percent=progress.percent,
         rating=progress.rating,
+        to_read=progress.to_read,
         finish_date=progress.finish_date,
         updated_at=progress.updated_at,
         message=message,

@@ -8,6 +8,7 @@ import type { StatsOut } from '@/types/models'
 const api = useApiStore()
 const stats = ref<StatsOut | null>(null)
 const loading = ref(true)
+const loadError = ref<string | null>(null)  // BUG-125：加载失败时展示错误状态 + 重试
 
 const maxCategoryCount = computed(() => {
   if (!stats.value || stats.value.by_category.length === 0) return 1
@@ -28,8 +29,11 @@ const statusTotal = computed(() => {
 
 async function load() {
   loading.value = true
+  loadError.value = null
   try {
     stats.value = await api.get<StatsOut>('/stats')
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : '加载失败'
   } finally {
     loading.value = false
   }
@@ -48,6 +52,12 @@ onMounted(load)
         <div class="skeleton-stat-value"></div>
         <div class="skeleton-stat-label"></div>
       </div>
+    </div>
+
+    <!-- BUG-125：加载失败时展示错误状态 + 重试 -->
+    <div v-else-if="loadError" class="error-state">
+      <p class="error-state-msg">{{ loadError }}</p>
+      <button class="btn" @click="load">重试</button>
     </div>
 
     <div v-else-if="stats && stats.total_books === 0" class="empty">
@@ -210,5 +220,15 @@ onMounted(load)
 /* 花费趋势金额列略宽 */
 .category-bar-spent {
   width: 60px;
+}
+
+/* BUG-125：加载失败状态 */
+.error-state {
+  text-align: center;
+  padding: 48px 24px;
+}
+.error-state-msg {
+  color: var(--error-text);
+  margin-bottom: 16px;
 }
 </style>

@@ -36,15 +36,20 @@ def sync_book_tags(db: Session, book_id: int, tag_names: list[str]) -> list[str]
     return result
 
 
-def _normalize_updated_isbns(book: Book, payload: BookUpdate) -> tuple[str | None, str | None]:
+def _normalize_updated_isbns(book: Book, payload: BookUpdate, set_fields: set[str] | None = None) -> tuple[str | None, str | None]:
+    """根据 payload 更新 ISBN。set_fields 区分未传与显式 null（BUG-118）。"""
+    if set_fields is None:
+        set_fields = payload.model_fields_set
     next_isbn13 = book.isbn13
     next_isbn10 = book.isbn10
 
-    if payload.isbn13 is not None:
-        next_isbn13 = canonical_isbn13(payload.isbn13) or payload.isbn13.strip() or None
-    if payload.isbn10 is not None:
-        next_isbn10 = normalize_isbn(payload.isbn10) or payload.isbn10.strip() or None
-        derived_isbn13 = canonical_isbn13(next_isbn10)
+    if "isbn13" in set_fields:
+        val = payload.isbn13
+        next_isbn13 = (canonical_isbn13(val) or val.strip() or None) if val else None
+    if "isbn10" in set_fields:
+        val = payload.isbn10
+        next_isbn10 = (normalize_isbn(val) or val.strip() or None) if val else None
+        derived_isbn13 = canonical_isbn13(next_isbn10) if next_isbn10 else None
         if derived_isbn13:
             next_isbn13 = derived_isbn13
 
@@ -79,33 +84,39 @@ def update_book(db: Session, book_id: int, payload: BookUpdate) -> BookUpdateRes
     if not book:
         raise ValueError(f"书籍 ID {book_id} 不存在")
 
-    if payload.title is not None:
+    # BUG-118：使用 model_fields_set 区分"未传字段"与"显式传 null"
+    # 之前 `if payload.X is not None:` 会把显式 null 当成"跳过"，无法清空字段
+    set_fields = payload.model_fields_set
+
+    if "title" in set_fields and payload.title is not None:
         book.title = payload.title.strip()
         book.normalized_title = normalize_title(payload.title)
-    if payload.subtitle is not None:
+    if "subtitle" in set_fields:
         book.subtitle = payload.subtitle
-    if payload.isbn13 is not None or payload.isbn10 is not None:
-        next_isbn13, next_isbn10 = _normalize_updated_isbns(book, payload)
+    if "isbn13" in set_fields or "isbn10" in set_fields:
+        next_isbn13, next_isbn10 = _normalize_updated_isbns(book, payload, set_fields)
         _ensure_no_conflicting_isbn(db, book_id=book_id, isbn13=next_isbn13, isbn10=next_isbn10)
         book.isbn13 = next_isbn13
         book.isbn10 = next_isbn10
-    if payload.authors is not None:
+    if "authors" in set_fields:
+        # BUG-118：显式传 null 应清空作者（serialize_json_list(None) -> None）
         book.authors = serialize_json_list(payload.authors)
-    if payload.publisher is not None:
+    if "publisher" in set_fields:
         book.publisher = payload.publisher
-    if payload.publish_date is not None:
+    if "publish_date" in set_fields:
         book.publish_date = payload.publish_date
-    if payload.page_count is not None:
+    if "page_count" in set_fields:
         book.page_count = payload.page_count
-    if payload.language is not None:
+    if "language" in set_fields:
         book.language = payload.language
-    if payload.category is not None:
+    if "category" in set_fields:
         book.category = payload.category
-    if payload.summary is not None:
+    if "summary" in set_fields:
         book.summary = payload.summary
 
-    if payload.tags is not None:
-        sync_book_tags(db, book_id, payload.tags)
+    if "tags" in set_fields:
+        # BUG-118：显式传 null 清空所有标签（sync_book_tags([]) 删除全部 BookTag）
+        sync_book_tags(db, book_id, payload.tags or [])
 
     try:
         db.commit()

@@ -49,6 +49,7 @@ export interface ReadingProgress {
   current_page: number | null
   percent: number | null
   rating: number | null
+  to_read: boolean
   finish_date: string | null
   updated_at: string
   message: string

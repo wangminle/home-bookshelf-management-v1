@@ -17,6 +17,8 @@ def test_upgrade_dedups_duplicate_custom_fields(tmp_path: Path):
 
     backend_dir = Path(__file__).resolve().parents[1]
     cfg = Config(str(backend_dir / "alembic.ini"))
+    # TST-002：钉住 script_location 为绝对路径，使迁移与 cwd 无关
+    cfg.set_main_option("script_location", str(backend_dir / "alembic"))
     # env.py 会再用 settings.database_url 覆盖
 
     # 升到约束前一版

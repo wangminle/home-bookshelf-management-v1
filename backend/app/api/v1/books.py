@@ -3,6 +3,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.auth import ChannelIdentity, channel_headers, enforce_channel_member
 from app.db import get_db
 from app.models import Book, ReadingProgress
 from app.schemas.book import ApiResponse, BookCreate, BookListOut, BookUpdate
@@ -73,11 +74,29 @@ def list_books(
     if member_id is not None and not status:
         raise HTTPException(status_code=400, detail="member_id 必须配合 status 参数一起使用")
     if status:
-        progress_stmt = select(ReadingProgress.book_id).where(ReadingProgress.status == status)
+        # BUG-117/123：状态筛选口径与 GET /stats 完全一致——每本书聚合成单一全局状态。
+        # 无 member_id 时按全部成员聚合；带 member_id 时仅按该成员的进度聚合。
+        from app.utils.book_helpers import aggregate_book_status
+
+        prog_stmt = select(ReadingProgress.book_id, ReadingProgress.status)
         if member_id is not None:
-            progress_stmt = progress_stmt.where(ReadingProgress.member_id == member_id)
-        book_ids = db.scalars(progress_stmt).all()
-        conditions.append(Book.id.in_(book_ids) if book_ids else Book.id == -1)
+            prog_stmt = prog_stmt.where(ReadingProgress.member_id == member_id)
+        progress_rows = db.execute(prog_stmt).all()
+        book_member_statuses: dict[int, list[str]] = {}
+        for bid, st in progress_rows:
+            book_member_statuses.setdefault(bid, []).append(st)
+        # 全局状态 == status 的书
+        matched_book_ids = {
+            bid
+            for bid, statuses in book_member_statuses.items()
+            if aggregate_book_status(statuses) == status
+        }
+        # unread 还要包含完全无进度记录的书（与 stats 口径一致）
+        if status == "unread":
+            books_with_progress_ids = set(book_member_statuses.keys())
+            all_book_ids = set(db.scalars(select(Book.id)).all())
+            matched_book_ids |= all_book_ids - books_with_progress_ids
+        conditions.append(Book.id.in_(matched_book_ids) if matched_book_ids else Book.id == -1)
 
     if conditions:
         combined = conditions[0] if len(conditions) == 1 else and_(*conditions)
@@ -90,7 +109,18 @@ def list_books(
 
 
 @router.post("", response_model=ApiResponse, status_code=201)
-def create_book(payload: BookCreate, db: Session = Depends(get_db)) -> ApiResponse:
+def create_book(
+    payload: BookCreate,
+    db: Session = Depends(get_db),
+    identity: ChannelIdentity = Depends(channel_headers),
+) -> ApiResponse:
+    # BUG-102：白名单建立后，写入操作必须经过渠道身份鉴权
+    enforce_channel_member(
+        db,
+        body_member_id=None,
+        channel=identity.channel,
+        external_user_id=identity.external_user_id,
+    )
     isbn13 = canonical_isbn13(payload.isbn13) or canonical_isbn13(payload.isbn10)
     isbn10 = normalize_isbn(payload.isbn10)
     lookup_keys = isbn_lookup_keys(isbn13) | isbn_lookup_keys(isbn10)
@@ -134,7 +164,19 @@ def get_book(book_id: int, db: Session = Depends(get_db)) -> ApiResponse:
 
 
 @router.patch("/{book_id}", response_model=ApiResponse)
-def patch_book(book_id: int, payload: BookUpdate, db: Session = Depends(get_db)) -> ApiResponse:
+def patch_book(
+    book_id: int,
+    payload: BookUpdate,
+    db: Session = Depends(get_db),
+    identity: ChannelIdentity = Depends(channel_headers),
+) -> ApiResponse:
+    # BUG-102：白名单建立后，写入操作必须经过渠道身份鉴权
+    enforce_channel_member(
+        db,
+        body_member_id=None,
+        channel=identity.channel,
+        external_user_id=identity.external_user_id,
+    )
     try:
         result = update_book(db, book_id, payload)
     except ValueError as exc:

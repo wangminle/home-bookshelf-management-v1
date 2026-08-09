@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from app import db as db_module
-from app.auth import ChannelIdentity, channel_headers, enforce_channel_member
+from app.auth import ChannelIdentity, channel_headers, enforce_channel_member, system_has_channel_bindings
 from app.schemas.attachment import AttachmentCreate, AttachmentOut
 from app.schemas.book import ApiResponse
 from app.services.attachments import create_attachment
@@ -24,11 +24,14 @@ def _create_attachment_in_thread(
     identity: ChannelIdentity,
 ) -> dict:
     with db_module.SessionLocal() as db:
+        # BUG-115：白名单建立后拒绝匿名回退；引导期（无绑定）仍允许匿名
+        require_channel = system_has_channel_bindings(db)
         member_id = enforce_channel_member(
             db,
             body_member_id=None,
             channel=identity.channel,
             external_user_id=identity.external_user_id,
+            require_channel=require_channel,
         )
         result = create_attachment(db, payload, upload_path=upload_path)
         log_and_commit(

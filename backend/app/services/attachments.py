@@ -17,6 +17,14 @@ from app.utils.db_errors import rollback_on_integrity
 
 ALLOWED_ENTITY_TYPES = frozenset({"book", "member", "note", "copy"})
 
+# BUG-116：禁止上传可内联执行脚本/主动内容的文件类型，防止存储型 XSS
+# 含 .shtml/.xht/.svgz 等服务端解析或等价 HTML/SVG 变体
+_BLOCKED_EXTENSIONS = frozenset({
+    ".html", ".htm", ".shtml", ".xhtml", ".xht", ".svg", ".svgz", ".xml",
+    ".js", ".mjs", ".css",
+    ".swf",
+})
+
 
 @dataclass
 class AttachmentResult:
@@ -52,6 +60,9 @@ def create_attachment(
     if upload_path:
         settings.attachments_dir.mkdir(parents=True, exist_ok=True)
         suffix = upload_path.suffix or ".bin"
+        # BUG-116：拒绝危险扩展名，阻止存储型 XSS
+        if suffix.lower() in _BLOCKED_EXTENSIONS:
+            raise ValueError(f"不允许上传此类型文件: {suffix}")
         entity_part = sanitize_filename_stem(payload.entity_type)
         title_part = sanitize_filename_stem(payload.title or "file")
         # 追加短 uuid 避免同实体同标题覆盖先前附件

@@ -23,7 +23,17 @@ fi
 echo "==> Interpreter: $($PY --version)"
 
 VENV=".venv"
-VENV_PY="$VENV/bin/python"
+
+# 检测 venv 内解释器路径（Windows/Git Bash 用 Scripts/python.exe，Linux/macOS 用 bin/python）
+_detect_venv_py() {
+  if [[ -f "$VENV/Scripts/python.exe" ]]; then
+    echo "$VENV/Scripts/python.exe"
+  else
+    echo "$VENV/bin/python"
+  fi
+}
+
+VENV_PY="$(_detect_venv_py)"
 
 # If the venv exists but lacks a usable interpreter for THIS platform
 # (e.g. a macOS/Linux venv synced from another machine), rebuild it.
@@ -34,6 +44,12 @@ if [ ! -x "$VENV_PY" ]; then
   fi
   echo "==> Creating virtualenv: $VENV"
   "$PY" -m venv "$VENV"
+  # BUG-128：venv 刚创建后重新检测解释器路径——Windows/Git Bash 首次创建会生成 Scripts/python.exe
+  VENV_PY="$(_detect_venv_py)"
+  if [ ! -x "$VENV_PY" ]; then
+    echo "错误：venv 创建后仍未找到解释器 $VENV_PY" >&2
+    exit 1
+  fi
 fi
 
 echo "==> Upgrading pip"
@@ -70,7 +86,8 @@ echo "==> Running database migrations (alembic upgrade head)"
 cat <<EOF
 
 [OK] Backend setup complete.
-   Activate:  source .venv/bin/activate
+   Activate:  source .venv/bin/activate        # Linux/macOS
+              .venv\\Scripts\\activate          # Windows/Git Bash
    Start:     uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --app-dir .
    Docs:      http://127.0.0.1:8000/docs
 

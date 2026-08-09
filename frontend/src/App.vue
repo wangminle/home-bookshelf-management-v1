@@ -36,9 +36,11 @@ function onMemberChange(e: Event) {
         <select
           id="member-select"
           :value="members.selectedId || ''"
+          :disabled="members.members.length === 0"
           aria-label="选择家庭成员"
           @change="onMemberChange"
         >
+          <option v-if="members.members.length === 0" value="" disabled>暂无成员</option>
           <option v-for="m in members.members" :key="m.id" :value="m.id">
             {{ m.name }}
           </option>
@@ -46,18 +48,17 @@ function onMemberChange(e: Event) {
       </div>
     </header>
 
-    <!-- 修复 P1：错误横幅添加 role=alert + aria-live，屏幕阅读器可播报 -->
-    <div
+    <!-- BUG-126：错误横幅用 <button> 确保键盘可达（div 不可聚焦，无法 Tab/Enter 关闭） -->
+    <button
       v-if="lastError"
       class="error-banner"
       role="alert"
       aria-live="assertive"
       @click="lastError = null"
-      @keyup.enter="lastError = null"
     >
       <span aria-hidden="true">⚠</span>
       <span>{{ lastError }}</span>
-    </div>
+    </button>
 
     <!-- 修复 P2：后端离线连接提示 -->
     <div

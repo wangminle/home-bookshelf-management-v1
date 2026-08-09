@@ -31,7 +31,11 @@ def test_anonymous_bind_blocked_after_whitelist_exists(client):
         == 200
     )
 
-    book = client.post("/api/v1/books", json={"title": "鉴权测试2"})
+    book = client.post(
+        "/api/v1/books",
+        json={"title": "鉴权测试2"},
+        headers={"X-Channel": "feishu", "X-External-User-Id": "ou_owner"},
+    )
     assert book.status_code == 201
     book_id = book.json()["data"]["id"]
 

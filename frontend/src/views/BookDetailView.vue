@@ -14,6 +14,10 @@ const members = useMembersStore()
 
 const book = ref<BookDetail | null>(null)
 const loading = ref(true)
+const loadError = ref<string | null>(null)  // BUG-125：加载失败时展示错误状态 + 重试
+
+// BUG-120：请求代际跟踪，丢弃过期的异步响应（如快速切换书籍/成员时）
+let requestGen = 0
 
 // Tab 定义
 const tabs = [
@@ -76,9 +80,13 @@ const noteForm = reactive({
 const noteSaving = ref(false)
 
 async function loadDetail() {
+  const gen = ++requestGen  // BUG-120：递增代际，过期响应将被丢弃
   loading.value = true
+  loadError.value = null
   try {
-    book.value = await api.get<BookDetail>(`/books/${props.id}`)
+    const data = await api.get<BookDetail>(`/books/${props.id}`)
+    if (gen !== requestGen) return  // 丢弃过期响应
+    book.value = data
     // 预填进度表单：取当前成员的进度
     const existing = book.value.reading_progress.find(
       (p) => p.member_id === members.selectedId,
@@ -93,8 +101,11 @@ async function loadDetail() {
       progressForm.current_page = null
       progressForm.rating = null
     }
+  } catch (e) {
+    if (gen !== requestGen) return  // 丢弃过期错误
+    loadError.value = e instanceof Error ? e.message : '加载失败'
   } finally {
-    loading.value = false
+    if (gen === requestGen) loading.value = false
   }
 }
 
@@ -105,6 +116,16 @@ function attachmentHref(a: Attachment): string | null {
   return safeUrl(a.url) || attachmentUrl(a.file_path)
 }
 const placeholderChar = computed(() => book.value?.title?.charAt(0) || '?')
+
+// BUG-124：v-model.number 清空输入框在运行时产生空字符串 ""，
+// 但 TS 类型推断为 number | null，这里用 unknown 桥接以兼容运行时行为。
+function normalizeNumberInput(v: number | null): number | null {
+  const raw = v as unknown
+  if (raw === null || raw === '' || raw === 0) {
+    return null
+  }
+  return v
+}
 // 修复 P2：占位符用 CSS 变量传 hue，sat/light 由全局 --cover-sat/--cover-light 决定（暗色模式自适应）
 const placeholderHue = computed(() => {
   if (!book.value) return 0
@@ -118,11 +139,15 @@ async function submitProgress() {
   }
   progressSaving.value = true
   try {
+    // BUG-124：v-model.number 清空输入框会产生空字符串 ""，须归一为 null；
+    // 0 也归一为 null（页码 0 无意义），确保允许显式清空当前页/评分
+    const page = normalizeNumberInput(progressForm.current_page)
+    const rating = normalizeNumberInput(progressForm.rating)
     await api.post(`/books/${props.id}/progress`, {
       member_id: members.selectedId,
       status: progressForm.status,
-      current_page: progressForm.current_page,
-      rating: progressForm.rating,
+      current_page: page,
+      rating: rating,
     })
     await loadDetail()
   } catch {
@@ -139,11 +164,13 @@ async function submitNote() {
   if (!noteForm.content_md.trim()) return
   noteSaving.value = true
   try {
+    // BUG-124：v-model.number 清空产生空字符串 ""，归一为 null 避免后端 422
+    const page = normalizeNumberInput(noteForm.page)
     await api.post(`/books/${props.id}/notes`, {
       member_id: members.selectedId,
       note_type: 'excerpt',
       content_md: noteForm.content_md,
-      page: noteForm.page,
+      page: page,
     })
     noteForm.content_md = ''
     noteForm.page = null
@@ -176,6 +203,12 @@ watch(() => members.selectedId, loadDetail)
         <div class="skeleton-text-line" style="width: 85%;"></div>
         <div class="skeleton-text-line" style="width: 60%;"></div>
       </div>
+    </div>
+
+    <!-- BUG-125：加载失败时展示错误状态 + 重试按钮 -->
+    <div v-else-if="loadError" class="error-state">
+      <p class="error-state-msg">{{ loadError }}</p>
+      <button class="btn" @click="loadDetail">重试</button>
     </div>
 
     <div v-else-if="book" class="detail-layout">
@@ -467,5 +500,15 @@ watch(() => members.selectedId, loadDetail)
 }
 .note-form-actions input {
   width: 100px;
+}
+
+/* BUG-125：加载失败状态 */
+.error-state {
+  text-align: center;
+  padding: 48px 24px;
+}
+.error-state-msg {
+  color: var(--error-text);
+  margin-bottom: 16px;
 }
 </style>

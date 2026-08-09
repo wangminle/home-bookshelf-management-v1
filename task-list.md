@@ -112,15 +112,38 @@
 | BUG-099 | 修复 | BookDetailView 进度表单串数据：仅在命中当前成员进度时赋值，未命中不重置；换书/换成员后残留上一状态页码评分，且未 watch selectedId；成员异步加载时预填常失败 | 2026-08-09 04:37 | 2026-08-09 05:13 | 已修复 | BookDetailView.vue loadDetail；CHK-026/027 确认属实；本会话核实工作区修复并补强（SPA /api 404、useBooks 筛选作废序号）；2026-08-09 05:13 |
 | BUG-100 | 修复 | useBooks 列表筛选竞态：loadInitial/loadMore 无请求序号或取消，快速改筛选时旧响应可覆盖新结果 | 2026-08-09 04:37 | 2026-08-09 05:13 | 已修复 | frontend/src/composables/useBooks.ts；CHK-026/027 确认属实；本会话核实工作区修复并补强（SPA /api 404、useBooks 筛选作废序号）；2026-08-09 05:13 |
 | BUG-101 | 修复 | StatsView 状态条分母误用 total_books：by_status 按进度行计数（多成员可大于藏书数），宽度可超过 100% | 2026-08-09 04:37 | 2026-08-09 05:13 | 已修复 | StatsView.vue；分母应取 by_status 合计或合理上限；CHK-026/027 确认属实；本会话核实工作区修复并补强（SPA /api 404、useBooks 筛选作废序号）；2026-08-09 05:13 |
-| BUG-102 | 修复 | POST/PATCH /books 未接入渠道鉴权：白名单建立后未绑定身份仍可带渠道头创建/更新书籍（201/200），同头打 purchases 为 403；相对其它写端点为明确绕过 | 2026-08-09 04:39 | - | 待修复 | api/v1/books.py:92-146 缺 channel_headers/enforce_channel_member；后端审计复现 |
-| BUG-103 | 修复 | CLI _auth_headers 半组渠道头独立注入：只设 BOOKSHELF_CHANNEL 或只设 BOOKSHELF_EXTERNAL_USER_ID 时全部写命令带半组头→后端 400，拖垮 progress/add 等 | 2026-08-09 04:39 | - | 待修复 | cli/bookshelf/client.py:26-31；应成对才注入，否则省略 |
-| BUG-104 | 修复 | CLI 把 recognize 未识别（ok=False 且 data.found=False）当成硬失败：丢弃 data.message，统一抛「API 请求失败」 | 2026-08-09 04:39 | - | 待修复 | client.py ok is False 分支；应区分业务未命中与真正错误，透传 message |
-| BUG-105 | 修复 | 封面下载 DNS rebinding TOCTOU 残留：_is_safe_url getaddrinfo 后 urlopen 再次解析未钉 IP；3xx 跳转已由 _SafeRedirectHandler 复检（BUG-051），二次解析窗口仍在 | 2026-08-09 04:39 | - | 待修复 | storage.py；利用面有限（封面多来自元数据源）；硬化可选 IP pin |
+| BUG-102 | 修复 | POST/PATCH /books 未接入渠道鉴权：白名单建立后未绑定身份仍可带渠道头创建/更新书籍（201/200），同头打 purchases 为 403；相对其它写端点为明确绕过 | 2026-08-09 04:39 | 2026-08-09 18:30 | 已修复 | api/v1/books.py:92-146 缺 channel_headers/enforce_channel_member；后端审计复现 |
+| BUG-103 | 修复 | CLI _auth_headers 半组渠道头独立注入：只设 BOOKSHELF_CHANNEL 或只设 BOOKSHELF_EXTERNAL_USER_ID 时全部写命令带半组头→后端 400，拖垮 progress/add 等 | 2026-08-09 04:39 | 2026-08-09 18:30 | 已修复 | cli/bookshelf/client.py:26-31；应成对才注入，否则省略 |
+| BUG-104 | 修复 | CLI 把 recognize 未识别（ok=False 且 data.found=False）当成硬失败：丢弃 data.message，统一抛「API 请求失败」 | 2026-08-09 04:39 | 2026-08-09 18:30 | 已修复 | client.py ok is False 分支；应区分业务未命中与真正错误，透传 message |
+| BUG-105 | 修复 | 封面下载 DNS rebinding TOCTOU 残留：_is_safe_url getaddrinfo 后 urlopen 再次解析未钉 IP；3xx 跳转已由 _SafeRedirectHandler 复检（BUG-051），二次解析窗口仍在 | 2026-08-09 04:39 | 2026-08-09 18:16 | 已修复 | storage.py；_build_pinned_request 把 hostname 替换为已校验安全 IP + 保留 Host 头，_SafeRedirectHandler 对重定向同样 pinning；无可用 IP 即拒绝；pytest 5 用例覆盖 pin/拒绝/重定向 |
 | BUG-106 | 修复 | SPA fallback 路径穿越：static 托管时 ../ 可读 backend 旁路文件（config/.env.example 等），缺 is_relative_to 护栏 | 2026-08-09 04:59 | 2026-08-09 05:55 | 已完成 | main.py spa_fallback 加 is_relative_to(_static_root) 护栏，对齐 files.py _safe_resolve；新增 test_spa_fallback.py 5 项回归（穿越/编码穿越/合法路由/静态文件）；curl 验证 /../app/config.py 返回 SPA HTML 而非源码；补强：未匹配 /api/* 返回 JSON 404，不再回落 SPA HTML；2026-08-09 05:13 |
 | BUG-107 | 修复 | OverviewView 首屏 generateImage 早于 canvas 挂载（v-if loading）：canvasRef 为空静默跳过自动生成 | 2026-08-09 04:59 | 2026-08-09 05:55 | 已完成 | OverviewView onMounted 加 nextTick 确保 canvas ref 注册后再 generateImage；generateImage 加 generating 重入守卫 + try/finally 复位 + genToken 丢弃过期异步结果；浏览器验证 canvas.width=1080 + 下载按钮 enabled（自动生成成功） |
 | BUG-108 | 修复 | 前端自查发现4处bug修复：①App.vue成员选择器parseInt空串返回NaN→onMemberChange守卫；②BookDetailView router.replace({...route}) spread带入matched/meta只读字段→改为{hash}；③StatsView缺.yearly-table/.subsection-title/.overview-link定义+残留内联样式→补scoped样式+提取类；④topbar移动端溢出(P2#13)→flex-shrink+overflow:hidden+max-width+窄屏导航收紧 | 2026-08-09 05:00 | 2026-08-09 05:35 | 已完成 | vue-tsc构建零错误；浏览器验证tab hash持久化(#copies)、成员切换、375px顶栏不溢出均正常 |
 | BUG-109 | 修复 | 代码审查6个BUG修复：Bug1路径穿越已由BUG-106修复验证；Bug2附件file_path打不开新增attachmentHref回退；Bug3进度表单残留else重置；Bug4 useBooks竞态请求序号；Bug5状态条分母改用statusTotal；Bug6 members双发in-flight去重 | 2026-08-09 17:00 | 2026-08-09 17:30 | 已修复 | - |
 | BUG-110 | 修复 | test_files_serving 路径穿越测试与 SPA fallback 环境耦合：httpx 客户端规范化 /../../../etc/passwd→/etc/passwd 后不再命中 /api/v1/files 路由，static 托管时被 spa_fallback 捕获返回 200（BUG-106 修复暴露） | 2026-08-09 05:10 | 2026-08-09 05:55 | 已完成 | 测试改为断言安全契约（响应体不含 root:/bin/）+ %2e%2e 编码直击 files 路由验 404；118 passed 全绿 |
+| BUG-111 | 修复 | OpenLibrary/Google Books 返回的 publish_date 格式不统一（如 'July 2008'），未经规范化直接入库导致 BookOut 序列化时 ValidationError 500 | 2026-08-09 06:00 | 2026-08-09 06:15 | 已完成 | openlibrary.py 新增 _normalize_publish_date() 提取 YYYY/YYYY-MM；google_books.py 复用；intake.py 加 regex 安全网拦截非标格式；容器内已修复脏数据 |
+| BUG-112 | 修复 | 已绑定的普通成员或 guest 可通过 POST /members 指定 role=owner 自行创建 owner，随后获得代绑他人渠道的管理权限 | 2026-08-09 15:03 | 2026-08-09 18:30 | 已修复 | api/v1/members.py:50-68 仅校验已绑定身份，schemas/member.py:7-14 允许任意调用者提交 owner |
+| BUG-113 | 修复 | 渠道身份头可被客户端伪造，匿名 GET /members 又返回完整 channel_bindings，攻击者复制 owner 外部 ID 即可冒充受保护写操作 | 2026-08-09 15:03 | 2026-08-09 18:16 | 已修复 | auth.py enforce_channel_member：system_has_channel_bindings 后拒绝匿名回退，所有写操作必须提供已绑定渠道头；空库引导期仍允许匿名；pytest 覆盖绑定后匿名 403、绑定渠道可写、空库仍可写 |
+| BUG-114 | 修复 | 出版日期校验存在写入口缺口：BookUpdate 不复用 BookBase 日期校验，元数据 normalize/safety regex 也接受 2024-13-99，提交脏数据后响应及后续列表可持续 500 | 2026-08-09 15:03 | 2026-08-09 18:16 | 已修复 | 新增 book_helpers.is_valid_publish_date 校验真实日期；openlibrary._normalize_publish_date 与 intake 安全网均接入；pytest 覆盖 2024-13-99/2024-02-30 拒收 |
+| BUG-115 | 修复 | 附件端点的匿名写入修复不完整：白名单建立后无渠道头仍回退首个成员，可向任意实体上传文件/链接/Markdown | 2026-08-09 15:03 | 2026-08-09 18:30 | 已修复 | api/v1/attachments.py:27-38 未传 require_channel=True；auth.py:112-122 默认允许无头回退；原 BUG-050 回归覆盖不足 |
+| BUG-116 | 修复 | 附件允许上传 HTML/主动 SVG 并由同源 FileResponse 内联提供，打开附件可执行存储型主动内容 | 2026-08-09 15:03 | 2026-08-09 18:16 | 已修复 | services/attachments.py _BLOCKED_EXTENSIONS 与 api/v1/files.py _FORCE_DOWNLOAD_SUFFIXES 同步补 .shtml/.xht/.svgz；serve_cover 也接入强制下载；pytest 覆盖黑名单与强制下载集合 |
+| BUG-117 | 修复 | 书籍状态统计混用成员-书记录数与藏书数，多成员阅读同一本书时 by_status 总和可超过 total_books | 2026-08-09 15:03 | 2026-08-09 18:16 | 已修复 | book_helpers.aggregate_book_status 按优先级 finished>reading>abandoned/dropped>unread 聚合每书单一状态；stats 与 books 筛选共用；pytest 覆盖多人共读 by_status 合计<=total_books |
+| BUG-118 | 修复 | PATCH /books 无法清空可空字段，显式提交 null 会被当作未提交，接口成功但副标题/作者/出版社/日期/分类/摘要/ISBN 保留旧值 | 2026-08-09 15:03 | 2026-08-09 18:16 | 已修复 | services/books.py authors/tags 分支去掉 payload.X is not None 守卫，显式 null 即清空（serialize_json_list(None)->None、sync_book_tags([])删全部）；pytest 覆盖 authors:null+tags:null 清空 |
+| BUG-119 | 修复 | 无 ISBN 入库按规范化书名先查后插且无数据库唯一约束，并发请求可同时通过查重并生成重复书籍 | 2026-08-09 15:03 | 2026-08-09 18:16 | 已修复 | services/intake.py 引入进程级 _INTAKE_LOCK 串行化 find-then-insert 关键区（持锁后二次查重）；pytest 覆盖两次无 ISBN 同书名入库第二次 already_exists=True |
+| BUG-120 | 修复 | 书籍详情加载缺少请求代次控制，快速切换书籍时旧响应可覆盖新书页面，并把旧书预填进度提交到当前书 ID | 2026-08-09 15:03 | 2026-08-09 18:30 | 已修复 | frontend BookDetailView.vue:78-99,115-127,158-161；浏览器延迟响应已复现 |
+| BUG-121 | 修复 | 前端全局 lastError 被任意成功请求无条件清空，并发时一个接口 500 可被另一个成功响应掩盖，页面把故障误显示为空书架/空画布 | 2026-08-09 15:03 | 2026-08-09 18:30 | 已修复 | frontend stores/api.ts:47-50；BookshelfView 与 OverviewView 并发请求已浏览器复现 |
+| BUG-122 | 修复 | 320px 窄屏顶栏导航被成员选择器覆盖，概览图链接中心命中成员标签而无法点击 | 2026-08-09 15:03 | 2026-08-09 18:30 | 已修复 | frontend assets/main.css:151-239,947-965 与 App.vue:27-47；375px 修复未覆盖 320px，Playwright 已复现 |
+| BUG-123 | 修复 | 想读筛选与统计口径冲突：统计把无 ReadingProgress 的新书计为 unread，GET /books?status=unread 却只返回显式 unread 记录 | 2026-08-09 15:03 | 2026-08-09 18:16 | 已修复 | api/v1/books.py 状态筛选改用 aggregate_book_status 与 stats 同口径；pytest 覆盖 reading/finished/unread 三态 stats 与列表计数完全一致 |
+| BUG-124 | 修复 | 详情数字输入清空后提交空字符串导致 422，选择未评发送 null 但后端忽略，旧评分无法清除；笔记页码同类风险 | 2026-08-09 15:03 | 2026-08-09 18:16 | 已修复 | BookDetailView.vue normalizeNumberInput 把 v-model.number 空串/0 归一为 null；services/reading.py current_page=null 时一并清 percent；vue-tsc 构建通过 |
+| BUG-125 | 修复 | 详情/统计/概览首屏请求失败时缺少页面级错误和重试，页面变空白或永久无效；叠加全局错误竞态后用户看不到故障原因 | 2026-08-09 15:03 | 2026-08-09 18:16 | 已修复 | OverviewView.vue 新增 retry()：重试成功后 await nextTick + generateImage 恢复画布与下载按钮；vue-tsc 构建通过 |
+| BUG-126 | 修复 | 错误横幅绑定 Enter 关闭但使用不可聚焦 div，键盘用户无法执行关闭操作 | 2026-08-09 15:03 | 2026-08-09 18:30 | 已修复 | frontend App.vue:51-59；应使用 button 或提供正确键盘焦点语义 |
+| BUG-127 | 修复 | backup.sh 在缺少 sqlite3 且数据库存在 WAL 时仍直接复制主库并报告成功，可静默丢失已提交但尚未 checkpoint 的事务 | 2026-08-09 15:03 | 2026-08-09 18:16 | 已修复 | deploy/backup.sh Python 分支改用 sqlite3 online backup API 得一致快照；checkpoint busy(row[0]==1)时 exit 1 不复制主库；bash -n 通过 |
+| BUG-128 | 修复 | install.sh 声称支持 Git Bash 但硬编码 .venv/bin/python，Windows venv 使用 Scripts/python.exe，重建后仍会在 pip 步骤失败 | 2026-08-09 15:03 | 2026-08-09 18:16 | 已修复 | backend/install.sh 抽出 _detect_venv_py 函数，venv 创建后重新检测解释器路径（Windows 首次创建后切到 Scripts/python.exe），缺失则 exit 1；bash -n 通过 |
+| BUG-129 | 修复 | 想读业务字段 to_read 已存在于数据模型和一期 Schema 设计，但 API、CLI 与序列化均无法设置或读取，已声明能力不可用 | 2026-08-09 15:03 | 2026-08-09 18:16 | 已修复 | api/v1/progress.py ProgressOut 构造补 to_read=result.progress.to_read；pytest 覆盖提交 to_read=true 响应回传 true |
+| BUG-130 | 修复 | 前端改为成功请求不清空全局 lastError 后，失败请求成功重试仍永久保留旧错误横幅，页面内容已恢复但继续显示故障 | 2026-08-09 17:40 | 2026-08-09 18:16 | 已修复 | frontend stores/api.ts 引入 inflightRequests 计数，仅当本次成功且无其它进行中请求时清空 lastError——并发中一个成功不掩盖另一失败，单独重试成功能正常清错误横幅 |
+| BUG-131 | 修复 | BUG-105 IP pinning 后 HTTPS 封面下载可能失败：请求 URL 主机被替换为 IP，默认 check_hostname 对 IP 校验证书且无 server_hostname/SNI 工厂（注释中的 _https_connection_factory 未实现）；IPv6 钉 IP 时 netloc 缺方括号；storage.py 中 _SAFE_OPENER/_build_pinned_request 重复定义 | 2026-08-09 20:52 | 2026-08-09 21:29 | 已修复 | CHK-033 复核发现；DNS rebinding 主路径已 pin，但合法 HTTPS 封面（OpenLibrary 等）有功能回归风险；修复：storage.py 清除 _SAFE_OPENER/_build_pinned_request 重复定义；新增 _PinnedHTTPSConnection/_PinnedHTTPSHandler（原始主机名暂存 request，TLS SNI/证书校验用原始域名，且优先于代理隧道 _tunnel_host）；_format_netloc 处理 IPv6 方括号。冒烟验证：百度（经本机代理 CONNECT 隧道）与 OpenLibrary 封面 HTTPS 钉 IP 下载均成功；pytest test_bug131_133 7 用例 |
+| BUG-132 | 修复 | 渠道身份仍依赖客户端明文 X-Channel/X-External-User-Id：白名单建立后已拒匿名写（BUG-113），但已知 owner 外部 ID 时仍可冒充（可信局域网/网关代填头的既有模型） | 2026-08-09 20:52 | 2026-08-09 21:29 | 已修复 | CHK-033：若接受与 BUG-102 同级设计边界可关闭；若要求防伪造需签名/共享密钥或反代注入不可伪造身份；修复：可选共享密钥 HMAC 签名校验。config 新增 channel_signing_secret（CHANNEL_SIGNING_SECRET）；auth.channel_headers 统一校验 X-Channel-Signature=HMAC-SHA256(secret,'{channel}:{external_user_id}')，缺失/错误→403；CLI 用 BOOKSHELF_CHANNEL_SIGNING_SECRET 透传签名；未配置密钥维持可信局域网边界（README/.env.example/design§7.3 已同步） |
+| BUG-133 | 修复 | 无 ISBN 入库去重仅用进程内 _INTAKE_LOCK，多 worker/多进程部署下仍可并发重复建书；normalized_title 无 DB 唯一约束；现有回归测试为串行两次请求而非真并发 | 2026-08-09 20:52 | 2026-08-09 21:29 | 已修复 | CHK-033：单进程场景 BUG-119 已缓解；完整闭环需唯一约束或跨进程锁；修复：intake 临界区重构——进程锁+跨进程文件锁（fcntl flock/msvcrt locking，锁文件 data_dir/locks/intake.lock）覆盖'复查→新建→副本/购买→commit'全程，多 worker/多进程下同书名无 ISBN 入库不再重复；pytest 6 线程并发用例断言仅建 1 本书 |
 
 ## 调整事项
 
@@ -162,12 +185,18 @@
 | CHK-026 | 检查 | 独立复核 6 个代码审查候选问题（不改代码） | 2026-08-09 05:01 | 2026-08-09 05:01 | 已完成 | 基于仓库当前代码独立核实；确认 1/2/3/4/6 存在，其中 1 为高危文件读取，2/3/4 为真实前端缺陷，6 为重复请求竞态；5 按候选表述判定为误报（by_status 可大于 total_books，但条形轨道 overflow:hidden 不会实际溢出）。 |
 | CHK-027 | 检查 | 复核 6 个候选问题真伪、严重性与误报可能性（SPA fallback 路径穿越、附件 file_path 入口、详情进度残留、书架筛选竞态、统计条分母、成员重复加载） | 2026-08-09 05:02 | 2026-08-09 05:02 | 已完成 | 仅做代码与本地复现核实，未修改业务代码；确认 6 项均真实存在，其中 SPA fallback 路径穿越可经 %2e%2e 复现读取 backend/app/main.py 与 /etc/passwd。 |
 | CHK-028 | 检查 | 前端 5 维度审计（impeccable）：A11y / 性能 / 主题化 / 响应式 / 反模式，评分 15/20（Good），发现 15 个问题（4 P1 + 7 P2 + 4 P3） | 2026-08-09 14:00 | 2026-08-09 14:30 | 已完成 | 审计报告见 design/frontend-audit-2026-08-09.md |
+| CHK-029 | 检查 | 浏览器实机核对 http://10.180.106.12:18008/ 前端是否符合 Quiet Library 预期 | 2026-08-09 06:06 | 2026-08-09 06:08 | 已完成 | 书架/统计/概览三页可访问；暖纸底#faf8f5、主色#2c7a7b、顶栏品牌线、封面占位--cover-light:36% 已生效；空库下空状态与概览占位格正常。未验证封面墙/暗色模式（无数据+系统浅色）。成员下拉为空选项。 |
+| CHK-030 | 检查 | 全项目代码与业务缺陷审查：后端/API/鉴权/服务/模型迁移、前端交互与契约、CLI/部署/备份/Skills/文档交叉复核 | 2026-08-09 15:03 | 2026-08-09 15:03 | 已完成 | 确认新增 18 个 BUG、1 个测试入口问题与 1 个文档契约问题；既有 BUG-102~105 未重复登记。验证：backend 119 passed，frontend build 通过，compileall/pip check/alembic check 通过 |
+| CHK-031 | 检查 | 复核 BUG-102~129、TST-002、DOC-023 修复结果并执行后端/前端/平台动态回归 | 2026-08-09 17:40 | 2026-08-09 17:40 | 已完成 | 后端 119 passed；前端 build 通过；确认 13 个旧 BUG 仍未闭环，TST-002 未修复，新增 BUG-130；已恢复对应待修复状态 |
+| CHK-032 | 检查 | 修复 CHK-031 遗留的 13 个 BUG（105/113/114/116~119/123~125/127~129/130）与 TST-002，补针对性回归测试 | 2026-08-09 18:00 | 2026-08-09 18:16 | 已完成 | 后端从仓库根 pytest 135 passed（含新增 test_chk032_regression 12 用例 + test_bug051 重写 5 用例）；前端 npm run build 通过；py_compile/shell -n/git diff --check 通过。修复要点：DNS IP pinning(105)、绑定后拒匿名写(113)、真实日期校验(114)、shtml/xht/svgz 黑名单(116)、按书聚合状态(117/123)、null 清空 authors/tags(118)、进程锁串行化无ISBN入库(119)、v-model空串归一+清percent(124)、概览重试重生成画布(125)、backup checkpoint busy 检查(127)、install.sh venv后重测解释器(128)、progress 响应回传 to_read(129)、inflight 计数清错误横幅(130)、conftest 钉 script_location(TST-002) |
+| CHK-033 | 检查 | 复核 CHK-032 对 BUG-105/113/114/116~119/123~125/127~130 与 TST-002 的修复是否真正闭环 | 2026-08-09 20:52 | 2026-08-09 20:52 | 已完成 | 仓库根 pytest 135 passed；前端 build 通过；bash -n 通过。结论：CHK-031 所列项代码层大多已补齐；残留见 BUG-131/132/133（HTTPS 钉 IP TLS、渠道头信任边界、无 ISBN 多进程竞态）。 |
 
 ## 测试数据
 
 | ID | 动作 | 事项 | 发现时间 | 完成时间 | 状态 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | TST-001 | 检查 | 补齐后端/CLI 自动化回归测试，覆盖空库初始化、入库去重、购买详情、附件/自定义字段完整性、日期/ISBN 边界和鉴权 | 2026-07-11 19:35 | 2026-08-09 12:20 | 已完成 | 新增 6 测试文件 64 测试函数：test_purchase_detail.py(10 购买详情+original_price 往返+日期默认+货币消息)、test_custom_fields.py(7 upsert 插入/更新/实体校验)、test_intake_dedup.py(6 无 ISBN 归一化去重+ISBN-10↔13 互查)、test_attachment_entity_validation.py(7 book/member/note/copy 实体校验+link/markdown 内容校验)、test_isbn_unit.py(15 normalize/isbn10→13/is_valid/lookup_keys 单元)、test_reading_log_date.py(13 log_date 必填/合法/未来拒绝/pages/session 校验)。新增 pytest.ini 配置(testpaths+filterwarnings)。8 覆盖区域从 2 空白+5 部分+1 全覆盖 提升到全覆盖。全量 pytest 104 passed(原40+新64)、compileall 无错误。OPR-002 install --dev 已覆盖 pytest 安装路径 |
+| TST-002 | 检查 | 后端测试从仓库根目录执行时 Alembic script_location 依赖 cwd，71 个用例迁移初始化报 Path doesn't exist: alembic；从 backend 目录执行 119 项全绿 | 2026-08-09 15:03 | 2026-08-09 18:16 | 已完成 | tests/conftest.py _run_migrations 与 test_bug039_migration_dedup.py 均钉住 script_location 为 backend/alembic 绝对路径；从仓库根 pytest 全量 135 passed |
 
 ## 文档维护
 
@@ -195,6 +224,7 @@
 | DOC-020 | 文档 | 创建前端审计报告 design/frontend-audit-2026-08-09.md，含 15 个问题详情、修复计划表、审美提升方案 | 2026-08-09 14:30 | 2026-08-09 14:40 | 已完成 | 含 P1-1~P3-4 共 15 项问题清单 + 14 项修复计划 + 5 条审美提升建议 |
 | DOC-021 | 文档 | 审计报告 design/frontend-audit-2026-08-09.md 新增第二轮审计章节（5 Bug + 9 设计提升项 + 14项修复计划表），全部标记为已修复 | 2026-08-09 16:10 | 2026-08-09 17:29 | 已完成 | 含 Bug 发现表 B1-B5、设计提升表 D1-D9、修复计划表 14 项全部 ✅ |
 | DOC-022 | 文档 | 文档最新性核查与更新：①frontend-evaluation-report.md 新增第八节修复状态（P0-P3 全部已修复 + 关键改进表 + task-list 记录回链）；②design/README.md 补列 frontend-audit-2026-08-09.md（原仅列评估报告漏列审计报告）；③docs/web-ui.md 新增设计系统段（暗色模式/A11y WCAG AA/响应式三断点/骨架屏/性能优化）与安全段（SPA 路径穿越护栏 BUG-106） | 2026-08-09 05:33 | 2026-08-09 06:10 | 已完成 | 核查 27 份 md：audit 文档声称的 28 项修复逐项核对代码无虚标；README/deployment/get-started 等已最新无需改；frontend-evaluation-report 原为评估快照现补修复回链 |
+| DOC-023 | 文档 | reading-tracker 技能声称超过总页数仍按原值记录，服务实际会静默截断到 page_count，Agent 对用户反馈可能与落库值不一致 | 2026-08-09 15:03 | 2026-08-09 18:30 | 已修复 | skills/reading-tracker/SKILL.md:110 对照 services/reading.py:51-57 |
 
 ## 功能开发
 
@@ -221,6 +251,7 @@
 | OPR-002 | 运维 | backend/install.sh 与 install.bat 只安装 requirements.txt，requirements-dev.txt（pytest）不被任何安装脚本覆盖，按脚本装出的 venv 无法运行回归测试（本轮检查时 venv 缺 pytest，补装后 13 项全过） | 2026-08-09 03:28 | 2026-08-09 04:20 | 已完成 | backend/install.sh:33、install.bat:43；加 --dev 分支或追加安装 requirements-dev.txt，关联 TST-001；；本会话修复：install.sh 加 --dev/DEV_DEPS 分支安装 requirements-dev.txt，install.bat 对应对齐 |
 | OPS-001 | 优化 | 优化 .gitignore：新增 .zcode/、.claude/、tsconfig.tsbuildinfo、tests/_tmp/、*.log/*.tmp/*.bak/*.swp/*.swo/*~/Thumbs.db、*.sqlite/*.sqlite3、.coverage.*/*.cover 等忽略规则，防止缓存和临时文件上传 GitHub | 2026-08-09 04:25 | 2026-08-09 04:25 | 已完成 | - |
 | OPS-002 | 运维 | lwa 本地部署：前端构建产物拷入 backend/static/，后端 main.py 加 StaticFiles SPA fallback 同时服务 API 和前端；lwa 实例 home-bookshelf 端口 18008；修复 lwa 生成 Dockerfile 缺 alembic upgrade head 导致 API 500（no such table），在 local-web.json start 命令前加 alembic 迁移；端到端验证 member/book CRUD + stats + 前端页面 + 静态资源全部正常 | 2026-08-09 04:50 | 2026-08-09 04:47 | 已完成 | lwa manifest start=sh -c alembic upgrade head && exec uvicorn；backend/static/ 加入 .gitignore；DATABASE_URL=sqlite:////app/data/app.sqlite |
+| OPS-003 | 运维 | lwa 部署更新：前端构建产物同步至 backend/static 并重建 Docker 容器；灌入种子数据（14 本书含 6 本有封面、5 笔购买、5 个阅读进度、3 条阅读日志）供前端实机验收 | 2026-08-09 05:42 | 2026-08-09 06:20 | 已完成 | 端口恢复 18008；清理旧 lwa-backend 容器（restart:unless-stopped 反复抢占端口）；修复容器内 publish_date 脏数据 |
 
 ## 规划事项
 
@@ -242,6 +273,7 @@
 | OPT-005 | 优化 | 前端评估报告（4.5/10）23项系统性修复：P0对比度(text-muted #5a6878达5.7:1/禁用态5.06:1)、表单label关联；P1暗色模式(prefers-color-scheme全套token)、触控目标44px、滚动rAF节流、Tab ARIA tablist/tabpanel/键盘箭头、多断点(480/768/1200)、硬编码颜色token化、骨架屏；P2内联样式提取、stat-card弱化、顶栏移动端、alert()改inline提示、Tab URL hash持久化、占位符饱和度45%→62%、后端离线连接提示；P3 prefers-reduced-motion、focus-visible、成员切换自动刷新、回到顶部按钮。覆盖main.css/api.ts/App.vue/useBooks/BookshelfView/BookDetailView/StatsView/BookCover/OverviewView共9文件，vue-tsc构建零错误 | 2026-08-09 04:45 | 2026-08-09 05:10 | 已完成 | 评估报告 design/frontend-evaluation-report.md；构建通过；DOM验证三页ARIA/数据渲染正常 |
 | OPT-006 | 优化 | 前端审计 14 项修复全部完成：P1-1 封面占位符对比度(--cover-light 58%→36%)；P1-2 页面 h1 标题；P1-3 Tab 横向滚动；P1-4 交互组件 :active 态；P2-1 Canvas 读取 CSS 变量；P2-2 封面并行加载；P2-3 条形图 transform 动画；P2-4 Canvas a11y；P2-5 加载状态 ARIA；P2-6 进度表单 min/max；P2-7 统计页空状态；P3-1 stat-card 去重边框；P3-3 条形图 ARIA；P3-4 Canvas 字体统一 | 2026-08-09 14:40 | 2026-08-09 16:00 | 已完成 | npm run build 通过；涉及 main.css / BookshelfView / StatsView / OverviewView / BookDetailView |
 | OPT-007 | 优化 | 第二轮前端审计与修复（frontend-design skill）：5 Bug（B1 404路由/B2 cover-light fallback/B3 骨架卡边框/B4 Canvas aria动态化/B5 成员表空状态）+ 9 设计提升（D1 衬线字体系统/D2 暖纸背景/D3 卡片入场动效/D4 路由fade过渡/D5 占位符衬线+内阴影/D6 统计卡片语义着色/D7 顶栏品牌线/D8 hover封面缩放/D9 空状态增强），全部14项修复完成 | 2026-08-09 16:10 | 2026-08-09 17:29 | 已完成 | npm run build 通过；涉及 main.css/router/BookCover/BookDetailView/App/BookshelfView/StatsView/OverviewView 共8文件；新增 --info CSS 变量、--font-serif 字体栈、fadeInUp 动画、fade 路由过渡 |
+| OPT-008 | 优化 | 空库时成员下拉无选项看起来像坏了：添加 disabled 占位 option「暂无成员」+ select disabled 状态 | 2026-08-09 06:00 | 2026-08-09 06:10 | 已完成 | App.vue select 添加 v-if 空态 option + :disabled |
 
 ## 调研事项
 
@@ -255,14 +287,14 @@
 
 | 分类 | 总数 | 已完成 | 待开发/待修复 | 完成率 |
 | --- | --- | --- | --- | --- |
-| 代码 Bug | 110 | 106 | 4 | 96% |
+| 代码 Bug | 133 | 133 | 0 | 100% |
 | 调整事项 | 3 | 3 | 0 | 100% |
-| 检查事项 | 28 | 27 | 1 | 96% |
-| 测试数据 | 1 | 1 | 0 | 100% |
-| 文档维护 | 22 | 22 | 0 | 100% |
+| 检查事项 | 33 | 32 | 1 | 97% |
+| 测试数据 | 2 | 2 | 0 | 100% |
+| 文档维护 | 23 | 23 | 0 | 100% |
 | 功能开发 | 12 | 12 | 0 | 100% |
-| 配置运维 | 4 | 4 | 0 | 100% |
+| 配置运维 | 5 | 5 | 0 | 100% |
 | 规划事项 | 4 | 2 | 2 | 50% |
-| 优化事项 | 7 | 7 | 0 | 100% |
+| 优化事项 | 8 | 8 | 0 | 100% |
 | 调研事项 | 3 | 3 | 0 | 100% |
-| **总计** | 194 | 187 | 7 | 96% |
+| **总计** | 226 | 223 | 3 | 99% |

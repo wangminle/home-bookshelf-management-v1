@@ -18,7 +18,7 @@ def _setup_member_and_bind(client):
 
 def test_attachment_create_accepts_copy(client, tmp_path: Path):
     headers = _setup_member_and_bind(client)
-    book = client.post("/api/v1/books", json={"title": "有副本的书"})
+    book = client.post("/api/v1/books", json={"title": "有副本的书"}, headers=headers)
     assert book.status_code == 201
     book_id = book.json()["data"]["id"]
 

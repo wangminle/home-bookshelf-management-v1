@@ -4,6 +4,7 @@ import urllib.parse
 
 from app.services.metadata.base import BookMetadata, MetadataProvider
 from app.services.metadata.http import get_json
+from app.services.metadata.openlibrary import _normalize_publish_date
 from app.utils.book_helpers import isbn10_to_isbn13, normalize_isbn
 
 
@@ -122,7 +123,7 @@ class GoogleBooksProvider(MetadataProvider):
             isbn10=found_isbn10,
             authors=volume_info.get("authors") or [],
             publisher=volume_info.get("publisher"),
-            publish_date=str(published_date) if published_date else None,
+            publish_date=_normalize_publish_date(str(published_date)) if published_date else None,
             page_count=int(page_count) if isinstance(page_count, int) else None,
             language=language,
             category=categories[0] if categories else None,

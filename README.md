@@ -112,7 +112,7 @@ cp -r dist/* ../backend/static/
 5. 绑定成员（白名单）：`bookshelf bind --member-id 1 --channel feishu --external-user-id <渠道用户ID>`（空库首次绑定 `member_id=1` 会自动创建默认 owner）
 6. 将 `skills/` 加入 Agent 技能路径，即可自然语言操作藏书
 
-> ⚠️ **安全**：业务写端点（progress/notes/reading-logs/purchases/intake）已接入渠道鉴权，读取 HTTP 头 `X-Channel`/`X-External-User-Id`：无渠道头回退默认成员（一期可信局域网兜底），有渠道头但未绑定返回 403，与 body `member_id` 不一致返回 403。仍建议**只在可信家庭局域网内运行，请勿暴露到公网**。
+> ⚠️ **安全**：业务写端点（progress/notes/reading-logs/purchases/intake）已接入渠道鉴权，读取 HTTP 头 `X-Channel`/`X-External-User-Id`：无渠道头回退默认成员（一期可信局域网兜底），有渠道头但未绑定返回 403，与 body `member_id` 不一致返回 403。可选配置 `CHANNEL_SIGNING_SECRET` 开启渠道头 HMAC 签名校验（`X-Channel-Signature`），防止伪造明文头冒充已绑定成员；CLI 侧用 `BOOKSHELF_CHANNEL_SIGNING_SECRET` 透传。仍建议**只在可信家庭局域网内运行，请勿暴露到公网**。
 
 ---
 
@@ -220,4 +220,4 @@ The `skills/` directory ships 7 skills: `book-intake` · `book-query` · `booksh
 5. Bind a member (whitelist): `bookshelf bind --member-id 1 --channel feishu --external-user-id <channel-user-id>` (empty-library first bind with `member_id=1` auto-creates a default owner)
 6. Add `skills/` to your Agent's skill path, then manage books via natural language
 
-> ⚠️ **Security**: business write endpoints (progress/notes/reading-logs/purchases/intake) enforce channel auth, reading the `X-Channel` / `X-External-User-Id` headers: no channel header falls back to the default member (trusted-LAN), an unbound channel identity is rejected with 403, and a mismatch with body `member_id` is rejected with 403. Still recommended to **run only on a trusted home LAN; do not expose to the public internet**.
+> ⚠️ **Security**: business write endpoints (progress/notes/reading-logs/purchases/intake) enforce channel auth, reading the `X-Channel` / `X-External-User-Id` headers: no channel header falls back to the default member (trusted-LAN), an unbound channel identity is rejected with 403, and a mismatch with body `member_id` is rejected with 403. Optionally set `CHANNEL_SIGNING_SECRET` to require an HMAC signature (`X-Channel-Signature`) on channel headers, preventing forged plaintext headers from impersonating a bound member; the CLI passes it through via `BOOKSHELF_CHANNEL_SIGNING_SECRET`. Still recommended to **run only on a trusted home LAN; do not expose to the public internet**.

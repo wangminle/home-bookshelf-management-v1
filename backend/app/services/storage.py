@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import functools
+import http.client
 import ipaddress
 import logging
 import shutil
@@ -19,23 +21,28 @@ ALLOWED_SCHEMES = frozenset({"http", "https"})
 _DOWNLOAD_CHUNK = 64 * 1024
 
 
-def _is_safe_url(url: str) -> bool:
+def _is_safe_url(url: str) -> tuple[bool, str | None]:
+    """检查 URL 是否安全（scheme + 主机不指向内网/回环）。
+
+    BUG-105：返回解析到的 IP 供调用方 pinning，避免 getaddrinfo → urlopen 之间的 TOCTOU DNS rebinding。
+    """
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ALLOWED_SCHEMES:
-        return False
+        return False, None
     host = parsed.hostname
     if not host:
-        return False
+        return False, None
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror:
-        return False
+        return False, None
+    safe_ip: str | None = None
     for info in infos:
         ip_str = info[4][0]
         try:
             ip = ipaddress.ip_address(ip_str)
         except ValueError:
-            return False
+            return False, None
         if (
             ip.is_private
             or ip.is_loopback
@@ -44,20 +51,102 @@ def _is_safe_url(url: str) -> bool:
             or ip.is_multicast
             or ip.is_unspecified
         ):
-            return False
-    return True
+            return False, None
+        if safe_ip is None:
+            safe_ip = ip_str  # 取第一个安全 IP 用于 pinning
+    return True, safe_ip
+
+
+def _format_netloc(host: str, port: int | None) -> str:
+    """构造 netloc/Host 头：IPv6 地址必须加方括号（BUG-131）。"""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    return host if port is None else f"{host}:{port}"
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """TCP 连接打到钉住的 IP，但 TLS SNI 与证书主机名校验仍用原始主机名（BUG-131）。
+
+    BUG-105 的 IP pinning 把请求 URL 的主机替换为 IP，默认 HTTPSConnection 会用该 IP
+    做 server_hostname，导致合法 HTTPS 站点证书校验失败（证书签给域名而非 IP）。
+    这里显式把原始主机名传回 wrap_socket。
+    """
+
+    def __init__(self, *args, server_hostname: str | None = None, **kwargs):
+        self._pinned_server_hostname = server_hostname
+        super().__init__(*args, **kwargs)
+
+    def connect(self):
+        # 与 http.client.HTTPSConnection.connect 等价，仅 server_hostname 换成原始主机名。
+        # 注意优先于 _tunnel_host：经代理 CONNECT 隧道时 _tunnel_host 是钉住的 IP，
+        # 若用它做 SNI/证书校验仍会 IP 不匹配。
+        super(http.client.HTTPSConnection, self).connect()  # HTTPConnection.connect：TCP + 代理隧道
+        server_hostname = self._pinned_server_hostname or self._tunnel_host or self.host
+        self.sock = self._context.wrap_socket(self.sock, server_hostname=server_hostname)
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    """为钉住 IP 的请求创建 _PinnedHTTPSConnection（BUG-131）。
+
+    原始主机名由 _build_pinned_request / _SafeRedirectHandler 暂存在
+    request 的 ``_bookshelf_server_hostname`` 属性上。
+    """
+
+    def https_open(self, req):
+        server_hostname = getattr(req, "_bookshelf_server_hostname", None)
+        factory = functools.partial(_PinnedHTTPSConnection, server_hostname=server_hostname)
+        return self.do_open(factory, req, context=self._context)
 
 
 class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """跟随 3xx 前对每个 Location 复检 _is_safe_url，阻断跳转到内网/回环。"""
+    """跟随 3xx 前对每个 Location 复检 _is_safe_url 并钉住新解析的安全 IP。
+
+    BUG-105：对重定向目标同样做 IP pinning，杜绝 getaddrinfo→urlopen 之间的 DNS rebinding。
+    """
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if not _is_safe_url(newurl):
+        safe, pinned_ip = _is_safe_url(newurl)
+        if not safe or not pinned_ip:
             raise urllib.error.URLError(f"blocked redirect to unsafe URL: {newurl}")
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        # 用钉住 IP 的 URL 替换原始 Location，让父类构建的新 Request 也使用该 IP
+        pinned_url = _pin_url(newurl, pinned_ip)
+        new_req = super().redirect_request(req, fp, code, msg, headers, pinned_url)
+        if new_req is not None:
+            parsed = urllib.parse.urlparse(newurl)
+            host = parsed.hostname
+            if host:
+                # 保留原始 Host 头，保证虚拟主机/TLS 正常
+                new_req.add_unredirected_header("Host", _format_netloc(host, parsed.port))
+                # BUG-131：HTTPS 握手的 SNI/证书校验需要原始主机名
+                new_req._bookshelf_server_hostname = host  # type: ignore[attr-defined]
+        return new_req
 
 
-_SAFE_OPENER = urllib.request.build_opener(_SafeRedirectHandler)
+def _pin_url(url: str, pinned_ip: str) -> str:
+    """把 URL 中的 hostname 替换为已校验安全的 IP，保留端口；IPv6 加方括号（BUG-131）。"""
+    parsed = urllib.parse.urlparse(url)
+    netloc = _format_netloc(pinned_ip, parsed.port)
+    return urllib.parse.urlunparse(parsed._replace(netloc=netloc))
+
+
+def _build_pinned_request(url: str, pinned_ip: str) -> urllib.request.Request:
+    """构造钉住指定 IP 的请求，避免 urlopen 内部再次解析 DNS。
+
+    BUG-105：将主机名替换为已校验安全的 IP，同时保留原始 Host 头与端口。
+    BUG-131：把原始主机名暂存到 request 上，供 _PinnedHTTPSHandler 做 TLS SNI/证书校验。
+    """
+    pinned_url = _pin_url(url, pinned_ip)
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.hostname
+    headers = {"User-Agent": "home-bookshelf/1.0"}
+    if host:
+        headers["Host"] = _format_netloc(host, parsed.port)
+    req = urllib.request.Request(pinned_url, headers=headers)
+    req._bookshelf_server_hostname = host  # type: ignore[attr-defined]
+    return req
+
+
+_SAFE_OPENER = urllib.request.build_opener(_SafeRedirectHandler, _PinnedHTTPSHandler)
 
 
 def download_cover(cover_url: str, target_name: str) -> str | None:
@@ -66,7 +155,9 @@ def download_cover(cover_url: str, target_name: str) -> str | None:
     if "." in cover_url.rsplit("/", 1)[-1]:
         suffix = "." + cover_url.rsplit(".", 1)[-1].split("?")[0][:5]
 
-    if not _is_safe_url(cover_url):
+    # BUG-105：解析得到安全 IP，并钉住该 IP 构造请求 URL，避免 urlopen 再次 DNS 解析被重绑定到内网
+    safe, pinned_ip = _is_safe_url(cover_url)
+    if not safe or not pinned_ip:
         logger.warning("拒绝下载封面（不安全的 URL）: %s", cover_url)
         return None
 
@@ -75,7 +166,7 @@ def download_cover(cover_url: str, target_name: str) -> str | None:
 
     tmp_dest = settings.covers_dir / f"{sanitize_filename_stem(target_name)}.{uuid4().hex[:8]}.part{suffix}"
     try:
-        req = urllib.request.Request(cover_url, headers={"User-Agent": "home-bookshelf/1.0"})
+        req = _build_pinned_request(cover_url, pinned_ip)
         with _SAFE_OPENER.open(req, timeout=20) as resp:
             total = 0
             too_large = False

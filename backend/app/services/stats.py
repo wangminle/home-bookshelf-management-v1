@@ -97,17 +97,24 @@ def _compute_yearly_stats(db: Session) -> list[YearlyStat]:
 def get_stats(db: Session) -> StatsOut:
     total_books = db.scalar(select(func.count()).select_from(Book)) or 0
 
-    status_rows = db.execute(
-        select(ReadingProgress.status, func.count()).group_by(ReadingProgress.status)
+    # BUG-117/123：每本书聚合成单一全局状态，使 by_status 总和 <= total_books，
+    # 且统计与 GET /books?status=X 列表筛选口径一致。
+    # 优先级：finished > reading > abandoned/dropped > unread。
+    progress_rows = db.execute(
+        select(ReadingProgress.book_id, ReadingProgress.status)
     ).all()
-    by_status = {row[0]: row[1] for row in status_rows}
-    for key in ("unread", "reading", "finished", "abandoned", "dropped"):
-        by_status.setdefault(key, 0)
-    # 无进度记录的书视为 unread
-    books_with_progress = db.scalar(
-        select(func.count(func.distinct(ReadingProgress.book_id)))
-    ) or 0
-    by_status["unread"] = by_status.get("unread", 0) + max(total_books - books_with_progress, 0)
+    book_member_statuses: dict[int, list[str]] = {}
+    for book_id, status in progress_rows:
+        book_member_statuses.setdefault(book_id, []).append(status)
+
+    by_status = {key: 0 for key in ("unread", "reading", "finished", "abandoned", "dropped")}
+    for _book_id, statuses in book_member_statuses.items():
+        from app.utils.book_helpers import aggregate_book_status
+
+        by_status[aggregate_book_status(statuses)] += 1
+    # 无任何进度记录的书一律计为 unread
+    books_with_progress = len(book_member_statuses)
+    by_status["unread"] += max(total_books - books_with_progress, 0)
 
     category_rows = db.execute(
         select(Book.category, func.count())

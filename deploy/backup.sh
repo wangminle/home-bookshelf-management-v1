@@ -26,11 +26,38 @@ mkdir -p "${BACKUP_DIR}"
 DB_BACKUP="${BACKUP_DIR}/bookshelf_${STAMP}.db"
 if command -v sqlite3 >/dev/null 2>&1; then
   sqlite3 "${DB_FILE}" ".backup '${DB_BACKUP}'"
-else
-  echo "警告：未找到 sqlite3，将直接 cp 数据库文件；若存在 WAL 日志可能导致备份不一致" >&2
-  if [[ -f "${DB_FILE}-wal" ]]; then
-    echo "警告：检测到 ${DB_FILE}-wal，建议安装 sqlite3 后再备份" >&2
+elif [[ -f "${DB_FILE}-wal" ]]; then
+  # BUG-127：WAL 存在且无 sqlite3 时，直接 cp 可能得到不一致快照
+  # 使用 Python (本项目依赖) 的 online backup API 得到一致快照；
+  # 并先 TRUNCATE checkpoint，若 busy 则以失败退出，避免静默丢数据
+  PYTHON_BIN="${PYTHON_BIN:-python3}"
+  if command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+    "${PYTHON_BIN}" -c "
+import sqlite3, sys
+db = '${DB_FILE}'
+backup = '${DB_BACKUP}'
+src = sqlite3.connect(db)
+# 先尝试 checkpoint 把 WAL 合并回主库；busy=1 表示未完成，必须中止
+row = src.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone()
+if row and row[0] == 1:
+    src.close()
+    print('错误：WAL checkpoint busy，无法获得一致快照，请重试' , file=sys.stderr)
+    sys.exit(1)
+dst = sqlite3.connect(backup)
+try:
+    src.backup(dst)
+finally:
+    src.close()
+    dst.close()
+print('Python online backup 完成')
+" || { echo "错误：Python 备份失败" >&2; exit 1; }
+  else
+    echo "错误：检测到 WAL 日志但无 sqlite3 且无 python3，无法安全备份" >&2
+    echo "请安装 sqlite3 或 python3 后重试" >&2
+    exit 1
   fi
+else
+  echo "警告：未找到 sqlite3，将直接 cp 数据库文件（无 WAL）" >&2
   cp "${DB_FILE}" "${DB_BACKUP}"
 fi
 

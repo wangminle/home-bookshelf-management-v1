@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -25,10 +27,19 @@ class BookshelfClient:
             headers["X-Setup-Token"] = setup_token
         x_channel = os.environ.get("BOOKSHELF_CHANNEL")
         x_external = os.environ.get("BOOKSHELF_EXTERNAL_USER_ID")
-        if x_channel:
+        # BUG-103：渠道头必须成对，只传一个会被服务端拒绝（400）
+        if x_channel and x_external:
             headers["X-Channel"] = x_channel
-        if x_external:
             headers["X-External-User-Id"] = x_external
+            # BUG-132：服务端配置共享密钥时，渠道头须带 HMAC 签名
+            secret = os.environ.get("BOOKSHELF_CHANNEL_SIGNING_SECRET") or os.environ.get(
+                "CHANNEL_SIGNING_SECRET"
+            )
+            if secret:
+                msg = f"{x_channel}:{x_external}".encode("utf-8")
+                headers["X-Channel-Signature"] = hmac.new(
+                    secret.encode("utf-8"), msg, hashlib.sha256
+                ).hexdigest()
         return headers
 
     def _request(self, method: str, path: str, *, timeout: httpx.Timeout | float | None = None, **kwargs) -> dict[str, Any]:
@@ -67,6 +78,12 @@ class BookshelfClient:
             raise RuntimeError(prefix + str(detail or resp.text))
 
         if isinstance(payload, dict) and payload.get("ok") is False:
+            # BUG-104：recognize 未识别到 ISBN 时 ok=False + found=False，属于正常业务结果而非错误
+            data = payload.get("data")
+            if isinstance(data, dict) and data.get("found") is False:
+                if isinstance(payload, dict):
+                    payload["_http_status"] = resp.status_code
+                return payload
             raise RuntimeError(payload.get("error") or "API 请求失败")
 
         if isinstance(payload, dict):
@@ -169,6 +186,7 @@ class BookshelfClient:
         page: int | None = None,
         percent: float | None = None,
         rating: int | None = None,
+        to_read: bool | None = None,
     ) -> dict[str, Any]:
         body = {k: v for k, v in {
             "member_id": member_id,
@@ -176,6 +194,7 @@ class BookshelfClient:
             "current_page": page,
             "percent": percent,
             "rating": rating,
+            "to_read": to_read,
         }.items() if v is not None}
         return self._request("POST", f"/books/{book_id}/progress", json=body)
 

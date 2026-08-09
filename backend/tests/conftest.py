@@ -26,7 +26,12 @@ from app.models.base import create_engine_from_url  # noqa: E402
 
 
 def _run_migrations(db_url: str) -> None:
-    cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    backend_dir = Path(__file__).resolve().parents[1]
+    cfg = Config(str(backend_dir / "alembic.ini"))
+    # TST-002：script_location 在 ini 中是相对路径（alembic），解析依赖 cwd。
+    # 从仓库根运行 pytest 时 cwd 不含 alembic/ 目录，导致 "Path doesn't exist: alembic"。
+    # 这里钉住为 backend 目录下的绝对路径，使迁移与 cwd 无关。
+    cfg.set_main_option("script_location", str(backend_dir / "alembic"))
     cfg.set_main_option("sqlalchemy.url", db_url)
     command.upgrade(cfg, "head")
 

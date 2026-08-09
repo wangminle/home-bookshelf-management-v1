@@ -11,9 +11,10 @@ def _setup_owner_and_book(client):
         "/api/v1/members/bind",
         json={"member_id": member_id, "channel": "feishu", "external_user_id": "ou_test"},
     )
-    book = client.post("/api/v1/books", json={"title": "附件测试书"})
-    book_id = book.json()["data"]["id"]
     headers = {"X-Channel": "feishu", "X-External-User-Id": "ou_test"}
+    # BUG-113：白名单建立后创建书籍也需渠道头
+    book = client.post("/api/v1/books", json={"title": "附件测试书"}, headers=headers)
+    book_id = book.json()["data"]["id"]
     return member_id, book_id, headers
 
 

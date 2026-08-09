@@ -7,6 +7,7 @@ const api = useApiStore()
 const stats = ref<StatsOut | null>(null)
 const books = ref<BookOut[]>([])
 const loading = ref(true)
+const loadError = ref<string | null>(null)  // BUG-125：加载失败时展示错误状态 + 重试
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const generating = ref(false)
 const imageReady = ref(false)
@@ -19,21 +20,6 @@ const COVER_COLS = 6
 const COVER_ROWS = 4
 const COVER_COUNT = COVER_COLS * COVER_ROWS
 
-async function loadData() {
-  loading.value = true
-  try {
-    const [s, b] = await Promise.all([
-      api.get<StatsOut>('/stats'),
-      api.get<BookListOut>(`/books?limit=${COVER_COUNT}&offset=0`),
-    ])
-    stats.value = s
-    books.value = b.items
-  } finally {
-    loading.value = false
-  }
-}
-
-/** 加载封面图片为 Image 对象（带 crossOrigin 避免 canvas tainted） */
 function loadImage(src: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image()
@@ -249,8 +235,36 @@ async function shareImage() {
   }, 'image/png')
 }
 
+async function loadData() {
+  loading.value = true
+  loadError.value = null
+  try {
+    const [s, b] = await Promise.all([
+      api.get<StatsOut>('/stats'),
+      api.get<BookListOut>(`/books?limit=${COVER_COUNT}&offset=0`),
+    ])
+    stats.value = s
+    books.value = b.items
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : '加载失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+/** BUG-125：重试——重新加载数据，成功后重新生成画布与下载按钮 */
+async function retry() {
+  await loadData()
+  if (loadError.value) return
+  // 等 v-else 渲染（canvas ref 注册）后再生成
+  await nextTick()
+  await generateImage()
+}
+
 onMounted(async () => {
   await loadData()
+  // BUG-125：加载失败时不尝试生成图片
+  if (loadError.value) return
   // 修复 BUG-107：等 loading=false 触发的 v-else 渲染（canvas ref 注册）后再生成
   await nextTick()
   await generateImage()
@@ -262,6 +276,12 @@ onMounted(async () => {
     <h1 class="page-title">📷 书架概览图</h1>
 
     <div v-if="loading" class="loading" role="status" aria-live="polite">加载中...</div>
+
+    <!-- BUG-125：加载失败时展示错误状态 + 重试（成功后重新生成画布） -->
+    <div v-else-if="loadError" class="error-state">
+      <p class="error-state-msg">{{ loadError }}</p>
+      <button class="btn" @click="retry">重试</button>
+    </div>
 
     <div v-else>
       <div class="overview-actions">
@@ -330,5 +350,15 @@ onMounted(async () => {
   color: var(--text-muted);
   text-align: center;
   margin-top: 16px;
+}
+
+/* BUG-125：加载失败状态 */
+.error-state {
+  text-align: center;
+  padding: 48px 24px;
+}
+.error-state-msg {
+  color: var(--error-text);
+  margin-bottom: 16px;
 }
 </style>

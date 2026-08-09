@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 from dataclasses import dataclass
 
@@ -18,6 +20,7 @@ class ChannelIdentity:
     channel: str | None
     external_user_id: str | None
     setup_token: str | None = None
+    signature: str | None = None
 
 
 def _normalize_header(value: str | None) -> str | None:
@@ -25,6 +28,35 @@ def _normalize_header(value: str | None) -> str | None:
         return None
     cleaned = value.strip()
     return cleaned or None
+
+
+def expected_channel_signature(channel: str, external_user_id: str, secret: str) -> str:
+    """渠道身份签名：HMAC-SHA256(secret, "{channel}:{external_user_id}") 十六进制。"""
+    msg = f"{channel}:{external_user_id}".encode("utf-8")
+    return hmac.new(secret.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+
+
+def _verify_channel_signature(
+    channel: str | None,
+    external_user_id: str | None,
+    signature: str | None,
+) -> None:
+    """BUG-132：配置共享密钥后，携带渠道头的请求必须带有效 HMAC 签名。
+
+    未配置密钥时维持"可信局域网/网关代填头"边界，不做校验。
+    仅在渠道头成对出现时校验；无渠道头的匿名请求由 enforce_channel_member 另行裁决。
+    """
+    secret = _normalize_header(settings.channel_signing_secret)
+    if not secret or not (channel and external_user_id):
+        return
+    if not signature:
+        raise HTTPException(
+            status_code=403,
+            detail="已启用渠道签名校验，请提供 X-Channel-Signature",
+        )
+    expected = expected_channel_signature(channel, external_user_id, secret)
+    if not hmac.compare_digest(signature.strip().lower(), expected):
+        raise HTTPException(status_code=403, detail="渠道签名无效")
 
 
 def require_complete_channel_headers(channel: str | None, external_user_id: str | None) -> None:
@@ -101,17 +133,22 @@ def enforce_channel_member(
 
     - 渠道头必须成对；只传一个 → 400。
     - 无渠道头：
-      - require_channel=True -> 403，拒绝匿名。
-      - require_channel=False -> 回退到 resolve_member_id（一期可信局域网兜底）。
+      - require_channel=True 或系统已建立渠道绑定 -> 403，拒绝匿名（BUG-113）。
+      - 否则（系统尚无任何绑定，仍处初始化引导期）-> 回退到 resolve_member_id（一期可信局域网兜底）。
     - 有渠道头但未绑定：返回 403，拒绝冒用。
     - 有渠道头且已绑定：以绑定成员为准；若 body 同时指定了不同的 member_id，则 403。
+
+    BUG-113：白名单（渠道绑定）建立后，所有写操作必须提供已绑定渠道头，
+    不再允许匿名回退，杜绝已知外部 ID 即可冒充 owner。
     """
     channel = _normalize_header(channel)
     external_user_id = _normalize_header(external_user_id)
     require_complete_channel_headers(channel, external_user_id)
 
     if not channel and not external_user_id:
-        if require_channel:
+        # 显式 require_channel 或系统已建立白名单时，拒绝匿名写
+        bindings_established = system_has_channel_bindings(db)
+        if require_channel or bindings_established:
             raise HTTPException(
                 status_code=403,
                 detail="此端点要求渠道身份鉴权，请提供 X-Channel 与 X-External-User-Id",
@@ -185,10 +222,17 @@ def channel_headers(
     x_channel: str | None = Header(default=None, alias="X-Channel"),
     x_external_user_id: str | None = Header(default=None, alias="X-External-User-Id"),
     x_setup_token: str | None = Header(default=None, alias="X-Setup-Token"),
+    x_channel_signature: str | None = Header(default=None, alias="X-Channel-Signature"),
 ) -> ChannelIdentity:
+    channel = _normalize_header(x_channel)
+    external_user_id = _normalize_header(x_external_user_id)
+    signature = _normalize_header(x_channel_signature)
+    # BUG-132：统一在这里校验渠道签名，所有使用该依赖的端点都被覆盖
+    _verify_channel_signature(channel, external_user_id, signature)
     return ChannelIdentity(
         member_id=None,
-        channel=_normalize_header(x_channel),
-        external_user_id=_normalize_header(x_external_user_id),
+        channel=channel,
+        external_user_id=external_user_id,
         setup_token=_normalize_header(x_setup_token),
+        signature=signature,
     )

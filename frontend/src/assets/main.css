@@ -251,6 +251,13 @@ body {
   align-items: center;
   gap: 8px;
   border-bottom: 1px solid var(--error-border);
+  /* BUG-126：重置 button 默认样式，保持与 div 版本一致的视觉效果 */
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
 }
 
 .content {
@@ -984,6 +991,62 @@ body {
 
   .filter-bar input {
     min-width: 100%;
+  }
+}
+
+/* BUG-122：超窄屏 ≤320px 防止导航与成员选择器溢出重叠 */
+@media (max-width: 320px) {
+  .topbar {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 0 8px;
+  }
+
+  .logo {
+    font-size: 14px;
+    white-space: nowrap;
+  }
+
+  .nav {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .nav a {
+    padding: 6px 4px;
+    font-size: 12px;
+  }
+
+  .member-selector {
+    margin-left: auto;
+  }
+
+  .member-selector label {
+    display: none;  /* 超窄屏隐藏标签省空间 */
+  }
+
+  .member-selector select {
+    max-width: 90px;
+    font-size: 12px;
+  }
+
+  .book-grid,
+  .skeleton-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+
+  .book-title {
+    font-size: 11px;
+  }
+
+  .book-author {
+    font-size: 10px;
+  }
+
+  .content {
+    padding: 12px;
   }
 }
 

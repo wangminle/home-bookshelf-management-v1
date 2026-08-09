@@ -1,6 +1,29 @@
 import json
 import re
 import unicodedata
+from datetime import date
+
+
+def is_valid_publish_date(value: str | None) -> bool:
+    """校验 publish_date 是否为合法的 YYYY / YYYY-MM / YYYY-MM-DD 真实日期。
+
+    BUG-114：元数据源与 intake 安全网此前只校验格式（正则），不校验真实日期，
+    导致 '2024-13-99' 等非法日期可落库并在序列化/统计中持续出错。
+    """
+    if value is None or value == "":
+        return False
+    cleaned = str(value).strip()
+    if not cleaned:
+        return False
+    m = re.fullmatch(r"(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?", cleaned)
+    if not m:
+        return False
+    year, month, day = m.group(1), m.group(2) or "01", m.group(3) or "01"
+    try:
+        date.fromisoformat(f"{year}-{month}-{day}")
+    except ValueError:
+        return False
+    return True
 
 
 def normalize_title(title: str) -> str:
@@ -150,3 +173,31 @@ def deserialize_json_dict(raw: str | None) -> dict | None:
         return value if isinstance(value, dict) else None
     except json.JSONDecodeError:
         return None
+
+
+# 全局书籍状态聚合口径（BUG-117/123）：
+# 一本书可能有多位成员同时阅读、处于不同状态。全局仪表盘与列表筛选需统一为"每书一个状态"，
+# 使 by_status 合计不超过 total_books，且统计与 GET /books?status=X 结果一致。
+# 优先级：有人读完即 finished；否则有人在读即 reading；否则有人弃读/放弃即 abandoned/dropped；
+# 其余（含无任何进度记录）一律为 unread。
+_STATUS_PRIORITY = ("finished", "reading", "abandoned", "dropped", "unread")
+_STATUS_RANK = {s: i for i, s in enumerate(_STATUS_PRIORITY)}
+
+
+def aggregate_book_status(member_statuses: list[str] | None) -> str:
+    """根据一本书在所有成员上的进度状态，聚合出该书的单一全局状态。
+
+    BUG-117/123：统计与筛选共用本口径，保证 by_status 总和 <= total_books，
+    且 GET /stats 的 by_status 与 GET /books?status=X 数量一致。
+    """
+    if not member_statuses:
+        return "unread"
+    # 取优先级最高（rank 最小）的状态
+    best_rank = len(_STATUS_PRIORITY)
+    best = "unread"
+    for s in member_statuses:
+        rank = _STATUS_RANK.get(s)
+        if rank is not None and rank < best_rank:
+            best_rank = rank
+            best = s
+    return best

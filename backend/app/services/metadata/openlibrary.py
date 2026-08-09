@@ -1,10 +1,48 @@
 from __future__ import annotations
 
+import re
 import urllib.parse
 
 from app.services.metadata.base import BookMetadata, MetadataProvider
 from app.services.metadata.http import get_json
 from app.utils.book_helpers import isbn10_to_isbn13, normalize_isbn
+
+
+def _normalize_publish_date(raw: str | None) -> str | None:
+    """将 OpenLibrary 的各种日期格式规范化为 YYYY / YYYY-MM / YYYY-MM-DD。
+
+    OpenLibrary 返回的 publish_date 格式不统一，如 "July 2008"、"September 1, 2008"、
+    "2008-07-01" 等。提取年份（和月份）转为标准格式，无法解析时返回 None。
+    BUG-114：规范化后必须校验为真实日期（拒绝 2024-13-99 等非法值），否则下游序列化会 500。
+    """
+    if not raw:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    from app.utils.book_helpers import is_valid_publish_date
+
+    # 已经是标准格式——但仍需校验真实日期合法性
+    if re.fullmatch(r"\d{4}(?:-\d{2}(?:-\d{2})?)?", s):
+        return s if is_valid_publish_date(s) else None
+    # 尝试提取 4 位年份 + 月份名（如 "July 2008"、"Sep 1, 2008"）
+    months = {
+        "jan": "01", "feb": "02", "mar": "03", "apr": "04",
+        "may": "05", "jun": "06", "jul": "07", "aug": "08",
+        "sep": "09", "oct": "10", "nov": "11", "dec": "12",
+    }
+    m = re.search(r"([A-Za-z]{3,9})\s+\d{1,2},?\s*(\d{4})", s)
+    if m:
+        mon = months.get(m.group(1)[:3].lower())
+        if mon:
+            candidate = f"{m.group(2)}-{mon}"
+            return candidate if is_valid_publish_date(candidate) else None
+        return m.group(2)
+    # 尝试提取 "YYYY Month" 或 "Month YYYY"
+    m = re.search(r"(\d{4})", s)
+    if m:
+        return m.group(1)
+    return None
 
 
 def _get_cover_url(cover: object) -> str | None:
@@ -106,10 +144,10 @@ class OpenLibraryProvider(MetadataProvider):
         subjects = data.get("subjects") or []
         publish_date = None
         if data.get("publish_date"):
-            publish_date = str(data["publish_date"])
+            publish_date = _normalize_publish_date(str(data["publish_date"]))
         elif data.get("publish_dates"):
             try:
-                publish_date = str(data["publish_dates"][0])
+                publish_date = _normalize_publish_date(str(data["publish_dates"][0]))
             except (IndexError, TypeError):
                 publish_date = None
 

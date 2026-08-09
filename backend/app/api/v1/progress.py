@@ -51,6 +51,7 @@ def update_progress(
         current_page=result.progress.current_page,
         percent=result.progress.percent,
         rating=result.progress.rating,
+        to_read=result.progress.to_read,
         finish_date=result.progress.finish_date,
         updated_at=result.progress.updated_at,
         message=result.message,

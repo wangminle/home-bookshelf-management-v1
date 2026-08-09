@@ -24,7 +24,8 @@ def _bootstrap(client):
 def test_bug054_copies_anonymous_rejected(client):
     """白名单建立后，匿名 POST /copies 应返回 403。"""
     headers = _bootstrap(client)
-    book = client.post("/api/v1/books", json={"title": "测试书"})
+    # BUG-113：白名单建立后创建书籍也需渠道头
+    book = client.post("/api/v1/books", json={"title": "测试书"}, headers=headers)
     assert book.status_code == 201
     book_id = book.json()["data"]["id"]
 
@@ -47,7 +48,8 @@ def test_bug054_copies_anonymous_rejected(client):
 def test_bug054_custom_fields_anonymous_rejected(client):
     """白名单建立后，匿名 POST /custom-fields 应返回 403。"""
     headers = _bootstrap(client)
-    book = client.post("/api/v1/books", json={"title": "自定义字段测试"})
+    # BUG-113：白名单建立后创建书籍也需渠道头
+    book = client.post("/api/v1/books", json={"title": "自定义字段测试"}, headers=headers)
     book_id = book.json()["data"]["id"]
 
     # 匿名应被拒绝

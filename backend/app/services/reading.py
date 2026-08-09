@@ -48,18 +48,29 @@ def update_reading_progress(db: Session, book_id: int, payload: ProgressUpdate) 
     elif payload.current_page is not None or payload.percent is not None:
         progress.status = "reading"
 
-    if payload.current_page is not None:
+    # BUG-124：使用 model_fields_set 区分未传与显式 null，允许清空 page/rating
+    set_fields = payload.model_fields_set
+
+    if "current_page" in set_fields:
         page = payload.current_page
-        if book.page_count and book.page_count > 0:
+        if page is not None and book.page_count and book.page_count > 0:
             page = min(page, book.page_count)
         progress.current_page = page
-        if book.page_count and book.page_count > 0:
+        if page is None:
+            # BUG-124：清空当前页时一并清空百分比，避免残留旧进度
+            progress.percent = None
+        elif book.page_count and book.page_count > 0:
             progress.percent = round(min(page / book.page_count * 100, 100), 1)
-    elif payload.percent is not None:
+        # page 有值但无 page_count 时不改动 percent（无法换算）
+    elif "percent" in set_fields and payload.percent is not None:
         progress.percent = min(payload.percent, 100.0)
 
-    if payload.rating is not None:
+    if "rating" in set_fields:
         progress.rating = payload.rating
+
+    # BUG-129：处理 to_read 标记
+    if "to_read" in set_fields and payload.to_read is not None:
+        progress.to_read = payload.to_read
 
     # unread → reading 时记录开始日期
     if progress.status == "reading" and not progress.start_date:

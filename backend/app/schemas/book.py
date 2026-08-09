@@ -93,6 +93,27 @@ class BookUpdate(BaseModel):
     summary: str | None = None
     tags: list[str] | None = None
 
+    @field_validator("publish_date")
+    @classmethod
+    def _validate_publish_date(cls, v):
+        if v is None or v == "":
+            return None
+        cleaned = str(v).strip()
+        if not cleaned:
+            return None
+        import re
+        from datetime import date
+
+        m = re.fullmatch(r"(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?", cleaned)
+        if not m:
+            raise ValueError("publish_date 须为 YYYY、YYYY-MM 或 YYYY-MM-DD")
+        year, month, day = m.group(1), m.group(2) or "01", m.group(3) or "01"
+        try:
+            date.fromisoformat(f"{year}-{month}-{day}")
+        except ValueError as exc:
+            raise ValueError(f"publish_date 不是合法日期：{cleaned}") from exc
+        return cleaned
+
     @field_validator("title")
     @classmethod
     def _validate_title(cls, v):

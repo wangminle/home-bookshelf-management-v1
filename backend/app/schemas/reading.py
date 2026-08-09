@@ -14,6 +14,7 @@ class ProgressUpdate(BaseModel):
     current_page: int | None = Field(default=None, ge=0)
     percent: float | None = Field(default=None, ge=0, le=100)
     rating: int | None = Field(default=None, ge=1, le=5)
+    to_read: bool | None = Field(default=None, description="标记想读/取消想读")
 
     @field_validator("status", mode="before")
     @classmethod
@@ -33,6 +34,7 @@ class ProgressOut(BaseModel):
     current_page: int | None = None
     percent: float | None = None
     rating: int | None = None
+    to_read: bool = False
     finish_date: str | None = None
     updated_at: datetime
     message: str

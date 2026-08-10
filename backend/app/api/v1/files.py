@@ -12,13 +12,17 @@ from app.config import settings
 router = APIRouter(prefix="/files", tags=["files"])
 
 # 可能包含可执行脚本/主动内容的文件后缀，必须以附件方式下载而非内联展示
-# BUG-116：含 .shtml/.xht/.svgz 等 HTML/SVG 变体，防止同源内联执行
+# BUG-116：含 .shtml/.xht/.svgz/.shtm 等 HTML/SVG 变体，防止同源内联执行
 _FORCE_DOWNLOAD_SUFFIXES = frozenset({
-    ".html", ".htm", ".shtml", ".xhtml", ".xht", ".svg", ".svgz", ".xml",
+    ".html", ".htm", ".shtml", ".shtm", ".xhtml", ".xht", ".svg", ".svgz", ".xml",
     ".js", ".mjs", ".css",
     ".pdf",  # PDF 内嵌 JS 风险
     ".swf",
 })
+
+# BUG-116：危险类型强制 application/octet-stream，防止浏览器按 Content-Type
+# 猜测（如 text/html）在下载栏中内联渲染
+_DANGEROUS_MIME = "application/octet-stream"
 
 
 def _safe_resolve(base_dir, file_path: str):
@@ -39,8 +43,9 @@ def _should_force_download(path) -> bool:
 async def serve_cover(file_path: str) -> FileResponse:
     full = _safe_resolve(settings.covers_dir, file_path)
     # BUG-116：封面也强制危险类型下载，防止 .svg/.html 等同源内联执行
+    # 同时覆盖 media_type 防止浏览器按 Content-Type 猜测渲染
     if _should_force_download(full):
-        return FileResponse(full, filename=full.name, content_disposition_type="attachment")
+        return FileResponse(full, filename=full.name, content_disposition_type="attachment", media_type=_DANGEROUS_MIME)
     return FileResponse(full)
 
 
@@ -48,6 +53,7 @@ async def serve_cover(file_path: str) -> FileResponse:
 async def serve_attachment(file_path: str) -> FileResponse:
     full = _safe_resolve(settings.attachments_dir, file_path)
     # BUG-116：HTML/主动 SVG 等危险类型强制下载，防止同源内联执行存储型主动内容
+    # 同时覆盖 media_type 防止浏览器按 Content-Type 猜测渲染
     if _should_force_download(full):
-        return FileResponse(full, filename=full.name, content_disposition_type="attachment")
+        return FileResponse(full, filename=full.name, content_disposition_type="attachment", media_type=_DANGEROUS_MIME)
     return FileResponse(full)

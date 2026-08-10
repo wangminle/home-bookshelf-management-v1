@@ -49,7 +49,9 @@ def _normalize_publish_date(raw: str | None) -> str | None:
     # 尝试提取纯年份
     m = re.search(r"(\d{4})", s)
     if m:
-        return m.group(1)
+        # BUG-114：纯年份也需校验（如 "0000" 不是合法日期）
+        year = m.group(1)
+        return year if is_valid_publish_date(year) else None
     return None
 
 

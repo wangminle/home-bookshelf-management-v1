@@ -25,6 +25,14 @@ mkdir -p "${BACKUP_DIR}"
 
 DB_BACKUP="${BACKUP_DIR}/bookshelf_${STAMP}.db"
 if command -v sqlite3 >/dev/null 2>&1; then
+  # BUG-127：WAL 存在时先 checkpoint，busy 则中止，避免 .backup 得到不一致快照
+  if [[ -f "${DB_FILE}-wal" ]]; then
+    checkpoint_busy="$(sqlite3 "${DB_FILE}" "PRAGMA wal_checkpoint(TRUNCATE);" | cut -d'|' -f1)"
+    if [[ "${checkpoint_busy}" == "1" ]]; then
+      echo "错误：WAL checkpoint busy，无法获得一致快照，请重试" >&2
+      exit 1
+    fi
+  fi
   sqlite3 "${DB_FILE}" ".backup '${DB_BACKUP}'"
 elif [[ -f "${DB_FILE}-wal" ]]; then
   # BUG-127：WAL 存在且无 sqlite3 时，直接 cp 可能得到不一致快照

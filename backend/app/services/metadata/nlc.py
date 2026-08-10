@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 
 from app.services.metadata.base import BookMetadata, MetadataProvider
 from app.services.metadata.http import get_text
-from app.utils.book_helpers import isbn10_to_isbn13, normalize_isbn
+from app.utils.book_helpers import isbn10_to_isbn13, is_valid_publish_date, normalize_isbn
 
 BASE_URL = "https://opac.nlc.cn/F"
 SEARCH_URL_ISBN = (
@@ -193,6 +193,10 @@ class NLCProvider(MetadataProvider):
         else:
             publisher = right.split(",", 1)[0].strip(" ,·-;:，")
         publisher = publisher or None
+        # BUG-114：校验提取的日期是否为合法真实日期（如拒绝 "0000"），
+        # 与 openlibrary._normalize_publish_date / intake 安全网同口径
+        if publish_date and not is_valid_publish_date(publish_date):
+            publish_date = None
         return publisher, publish_date
 
     def _parse_isbn_from_html(self, html: str) -> str | None:

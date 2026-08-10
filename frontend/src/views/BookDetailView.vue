@@ -118,13 +118,15 @@ function attachmentHref(a: Attachment): string | null {
 const placeholderChar = computed(() => book.value?.title?.charAt(0) || '?')
 
 // BUG-124：v-model.number 清空输入框在运行时产生空字符串 ""，
-// 但 TS 类型推断为 number | null，这里用 unknown 桥接以兼容运行时行为。
-function normalizeNumberInput(v: number | null): number | null {
-  const raw = v as unknown
-  if (raw === null || raw === '' || raw === 0) {
+// 非数字输入可能产生 NaN，部分边界还可能出现 undefined。
+// 统一归一：null/undefined/""/0/NaN 均返回 null（页码 0 无意义），
+// 确保允许显式清空当前页/评分且不向后端发送非法值。
+function normalizeNumberInput(v: unknown): number | null {
+  if (v === null || v === undefined || v === '' || v === 0) {
     return null
   }
-  return v
+  const n = Number(v)
+  return Number.isNaN(n) ? null : n
 }
 // 修复 P2：占位符用 CSS 变量传 hue，sat/light 由全局 --cover-sat/--cover-light 决定（暗色模式自适应）
 const placeholderHue = computed(() => {

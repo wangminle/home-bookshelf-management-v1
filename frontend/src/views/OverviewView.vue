@@ -258,6 +258,8 @@ async function retry() {
   if (loadError.value) return
   // 等 v-else 渲染（canvas ref 注册）后再生成
   await nextTick()
+  // BUG-125：部分浏览器 nextTick 后 canvas 仍未就绪，追加 rAF 等待渲染帧
+  await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
   await generateImage()
 }
 
@@ -267,6 +269,8 @@ onMounted(async () => {
   if (loadError.value) return
   // 修复 BUG-107：等 loading=false 触发的 v-else 渲染（canvas ref 注册）后再生成
   await nextTick()
+  // BUG-125：追加 rAF 等待渲染帧，确保 canvas 在所有浏览器中就绪
+  await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
   await generateImage()
 })
 </script>

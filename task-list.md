@@ -148,6 +148,15 @@
 | BUG-135 | 修复 | 前端 inflightRequests 在 fetch 返回后即递减，未覆盖响应解析和业务判错阶段，并发成功仍可能清除另一失败的 lastError | 2026-08-09 22:19 | 2026-08-09 22:15 | 已修复 | commit bde3531 代码审查；frontend/src/stores/api.ts；已修复：request() 改为 try-finally 覆盖完整响应处理周期，succeeded 标志确保仅成功且无并发时才清 lastError |
 | BUG-136 | 修复 | 并发重复入库在加锁前已保存或下载封面，持锁后二次查重命中时未清理预生成文件，产生孤儿封面 | 2026-08-09 22:19 | 2026-08-09 22:15 | 已修复 | commit bde3531 代码审查；backend/app/services/intake.py；已修复：intake.py recheck 分支清理或复用预生成封面，IntegrityError 重试路径同样清理；新增 _cleanup_orphan_cover 工具函数含路径遍历防护 |
 | BUG-137 | 修复 | 出版日期规范化未解析无日号的英文月份格式，July 2008 与 2008 July 均降级为仅年份，丢失可用月份 | 2026-08-09 22:19 | 2026-08-09 22:15 | 已修复 | commit bde3531 代码审查；backend/app/services/metadata/openlibrary.py；已修复：_normalize_publish_date 正则日号改为可选 (?:\d{1,2},?\s+)?，新增 YYYY Month 反序匹配；Google Books 同步受益 |
+| BUG-138 | 修复 | BUG-105 残留：_SAFE_OPENER 未含 ProxyHandler({})，环境变量代理（HTTP_PROXY/HTTPS_PROXY）自行解析 DNS 会绕过 IP pinning，重新打开 DNS rebinding 窗口 | 2026-08-10 00:30 | 2026-08-10 01:05 | 已修复 | storage.py _SAFE_OPENER 追加 ProxyHandler({}) 禁用环境变量代理；pytest 全量 160 passed |
+| BUG-139 | 修复 | BUG-114 残留：NLC _parse_publish_info 从 MARC 008 提取年份后未校验 is_valid_publish_date；OpenLibrary 纯年份回退分支同样缺校验，非法日期（如 0000）可落库 | 2026-08-10 00:30 | 2026-08-10 01:05 | 已修复 | nlc.py 导入并调用 is_valid_publish_date 校验提取日期；openlibrary.py 纯年份回退分支补 is_valid_publish_date 校验；pytest 160 passed |
+| BUG-140 | 修复 | BUG-116 残留：_BLOCKED_EXTENSIONS 与 _FORCE_DOWNLOAD_SUFFIXES 均遗漏 .shtm（.shtml 的短扩展名变体）；FileResponse 未设 media_type=application/octet-stream，浏览器仍可能按文件扩展名 sniff 为 HTML 内联执行 | 2026-08-10 00:30 | 2026-08-10 01:05 | 已修复 | attachments.py _BLOCKED_EXTENSIONS 与 files.py _FORCE_DOWNLOAD_SUFFIXES 同步补 .shtm；files.py 新增 _DANGEROUS_MIME 常量，serve_cover/serve_attachment 对危险类型强制 media_type=application/octet-stream；pytest 160 passed |
+| BUG-141 | 修复 | BUG-119 残留：持锁后 recheck 前未 db.commit()，SQLite 快照隔离导致 recheck 看不到其他 session 已提交的新书，进程锁+文件锁仍无法阻止同进程内重复建书 | 2026-08-10 00:30 | 2026-08-10 01:05 | 已修复 | intake.py 持锁后 recheck 前补 db.commit() 结束当前事务获取最新快照；pytest test_intake_dedup 6 passed（含串行去重验证） |
+| BUG-142 | 修复 | BUG-124 残留：normalizeNumberInput 未处理 v-model.number 产生的 0 和 NaN，0 被当作有效页码提交、NaN 导致后端 422 | 2026-08-10 00:30 | 2026-08-10 01:05 | 已修复 | BookDetailView.vue normalizeNumberInput 改为接受 unknown 类型，0/NaN/空串均归一为 null；vue-tsc 构建通过 |
+| BUG-143 | 修复 | BUG-125 残留：retry() 和 onMounted() 中 nextTick 后部分浏览器 canvas 仍未就绪，generateImage 在 canvas getContext 阶段失败 | 2026-08-10 00:30 | 2026-08-10 01:05 | 已修复 | OverviewView.vue retry() 与 onMounted() 在 nextTick 后追加 requestAnimationFrame 等待渲染帧；vue-tsc 构建通过 |
+| BUG-144 | 修复 | BUG-127 残留：backup.sh sqlite3 CLI 路径缺 WAL checkpoint busy 检查（仅 Python 路径有），WAL 存在时 .backup 可能得到不一致快照 | 2026-08-10 00:30 | 2026-08-10 01:05 | 已修复 | deploy/backup.sh sqlite3 分支补 PRAGMA wal_checkpoint(TRUNCATE) busy 检查（busy=1 时 exit 1）；bash -n 通过 |
+| BUG-145 | 修复 | BUG-128 残留：install.sh _detect_venv_py 仍用 -x 测试，Git Bash 下 .exe 文件可能未设可执行位，-x 返回 false 导致误判 venv 损坏 | 2026-08-10 00:30 | 2026-08-10 01:05 | 已修复 | install.sh 新增 _venv_py_ok 函数：.exe 文件用 -f 测试存在性，其余用 -x 测试可执行位；替换两处 -x 检测点；bash -n 通过 |
+| BUG-146 | 修复 | TST-002 残留：仓库根目录缺 pytest.ini 和 conftest.py，从根目录运行 pytest 仍无法发现 backend/tests（backend/tests/conftest.py 仅钉住 script_location，未提供根级入口） | 2026-08-10 00:30 | 2026-08-10 01:05 | 已修复 | 根目录新增 pytest.ini（testpaths=backend/tests）与 conftest.py（sys.path 插入 backend/）；从仓库根 pytest --collect-only 成功收集 160 用例 |
 
 ## 调整事项
 
@@ -196,6 +205,7 @@
 | CHK-033 | 检查 | 复核 CHK-032 对 BUG-105/113/114/116~119/123~125/127~130 与 TST-002 的修复是否真正闭环 | 2026-08-09 20:52 | 2026-08-09 20:52 | 已完成 | 仓库根 pytest 135 passed；前端 build 通过；bash -n 通过。结论：CHK-031 所列项代码层大多已补齐；残留见 BUG-131/132/133（HTTPS 钉 IP TLS、渠道头信任边界、无 ISBN 多进程竞态）。 |
 | CHK-034 | 检查 | 审查提交 bde3531（V0.2.2-Build0704-20260809）的代码变更并给出优先级结论 | 2026-08-09 22:19 | 2026-08-09 22:19 | 已完成 | 后端 145 passed；前端 npm run build 通过；发现 BUG-134~137 |
 | CHK-035 | 检查 | 复核 BUG-131/132/133（及顺带 134~137）修复是否真正闭环 | 2026-08-09 22:11 | 2026-08-09 22:15 | 已完成 | 代码审查 + pytest：test_bug131_133 与关联套件通过；test_bug134_137 25 passed。结论：131 HTTPS SNI/IPv6/去重定义已闭环；132 可选 HMAC 签名防伪造渠道头已闭环（未配密钥仍走可信局域网）；133 跨进程 flock+临界区至 commit+6 线程并发断言已闭环。134~137 台账已标已修复且回归绿。设计备注：X-UI-Client:web 旁路（134）在受信局域网下恢复 Web UI，不恢复「伪造渠道外部 ID 冒充」路径。 |
+| CHK-036 | 检查 | 全面代码审查 BUG-105~130 + TST-002 修复残留，逐条验证并补修 10 项、确认 4 项已正确 | 2026-08-10 00:30 | 2026-08-10 01:10 | 已完成 | 后端 pytest 160 passed（分批运行，intake_dedup 6 用例 ~119s）；前端 npm run build 通过；bash -n 通过。补修：ProxyHandler 禁代理 DNS(BUG-138)、NLC+OL 纯年份校验(BUG-139)、.shtm+octet-stream MIME(BUG-140)、持锁后 db.commit 破快照隔离(BUG-141)、normalizeNumberInput 处理 0/NaN(BUG-142)、rAF 等 canvas(BUG-143)、sqlite3 CLI WAL checkpoint busy(BUG-144)、_venv_py_ok .exe 检测(BUG-145)、根级 pytest.ini/conftest.py(BUG-146)。确认已正确无需改动：BUG-117/123 aggregate_book_status 优先级聚合、BUG-118 model_fields_set null 清空、BUG-129 to_read 响应回传、BUG-130 inflightRequests try-finally。BUG-113 原有修复（匿名 GET 隐藏 channel_bindings + 绑定后拒匿名写）已正确，误加的签名密钥强制要求已回退。 |
 
 ## 测试数据
 
@@ -297,9 +307,9 @@
 
 | 分类 | 总数 | 已完成 | 待开发/待修复 | 完成率 |
 | --- | --- | --- | --- | --- |
-| 代码 Bug | 137 | 137 | 0 | 100% |
+| 代码 Bug | 146 | 146 | 0 | 100% |
 | 调整事项 | 3 | 3 | 0 | 100% |
-| 检查事项 | 35 | 34 | 1 | 97% |
+| 检查事项 | 36 | 35 | 1 | 97% |
 | 测试数据 | 3 | 3 | 0 | 100% |
 | 文档维护 | 24 | 24 | 0 | 100% |
 | 功能开发 | 13 | 13 | 0 | 100% |
@@ -307,4 +317,4 @@
 | 规划事项 | 4 | 2 | 2 | 50% |
 | 优化事项 | 8 | 8 | 0 | 100% |
 | 调研事项 | 3 | 3 | 0 | 100% |
-| **总计** | 236 | 233 | 3 | 99% |
+| **总计** | 246 | 243 | 3 | 99% |

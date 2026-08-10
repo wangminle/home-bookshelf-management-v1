@@ -33,11 +33,21 @@ _detect_venv_py() {
   fi
 }
 
+# BUG-128：Git Bash 下 .exe 文件可能未设可执行位，-x 测试不可靠。
+# .exe 文件在 Windows 上只要存在即可执行，改用 -f 判断；非 .exe 仍用 -x。
+_venv_py_ok() {
+  if [[ "$1" == *.exe ]]; then
+    [[ -f "$1" ]]
+  else
+    [[ -x "$1" ]]
+  fi
+}
+
 VENV_PY="$(_detect_venv_py)"
 
 # If the venv exists but lacks a usable interpreter for THIS platform
 # (e.g. a macOS/Linux venv synced from another machine), rebuild it.
-if [ ! -x "$VENV_PY" ]; then
+if ! _venv_py_ok "$VENV_PY"; then
   if [ -d "$VENV" ]; then
     echo "==> Found an incompatible virtualenv (missing $VENV_PY). Rebuilding..."
     rm -rf "$VENV"
@@ -46,7 +56,7 @@ if [ ! -x "$VENV_PY" ]; then
   "$PY" -m venv "$VENV"
   # BUG-128：venv 刚创建后重新检测解释器路径——Windows/Git Bash 首次创建会生成 Scripts/python.exe
   VENV_PY="$(_detect_venv_py)"
-  if [ ! -x "$VENV_PY" ]; then
+  if ! _venv_py_ok "$VENV_PY"; then
     echo "错误：venv 创建后仍未找到解释器 $VENV_PY" >&2
     exit 1
   fi

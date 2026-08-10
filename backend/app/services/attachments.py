@@ -18,9 +18,9 @@ from app.utils.db_errors import rollback_on_integrity
 ALLOWED_ENTITY_TYPES = frozenset({"book", "member", "note", "copy"})
 
 # BUG-116：禁止上传可内联执行脚本/主动内容的文件类型，防止存储型 XSS
-# 含 .shtml/.xht/.svgz 等服务端解析或等价 HTML/SVG 变体
+# 含 .shtml/.xht/.svgz/.shtm 等服务端解析或等价 HTML/SVG 变体
 _BLOCKED_EXTENSIONS = frozenset({
-    ".html", ".htm", ".shtml", ".xhtml", ".xht", ".svg", ".svgz", ".xml",
+    ".html", ".htm", ".shtml", ".shtm", ".xhtml", ".xht", ".svg", ".svgz", ".xml",
     ".js", ".mjs", ".css",
     ".swf",
 })

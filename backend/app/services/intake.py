@@ -199,6 +199,10 @@ def intake_book(db: Session, payload: IntakeInput) -> IntakeResult:
     # 进程级锁 + 跨进程文件锁串行化"复查→新建→副本/购买→commit"整个关键区：
     # 锁必须覆盖到 commit，否则并发请求在对方未提交时复查仍会通过查重。
     with _INTAKE_LOCK, _cross_process_lock(_intake_lock_path()):
+        # BUG-119：结束当前事务以获取最新快照，否则 SQLite 的快照隔离
+        # 会导致 recheck 看不到其他 session 已提交的新书（锁外预查询
+        # 开启了隐式事务，持锁后仍是同一快照）。
+        db.commit()
         # 持锁后再次查重：锁外第一次查重到此处之间，另一个请求可能已建好书
         recheck = _find_existing(db, isbn13=isbn13, isbn10=isbn10, title=title, authors=authors)
         if recheck:

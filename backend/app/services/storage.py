@@ -146,7 +146,11 @@ def _build_pinned_request(url: str, pinned_ip: str) -> urllib.request.Request:
     return req
 
 
-_SAFE_OPENER = urllib.request.build_opener(_SafeRedirectHandler, _PinnedHTTPSHandler)
+# BUG-105：ProxyHandler({}) 禁用环境变量代理（HTTP_PROXY/HTTPS_PROXY），
+# 否则代理服务器自行解析 DNS 会绕过上面的 IP pinning，重新打开 DNS rebinding 窗口。
+_SAFE_OPENER = urllib.request.build_opener(
+    _SafeRedirectHandler, _PinnedHTTPSHandler, urllib.request.ProxyHandler({})
+)
 
 
 def download_cover(cover_url: str, target_name: str) -> str | None:

@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bookshelf.home/schemas/agent-manifest-v1.schema.json",
+  "title": "Agent Manifest v1.0",
+  "description": "WBS-0: 家庭图书管理系统 Agent 发现面机器清单契约",
+  "type": "object",
+  "required": ["schema_version", "service", "links", "data_policy", "capabilities", "skills"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Manifest 契约版本"
+    },
+    "service": {
+      "type": "object",
+      "required": ["id", "name", "version", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "const": "home-bookshelf" },
+        "name": { "type": "string" },
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+" },
+        "description": { "type": "string" }
+      }
+    },
+    "links": {
+      "type": "object",
+      "required": ["human_entry", "agent_guide", "api_catalog", "openapi", "skills_index", "authorization_manage"],
+      "additionalProperties": false,
+      "properties": {
+        "human_entry": { "type": "string" },
+        "agent_guide": { "type": "string" },
+        "api_catalog": { "type": "string" },
+        "openapi": { "type": "string" },
+        "skills_index": { "type": "string" },
+        "authorization_manage": { "type": "string" }
+      }
+    },
+    "data_policy": {
+      "type": "object",
+      "required": ["discovery_contains_business_data", "business_access_requires_user_authorization", "credentials_in_urls"],
+      "additionalProperties": false,
+      "properties": {
+        "discovery_contains_business_data": { "type": "boolean", "const": false },
+        "business_access_requires_user_authorization": { "type": "boolean", "const": true },
+        "credentials_in_urls": { "type": "boolean", "const": false }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "description", "authorization_required", "required_scopes", "risk"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "description": { "type": "string" },
+          "authorization_required": { "type": "boolean" },
+          "required_scopes": {
+            "type": "array",
+            "items": { "type": "string", "enum": [
+              "books:read", "books:write", "books:delete",
+              "reading:read", "reading:write",
+              "notes:read", "notes:write",
+              "purchases:read", "purchases:write",
+              "stats:read", "stats:household",
+              "files:read", "members:read"
+            ]}
+          },
+          "risk": { "type": "string", "enum": ["read", "write", "delete"] }
+        }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "required": ["bundle_version", "index"],
+      "additionalProperties": false,
+      "properties": {
+        "bundle_version": { "type": "string" },
+        "index": { "type": "string" }
+      }
+    }
+  }
+}

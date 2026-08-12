@@ -1,6 +1,8 @@
 ---
 name: bookshelf-setup
 description: 家庭书架初始化技能。当用户说「第一次使用」「初始化书架」「怎么配置」「连接不上」「setup」时使用。引导完成 API 连通、Google Books Key、Agent 对接与成员渠道绑定。
+scopes: []
+version: "0.2.4"
 ---
 
 # 书架初始化（bookshelf-setup）

@@ -25,6 +25,21 @@ const router = createRouter({
       component: () => import('@/views/OverviewView.vue'),
     },
     {
+      path: '/agent',
+      name: 'agent-connect',
+      component: () => import('@/views/AgentConnectView.vue'),
+    },
+    {
+      path: '/agent-authorization',
+      name: 'agent-authorization',
+      component: () => import('@/views/AgentAuthorizationView.vue'),
+    },
+    {
+      path: '/agent-access',
+      name: 'agent-access-list',
+      component: () => import('@/views/AgentAccessListView.vue'),
+    },
+    {
       path: '/:pathMatch(.*)*',
       redirect: '/',
     },

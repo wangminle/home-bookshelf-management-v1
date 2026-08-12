@@ -1,110 +1,177 @@
 # 接入 Agent
 
-一期用 **Agent（如 OpenClaw / Hermes）+ Skills + CLI** 对接飞书等 IM，不单独维护 `channels/` 适配器代码。
+家庭图书管理系统提供 **Agent Bootstrap Gateway**，让 AI Agent（如 Codex / OpenClaw / Hermes）在不接触业务数据的前提下发现系统能力、安装 Skills、申请授权并调用 API。
 
 ## 你将完成
 
-1. 后端与 CLI 可用（见 [快速开始](./get-started.md)）  
-2. 把 `skills/` 加入 Agent 技能路径  
-3. 绑定家庭成员的 IM 账号  
-4. 用自然语言完成一次入库或查询  
+1. 后端已部署并完成 Owner 密码初始化
+2. Agent 通过 `/agent` 发现系统能力
+3. 在 Web 授权中心创建 Agent 授权并获取 Token
+4. Agent 使用 Bearer Token 调用 API
 
 ---
 
-## 1. 准备环境
+## 1. 初始化 Owner 密码
+
+首次部署后，Owner 需设置密码：
 
 ```bash
-bookshelf doctor
-export BOOKSHELF_API_URL=http://<家庭服务器IP>:8000
+# CLI 方式
+cd backend && python -m app.admin owner-init-password
+
+# 或通过 Web UI 访问 /agent-authorization 页面
 ```
 
-Agent 运行环境需能执行 `bookshelf`，并访问上述 API。
+设置后，Owner 可通过 Web UI 登录管理 Agent 授权。
 
 ---
 
-## 2. 加载 Skills
+## 2. Agent 发现入口
 
-仓库 `skills/` 下有 7 个技能：
+Agent 访问以下公开端点（无需认证）：
 
-| Skill | 用途 |
+| 端点 | 说明 |
 | --- | --- |
-| `bookshelf-setup` | 部署诊断、绑定引导 |
-| `book-intake` | 入库 |
-| `book-query` | 查询 |
-| `reading-tracker` | 进度 |
-| `purchase-logger` | 购买 |
-| `note-taker` | 笔记 |
-| `shelf-report` | 统计 |
+| `GET /agent` | Bootstrap Markdown，人类和 Agent 可读的能力概览 |
+| `GET /agent/manifest.json` | 机器可读的系统清单（版本、能力、认证方式） |
+| `GET /.well-known/api-catalog` | RFC 9727 API 目录（`application/linkset+json`） |
+| `GET /api/v1/openapi.json` | OpenAPI 规范（仅含业务端点，不含管理端点） |
+| `GET /agent/skills/index.json` | Skills 索引（名称、版本、scope） |
+| `GET /agent/skills/download/{version}.zip` | Skills 包下载 |
+| `GET /agent/skills/SHA256SUMS` | Skills 包校验文件 |
+| `GET /llms.txt` | LLM 友好的系统说明 |
 
-按你所用 Agent 的文档，把该目录加入「可用技能 / skills path」。每个目录含 `SKILL.md`，说明何时触发、如何调 CLI、如何回话。
+这些端点不返回任何业务数据（书籍、成员、购买记录等）。
 
 ---
 
-## 3. 绑定成员（白名单）
+## 3. 安装 Skills
 
 ```bash
-bookshelf bind --member-id 1 --channel feishu --external-user-id <飞书用户ID>
+# Agent 可下载 Skills 包并安装
+curl -O http://<服务器>/agent/skills/download/latest.zip
+curl -O http://<服务器>/agent/skills/SHA256SUMS
+
+# 校验完整性
+shasum -a 256 -c SHA256SUMS
+
+# 解压到 Agent 的 skills 路径
+unzip skills-latest.zip -d ~/.agent/skills/
 ```
 
-之后 Agent 调 API 时应带上：
+Skills 包含 8 个技能：
 
-- `X-Channel: feishu`
-- `X-External-User-Id: <同一用户ID>`
+| Skill | Scope | 用途 |
+| --- | --- | --- |
+| `bookshelf-bootstrap` | - | 发现系统、安装 Skills、申请授权 |
+| `bookshelf-setup` | - | 部署诊断、绑定引导 |
+| `book-intake` | `books:write`, `files:read` | 入库 |
+| `book-query` | `books:read` | 查询 |
+| `reading-tracker` | `reading:write`, `books:read` | 进度 |
+| `purchase-logger` | `purchases:write`, `books:read` | 购买 |
+| `note-taker` | `notes:write`, `books:read` | 笔记 |
+| `shelf-report` | `stats:read`, `books:read` | 统计 |
 
-未绑定账号会收到 `403`。只传其中一个头会 `400`。
+---
 
-如果 Agent 直接调 HTTP，就显式带上这两个请求头；如果 Agent 通过 CLI 执行命令，直接在运行环境里设置：
+## 4. 申请授权并获取 Token
+
+### Web UI 方式（推荐）
+
+1. Owner 登录 `/agent-authorization` 页面
+2. 创建 Agent 客户端（名称 + 类型）
+3. 创建授权（选择成员、Scope、有效期）
+4. 签发 Token — **Token 仅显示一次，请立即保存**
+
+### API 方式
+
+```bash
+# 1. Owner 登录获取 Cookie
+curl -c cookies.txt -X POST http://<服务器>/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"password": "your-password"}'
+
+# 2. 创建 Agent 客户端
+curl -b cookies.txt -X POST http://<服务器>/agent-access/clients \
+  -H 'Content-Type: application/json' \
+  -d '{"display_name": "My Agent", "client_type": "codex"}'
+
+# 3. 创建授权（指定 scope 和有效期）
+curl -b cookies.txt -X POST http://<服务器>/agent-access/grants \
+  -H 'Content-Type: application/json' \
+  -d '{"agent_client_id": 1, "member_id": 1, "scopes": ["books:read", "books:write"], "expires_in_days": 30}'
+
+# 4. 签发 Token
+curl -b cookies.txt -X POST http://<服务器>/agent-access/tokens \
+  -H 'Content-Type: application/json' \
+  -d '{"grant_id": 1}'
+```
+
+Token 格式为 `hbs_at_<public_id>_<secret>`，仅显示一次。
+
+---
+
+## 5. 使用 Token 调用 API
+
+```bash
+export BOOKSHELF_API_URL=http://<服务器>
+export BOOKSHELF_TOKEN=hbs_at_xxx_yyy
+
+# CLI 自动使用 Bearer Token
+bookshelf add --title "活着" --author "余华"
+
+# 或直接 HTTP 调用
+curl -H "Authorization: Bearer $BOOKSHELF_TOKEN" \
+  http://<服务器>/api/v1/books
+```
+
+可用 Scope（共 13 个）：
+
+| Scope | 风险 | 说明 |
+| --- | --- | --- |
+| `books:read` | 低 | 查询书籍 |
+| `books:write` | 中 | 创建/修改书籍 |
+| `books:delete` | 高 | 删除书籍 |
+| `reading:read` | 低 | 查看阅读进度 |
+| `reading:write` | 中 | 更新阅读进度 |
+| `notes:read` | 低 | 查看笔记 |
+| `notes:write` | 中 | 创建笔记 |
+| `purchases:read` | 低 | 查看购买记录 |
+| `purchases:write` | 中 | 记录购买 |
+| `stats:read` | 低 | 查看个人统计 |
+| `stats:household` | 高 | 查看全家统计 |
+| `files:read` | 低 | 读取附件 |
+| `members:read` | 低 | 查看成员列表 |
+
+---
+
+## 6. 渠道头兼容（旧方式）
+
+仍支持通过渠道头（`X-Channel` + `X-External-User-Id`）认证，适用于 IM Bot 等场景：
 
 ```bash
 export BOOKSHELF_CHANNEL=feishu
-export BOOKSHELF_EXTERNAL_USER_ID=<同一用户ID>
+export BOOKSHELF_EXTERNAL_USER_ID=ou_xxx
 ```
 
-CLI 现在会把这两个环境变量自动注入到所有请求；若白名单建立后还要代绑其他成员，也可额外设置：
-
-```bash
-export BOOKSHELF_SETUP_TOKEN=<管理口令>
-```
-
-如果后端配置了 `CHANNEL_SIGNING_SECRET`（防止伪造渠道头），还需设置：
+如果配置了 `CHANNEL_SIGNING_SECRET`，还需设置：
 
 ```bash
 export BOOKSHELF_CHANNEL_SIGNING_SECRET=<与后端相同的密钥>
 ```
 
-CLI 会自动计算 `X-Channel-Signature`（HMAC-SHA256）并附带在请求头中。
-
-> 内置 Web UI 不需要渠道头，前端自动发送 `X-UI-Client: web` 头在白名单建立后仍可写入（BUG-134）。此旁路仅限内置 UI，外部 Agent/CLI 不受影响。
-
 ---
 
-## 4. 试一条对话
-
-在飞书（或你的 IM）对 Bot 说：
-
-> 帮我把《活着》余华入库  
-
-Agent 应路由到 `book-intake` → 执行类似：
-
-```bash
-bookshelf add --title "活着" --author "余华"
-```
-
-并回复确认。再试：
-
-> 我家有没有三体？  
-> 这本读到第 100 页  
-
----
-
-## 5. 常见卡点
+## 7. 常见卡点
 
 | 现象 | 处理 |
 | --- | --- |
 | Agent 找不到 bookshelf | 检查 PATH / 虚拟环境；在 Agent 机器 `pip install -e cli` |
-| doctor 报未绑定 | 先 `bind`；或确认 Agent 是否带了 `X-Channel`/`X-External-User-Id`，若走 CLI 则确认已设置对应环境变量 |
-| 403 未绑定 | `external_user_id` 是否与 bind 时一致 |
-| 识别失败 | 换清晰条码图，或改用 `--isbn` / `--title` |
+| Token 无效或已过期 | 在 Web 授权中心重新签发；检查 Grant 是否已过期或撤销 |
+| 403 缺少 scope | 在 Web 授权中心修改 Grant 的 scope 列表 |
+| 401 未认证 | 确保 Bearer Token 正确传入 `Authorization` 头 |
+| Skills 下载失败 | 检查 `/agent/skills/index.json` 是否可访问 |
+| doctor 报未授权 | 运行 `bookshelf auth status` 检查 Token 有效性 |
 
 更多见 [FAQ](./faq.md)。
 
@@ -112,5 +179,7 @@ bookshelf add --title "活着" --author "余华"
 
 ## 相关
 
-- Skills 说明总览：[`skills/README.md`](../skills/README.md)  
-- 设计中的渠道与鉴权：[`design/家庭图书管理系统-设计方案.md`](../design/家庭图书管理系统-设计方案.md) §7  
+- Skills 说明总览：[`skills/README.md`](../skills/README.md)
+- Agent 授权管理页面：`/agent-authorization`
+- Agent 连接信息页面：`/agent`
+- 设计文档：[`design/Agent引导入口与能力授权体系规划.md`](../design/Agent引导入口与能力授权体系规划.md)

@@ -1,6 +1,8 @@
 ---
 name: book-intake
 description: 家庭藏书入库技能。当用户发送书封照片、ISBN、或说「买了本书/入库/加书」时使用。调用 bookshelf CLI 完成识别、元数据补全与落库。
+scopes: [books:write, files:read]
+version: "0.2.4"
 ---
 
 # 藏书入库（book-intake）

@@ -69,6 +69,8 @@ def add_member(
             body_member_id=None,
             channel=identity.channel,
             external_user_id=identity.external_user_id,
+            authorization=identity.authorization,
+        web_session_token=identity.web_session_token,
 
             ui_client=identity.ui_client,
         )
@@ -80,6 +82,8 @@ def add_member(
             body_member_id=None,
             channel=identity.channel,
             external_user_id=identity.external_user_id,
+            authorization=identity.authorization,
+        web_session_token=identity.web_session_token,
 
             ui_client=identity.ui_client,
         )
@@ -132,6 +136,8 @@ def bind_channel(
         target_member_id=payload.member_id,
         channel=identity.channel,
         external_user_id=identity.external_user_id,
+        authorization=identity.authorization,
+        web_session_token=identity.web_session_token,
         setup_token=identity.setup_token,
     )
     try:

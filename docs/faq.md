@@ -84,7 +84,32 @@ export BOOKSHELF_EXTERNAL_USER_ID=ou_xxx
 
 ### Web UI 绑定后写操作 403？
 
-不应出现。内置 Web UI 前端自动发送 `X-UI-Client: web` 头，后端识别后允许在渠道白名单建立后仍走默认成员回退（BUG-134 修复）。如果你使用第三方前端或自写脚本调用 API，需要像 Agent 一样携带 `X-Channel` / `X-External-User-Id` 渠道头。
+V0.2.5 起，Web UI 使用 Owner 密码登录获取会话 Cookie，不再依赖 `X-UI-Client` 头。如果遇到 403：
+
+1. 确认已通过 `/agent-authorization` 页面初始化 Owner 密码并登录
+2. 清除浏览器 Cookie 后重新登录
+3. 旧的 `X-UI-Client: web` 旁路已移除，不再有效
+
+### Agent Token 怎么获取？
+
+Owner 登录 `/agent-authorization` 页面后：
+
+1. 创建 Agent 客户端
+2. 创建授权（选择成员、Scope、有效期）
+3. 签发 Token - **仅显示一次，请立即保存**
+
+Token 格式为 `hbs_at_<public_id>_<secret>`，设置环境变量 `BOOKSHELF_TOKEN` 即可通过 CLI 使用。
+
+### Token 丢失了怎么办？
+
+Token 仅签发时显示一次。如果丢失，在授权管理页面撤销旧 Token 并重新签发即可。
+
+### 如何撤销 Agent 授权？
+
+在 `/agent-authorization` 或 `/agent-access` 页面：
+- 撤销 Token：立即失效单个 Token
+- 撤销 Grant：该授权下所有 Token 立即失效
+- 撤销 Client：该客户端下所有授权和 Token 立即失效
 
 ### 如何给第二位家人绑定？
 
@@ -103,7 +128,7 @@ bookshelf bind --member-id 2 --channel feishu --external-user-id ou_yyy
 
 ### 能直接暴露到公网吗？
 
-不建议。一期依赖局域网 + 渠道白名单，没有完整的公网登录体系。见 [部署 · 安全提示](./deployment.md)。
+V0.2.5 起支持完整的 Owner 认证体系（Argon2id 密码 + HTTPS Cookie 会话 + Agent Token），但仍建议使用反向代理配置 HTTPS。见 [部署 · 安全提示](./deployment.md)。
 
 ### 数据在哪？怎么备份？
 

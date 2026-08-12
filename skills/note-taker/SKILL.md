@@ -1,6 +1,8 @@
 ---
 name: note-taker
 description: 读书笔记技能。当用户说「记一段摘录」「写点感想」「给这本书做个笔记」时使用。调用 bookshelf note 写入 reading_notes。
+scopes: [notes:write, books:read]
+version: "0.2.4"
 ---
 
 # 读书笔记（note-taker）

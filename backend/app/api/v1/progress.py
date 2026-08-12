@@ -25,7 +25,9 @@ def update_progress(
         body_member_id=payload.member_id,
         channel=identity.channel,
         external_user_id=identity.external_user_id,
-
+        authorization=identity.authorization,
+        web_session_token=identity.web_session_token,
+        required_scope="reading:write",
         ui_client=identity.ui_client,
     )
     payload = payload.model_copy(update={"member_id": member_id})

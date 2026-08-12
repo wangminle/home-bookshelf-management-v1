@@ -18,15 +18,36 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
-# 一期默认允许局域网前端；生产可按需收紧
+
+# WBS-1/WBS-6：CORS 从 * 收紧为配置的 Web Origin。
+# 生产同源部署默认不需要跨域；开发环境配置 http://localhost:5173 等。
+_origins = settings.cors_origin_list if settings.cors_origins != "*" else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=_origins,
+    allow_credentials=_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 app.include_router(api_router)
+
+# WBS-2：公开发现面路由。必须在 SPA fallback 之前注册，
+# 确保机器契约（JSON/Markdown）不能被前端伪造。
+from app.api.v1.agent_discovery import discovery_router  # noqa: E402
+
+app.include_router(discovery_router, tags=["agent-discovery"])
+
+# WBS-5：Owner Web 认证 + Agent 访问控制管理路由
+from app.api.v1.web_auth import router as web_auth_router  # noqa: E402
+from app.api.v1.agent_access import router as agent_access_router  # noqa: E402
+
+app.include_router(web_auth_router)
+app.include_router(agent_access_router)
+
+# WBS-4：Skills 分发路由
+from app.api.v1.agent_skills import router as skills_router  # noqa: E402
+
+app.include_router(skills_router)
 
 
 # ---- 前端静态文件托管（SPA fallback）----
@@ -49,7 +70,7 @@ if _STATIC_DIR.is_dir():
         # 未匹配的 /api/* 必须 404 JSON，不可回落成 index.html（避免前端当成功 HTML 解析）
         if full_path == "api" or full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not Found")
-        # 修复 BUG-106：路径穿越防护——解析后必须仍在 _STATIC_DIR 内，
+        # 修复 BUG-106：路径穿越防护--解析后必须仍在 _STATIC_DIR 内，
         # 阻止 /../config/.env.example 等读取 backend 旁路文件
         candidate = (_STATIC_DIR / full_path).resolve()
         if candidate.is_file() and candidate.is_relative_to(_static_root):

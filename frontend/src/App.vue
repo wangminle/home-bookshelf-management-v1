@@ -30,6 +30,7 @@ function onMemberChange(e: Event) {
         <RouterLink to="/">书架</RouterLink>
         <RouterLink to="/stats">统计</RouterLink>
         <RouterLink to="/overview">概览图</RouterLink>
+        <RouterLink to="/agent">Agent</RouterLink>
       </nav>
       <div class="member-selector">
         <label for="member-select">成员</label>

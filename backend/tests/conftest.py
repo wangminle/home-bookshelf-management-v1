@@ -17,6 +17,8 @@ if _TEST_DB.exists():
 
 os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB.as_posix()}"
 os.environ["DATA_DIR"] = str(_TEST_DIR / "data")
+# CHK-039：init-password 升级场景保护需要 SETUP_TOKEN
+os.environ["SETUP_TOKEN"] = "test-setup-token"
 
 from alembic import command  # noqa: E402
 from alembic.config import Config  # noqa: E402

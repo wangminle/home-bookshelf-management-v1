@@ -7,6 +7,7 @@ import typer
 
 from bookshelf.client import BookshelfClient, emit
 from bookshelf.doctor import emit_doctor, run_doctor
+from bookshelf.bootstrap import cmd_bootstrap, cmd_auth_status
 
 app = typer.Typer(help="家庭图书管理系统 CLI", no_args_is_help=True)
 client = BookshelfClient()
@@ -179,8 +180,27 @@ def show_stats(json_output: bool = typer.Option(True, "--json/--no-json", help="
 
 
 @app.command("doctor")
-def doctor(json_output: bool = typer.Option(True, "--json/--no-json", help="JSON 输出")):
-    """初始化诊断：检查 API、数据库、Key、成员绑定等"""
+def doctor(
+    json_output: bool = typer.Option(True, "--json/--no-json", help="JSON 输出"),
+    authorized: bool = typer.Option(False, "--authorized", help="授权后业务检查（需要 BOOKSHELF_TOKEN）"),
+):
+    """初始化诊断：检查 API、数据库、Key、成员绑定等
+
+    默认只做公开发现面检查（无需认证）。
+    加 --authorized 做业务连通性检查（需要 BOOKSHELF_TOKEN）。
+    """
+    if authorized:
+        # WBS-8：授权后业务检查
+        from bookshelf.bootstrap import cmd_auth_status
+        import json
+        import os
+        token = os.environ.get("BOOKSHELF_TOKEN")
+        if not token:
+            print(json.dumps({"ok": False, "error": "未设置 BOOKSHELF_TOKEN，无法执行授权后检查"}, ensure_ascii=False))
+            raise typer.Exit(code=1)
+        # 先检查 auth status
+        cmd_auth_status(json_output)
+        # auth status 成功后再跑常规 doctor
     payload = run_doctor(client).to_payload()
     emit_doctor(payload, json_output)
     if not payload.get("ok"):
@@ -213,6 +233,27 @@ def add_member(
     """新建家庭成员"""
     result = client.add_member(name=name, role=role, avatar_path=avatar)
     emit(result, json_output)
+
+
+@app.command("bootstrap")
+def bootstrap(
+    url: str = typer.Argument(..., help="服务端地址，如 http://127.0.0.1:8000"),
+    json_output: bool = typer.Option(True, "--json/--no-json", help="JSON 输出"),
+):
+    """WBS-8：发现系统契约（无需认证）"""
+    cmd_bootstrap(url, json_output)
+
+
+auth_app = typer.Typer(help="Agent 授权管理")
+app.add_typer(auth_app, name="auth")
+
+
+@auth_app.command("status")
+def auth_status(
+    json_output: bool = typer.Option(True, "--json/--no-json", help="JSON 输出"),
+):
+    """检查当前 Agent 授权状态"""
+    cmd_auth_status(json_output)
 
 
 if __name__ == "__main__":

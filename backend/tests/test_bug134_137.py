@@ -32,22 +32,26 @@ def _bootstrap_with_bindings(client):
 
 
 def test_bug134_ui_client_header_allows_write_after_bindings(client):
-    """渠道绑定建立后，带 X-UI-Client: web 头的匿名写请求应成功。"""
+    """WBS-6：渠道绑定建立后，X-UI-Client: web 头不再有授权旁路效果。
+
+    旧 BUG-134 允许 X-UI-Client: web 绕过渠道鉴权。
+    WBS-6 移除此旁路，所有请求必须通过渠道身份或 Web 会话认证。
+    """
     _, channel_headers = _bootstrap_with_bindings(client)
 
     # 匿名（无任何头）应被拒绝
     r = client.post("/api/v1/books", json={"title": "匿名测试"})
     assert r.status_code == 403, r.text
 
-    # 带 X-UI-Client: web 头的匿名写应成功
+    # 带 X-UI-Client: web 头的匿名写也必须被拒绝（WBS-6 移除旁路）
     r2 = client.post(
         "/api/v1/books",
         json={"title": "UI 客户端测试"},
         headers={"X-UI-Client": "web"},
     )
-    assert r2.status_code == 201, r2.text
+    assert r2.status_code == 403, r2.text
 
-    # 带渠道头 + UI 头也应正常工作（不冲突）
+    # 带渠道头 + UI 头也应正常工作（渠道身份有效，UI 头被忽略）
     r3 = client.post(
         "/api/v1/books",
         json={"title": "渠道+UI测试"},

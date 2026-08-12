@@ -1,6 +1,8 @@
 ---
 name: shelf-report
 description: 藏书统计技能。当用户问「我家有多少书」「今年买书花了多少」「阅读 streak」时使用。调用 bookshelf stats。
+scopes: [stats:read, books:read]
+version: "0.2.4"
 ---
 
 # 藏书统计（shelf-report）

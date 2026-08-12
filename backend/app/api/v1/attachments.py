@@ -31,7 +31,9 @@ def _create_attachment_in_thread(
             body_member_id=None,
             channel=identity.channel,
             external_user_id=identity.external_user_id,
-
+            authorization=identity.authorization,
+            web_session_token=identity.web_session_token,
+            required_scope="notes:write",
             ui_client=identity.ui_client,
             require_channel=require_channel,
         )

@@ -157,6 +157,22 @@
 | BUG-144 | 修复 | BUG-127 残留：backup.sh sqlite3 CLI 路径缺 WAL checkpoint busy 检查（仅 Python 路径有），WAL 存在时 .backup 可能得到不一致快照 | 2026-08-10 00:30 | 2026-08-10 01:05 | 已修复 | deploy/backup.sh sqlite3 分支补 PRAGMA wal_checkpoint(TRUNCATE) busy 检查（busy=1 时 exit 1）；bash -n 通过 |
 | BUG-145 | 修复 | BUG-128 残留：install.sh _detect_venv_py 仍用 -x 测试，Git Bash 下 .exe 文件可能未设可执行位，-x 返回 false 导致误判 venv 损坏 | 2026-08-10 00:30 | 2026-08-10 01:05 | 已修复 | install.sh 新增 _venv_py_ok 函数：.exe 文件用 -f 测试存在性，其余用 -x 测试可执行位；替换两处 -x 检测点；bash -n 通过 |
 | BUG-146 | 修复 | TST-002 残留：仓库根目录缺 pytest.ini 和 conftest.py，从根目录运行 pytest 仍无法发现 backend/tests（backend/tests/conftest.py 仅钉住 script_location，未提供根级入口） | 2026-08-10 00:30 | 2026-08-10 01:05 | 已修复 | 根目录新增 pytest.ini（testpaths=backend/tests）与 conftest.py（sys.path 插入 backend/）；从仓库根 pytest --collect-only 成功收集 160 用例 |
+| BUG-147 | 修复 | 全 API 无任何 DELETE 端点（@router.delete 零命中）：录错/录重的书无法经 API 删除，agent 被迫降级到直接操作 SQLite（DELETE FROM books WHERE id=2）。books.py 仅有 POST/PATCH。 | 2026-08-11 17:30 | 2026-08-11 18:00 | 已修复 | api/v1/books.py 新增 DELETE /books/{id}；services/books.py 新增 delete_book：级联清软关联 Attachment/CustomField（无外键）、ORM cascade 清硬关联、删封面文件。pytest test_bug147_151_delete_merge_cover 3 用例 |
+| BUG-148 | 修复 | 无合并两本书的接口：重复书（如残缺手动录入 ID2 + 完整元数据 ID3）只能手动拼字段+删行，agent 跑 python heredoc 处理，无正规出口。 | 2026-08-11 17:30 | 2026-08-11 18:00 | 已修复 | api/v1/books.py 新增 POST /books/{target_id}/merge?source_id=；services/books.py 新增 merge_books：迁移副本/购买/进度/笔记/附件/自定义字段/标签到 target，处理 uq_reading_progress_book_member/uq_book_tags_book_tag/uq_custom_fields_entity_key 冲突，target 缺字段用 source 快照回填（ISBN 唯一约束：先删 source 行再回填 target），标签用 SQL 批量迁移避免 ORM delete-orphan 误删。pytest 4 用例 |
+| BUG-149 | 修复 | 拍照入库 hang：recognition.py 的 recognize_isbn_from_image 直接 pyzbar.decode(img) 无超时、无缩图，2.7MB 大图可阻塞数十秒；调用方 run_in_threadpool 包裹，阻塞 worker 线程表现为接口一直不返回。 | 2026-08-11 17:30 | 2026-08-11 18:00 | 已修复 | services/recognition.py：识别前缩图（长边≤1600px）+ convert RGB；用 ThreadPoolExecutor 给 decode 套 15s 硬超时，超时返回 None（解码线程后台自结束，不阻塞接口）；getattr/hasattr 守卫兼容 mock 测试。pytest test_bug041_isbn 通过 |
+| BUG-150 | 修复 | 元数据链串行查询致 ISBN 入库慢（实测约 60s）：chain.py 已有 12s 总 deadline（BUG-091）但 provider 仍串行（中文 ISBN：nlc→google_books→openlibrary 依次等），最慢 provider 决定总耗时。 | 2026-08-11 17:30 | 2026-08-11 18:00 | 已修复 | services/metadata/chain.py：新增 _race_providers 用 ThreadPoolExecutor 并行发起同阶段多个 provider，as_completed 取最先命中返回，其余丢弃；保留 12s deadline + 单批 8s 超时；底层 HTTP 各自 15s timeout 兜底。primary/auxiliary/search 三阶段内部各自并行 |
+| BUG-151 | 修复 | 封面入口割裂：POST /books 不处理封面（建出的 Book 无 cover_path），封面只能走 intake/recognize；附件与 cover_path 无联动——已有附件图无法直接设为封面，导致 ID2 有附件却无封面。 | 2026-08-11 17:30 | 2026-08-11 18:00 | 已修复 | api/v1/books.py 新增 POST /books/{id}/cover 上传图片设封面；services/books.py 新增 set_book_cover 落盘后写 cover_path 并清旧封面文件；复用 storage.save_uploaded_image + read_upload_limited，run_in_threadpool 避免阻塞事件循环。pytest 3 用例 |
+| BUG-152 | 修复 | BUG-150 残留：chain.py _race_providers 使用 with ThreadPoolExecutor 上下文，退出时隐式 shutdown(wait=True) 仍等待最慢 provider 完成，8 秒批次超时和'最先命中返回'均未真正生效 | 2026-08-11 17:14 | 2026-08-11 17:43 | 已修复 | services/metadata/chain.py:88；改为手动管理执行器，命中/超时后 finally 块 executor.shutdown(wait=False, cancel_futures=True) 立即返回，底层 HTTP 各自 timeout 兜底；pytest test_bug147_151 14 passed |
+| BUG-153 | 修复 | BUG-149 残留：recognition.py recognize_isbn_from_image 的 with ThreadPoolExecutor 退出时隐式 shutdown(wait=True)，超时分支 return None 前仍阻塞等待解码线程，15 秒硬超时形同虚设 | 2026-08-11 17:14 | 2026-08-11 17:43 | 已修复 | services/recognition.py:58；改为手动管理执行器，try/except/finally 中 executor.shutdown(wait=False, cancel_futures=True)，超时后立即返回不等待孤儿线程；pytest test_bug041_isbn 通过 |
+| BUG-154 | 修复 | BUG-148 残留：merge_books 未迁移 ReadingLog，reading_logs.book_id 配置 ondelete=CASCADE，删除源书时全部阅读历史被永久删除（合并属破坏性操作，应先迁移再删源） | 2026-08-11 17:14 | 2026-08-11 17:43 | 已修复 | services/books.py:300-306；新增步骤 4b 在删源前把 source 的 ReadingLog.book_id 迁移到 target；MergeResult 新增 migrated_logs 字段；api/v1/books.py 合并响应补 logs 计数；新增 pytest test_merge_books_migrates_reading_logs 断言 2 条日志迁移且 source 上 0 条 |
+| BUG-155 | 修复 | BUG-151 残留：set_cover 封面文件名仅用 ISBN/书名归一化，两本无 ISBN 且同名的书生成相同目标文件名，overwrite=True 直接覆盖另一本书正在引用的封面 | 2026-08-11 17:14 | 2026-08-11 17:43 | 已修复 | api/v1/books.py:310-314；target_name 追加 book_id 后缀（f'{name_base}_{book.id}'），保证跨书唯一；新增 pytest test_set_cover_same_title_different_books_no_collision 断言两同名书封面路径不同且内容独立 |
+| BUG-156 | 修复 | BUG-148 残留：merge_books 删 source 封面前未检查 target 是否引用同一路径——当 target 本来就与 source 共享同一 cover_path 时（不触发回填），快照保持非空导致误删 target 正在使用的封面文件 | 2026-08-11 17:14 | 2026-08-11 17:43 | 已修复 | services/books.py:383-388；删前查询 select(Book.id).where(Book.cover_path == source_cover)，仍有引用则跳过删除；新增 pytest test_merge_preserves_cover_when_target_shares_same_path 断言共享封面合并后文件仍存在 |
+| BUG-157 | 修复 | BUG-147 残留：delete_book 只批量删除 Attachment 数据库记录，未删除 data/attachments 下的实体文件（Attachment.file_path），每次删书留下无法再管理的孤儿文件 | 2026-08-11 17:14 | 2026-08-11 17:43 | 已修复 | services/books.py:196-199；删行前 select(Attachment.file_path) 收集路径，commit 成功后逐个 _delete_data_file 清理（含路径穿越防护）；_delete_cover_file 重命名为通用 _delete_data_file 复用于封面与附件；新增 pytest test_delete_book_cleans_up_attachment_files 断言文件被删 |
+| BUG-158 | 修复 | CHK-039 Skills Docker 部署修复未闭环：镜像未复制 dist/skills，且发现索引声明 2026.08.11.1 与现有 skills-0.2.4.zip 不一致，下载端点仍返回 404 | 2026-08-11 20:00 | 2026-08-11 20:15 | 已修复 | 1) agent_discovery.py _get_skills_bundle_version() 改为从 dist/skills/manifest.json 读取版本（单一事实来源），不再硬编码 '2026.08.11.1'；manifest 不存在时回退 skill_catalog._SKILLS_VERSION。2) Dockerfile 新增 COPY scripts/build_skills_bundle.py + RUN python scripts/build_skills_bundle.py --output dist/skills，在镜像构建阶段确定性生成 ZIP+SHA256SUMS+manifest.json（dist/ 在 .gitignore 中不能直接 COPY）。3) 新增 test_bug158_skills_distribution.py 7 项测试锁定版本一致性契约。后端全量 202 passed。 |
+| BUG-159 | 修复 | BUG-158 续：HTTP /agent/skills/index.json 调用 skill_catalog.build_skills_index()（简单字典，无 bundle_version/archive_url），Agent 无法构造下载 URL。改为调用 agent_discovery.build_skills_index() 返回完整 SkillIndex。新增 2 项 HTTP 端到端回归测试。 | 2026-08-11 21:25 | 2026-08-11 21:00 | 已修复 | - |
+| BUG-160 | 修复 | bootstrap.md 端点返回 text/plain 而非 text/markdown：Agent 解析 Content-Type 判断正文类型时会误判为纯文本，影响 Markdown 渲染 | 2026-08-12 10:00 | 2026-08-12 10:30 | 已修复 | agent_discovery.py：PlainTextResponse 改为 Response(media_type='text/markdown; charset=utf-8')；llms.txt 同步改为 text/plain; charset=utf-8 |
+| BUG-161 | 修复 | AgentClientCreate.display_name 未做 HTML 标签过滤：Agent 名称可含 <script> 等 HTML 标签，在 Web 管理页面渲染时存在 XSS 风险 | 2026-08-12 10:00 | 2026-08-12 10:30 | 已修复 | schemas/agent_access.py：新增 field_validator reject_html，正则 <[^>]+> 匹配则抛 ValueError；test_agent_access_management 新增 test_html_in_name_rejected 断言 422 |
+| BUG-162 | 修复 | AgentGrantCreate.scopes 允许空列表：空 scope 列表可使 Agent 获得 0 权限 Token 但仍通过授权流程，与 Scope 最小授权原则冲突 | 2026-08-12 10:00 | 2026-08-12 10:30 | 已修复 | schemas/agent_access.py：scopes 字段加 Field(..., min_length=1) 约束；test_empty_scopes_allowed 改为 test_empty_scopes_rejected 断言 422 |
 
 ## 调整事项
 
@@ -206,6 +222,21 @@
 | CHK-034 | 检查 | 审查提交 bde3531（V0.2.2-Build0704-20260809）的代码变更并给出优先级结论 | 2026-08-09 22:19 | 2026-08-09 22:19 | 已完成 | 后端 145 passed；前端 npm run build 通过；发现 BUG-134~137 |
 | CHK-035 | 检查 | 复核 BUG-131/132/133（及顺带 134~137）修复是否真正闭环 | 2026-08-09 22:11 | 2026-08-09 22:15 | 已完成 | 代码审查 + pytest：test_bug131_133 与关联套件通过；test_bug134_137 25 passed。结论：131 HTTPS SNI/IPv6/去重定义已闭环；132 可选 HMAC 签名防伪造渠道头已闭环（未配密钥仍走可信局域网）；133 跨进程 flock+临界区至 commit+6 线程并发断言已闭环。134~137 台账已标已修复且回归绿。设计备注：X-UI-Client:web 旁路（134）在受信局域网下恢复 Web UI，不恢复「伪造渠道外部 ID 冒充」路径。 |
 | CHK-036 | 检查 | 全面代码审查 BUG-105~130 + TST-002 修复残留，逐条验证并补修 10 项、确认 4 项已正确 | 2026-08-10 00:30 | 2026-08-10 01:10 | 已完成 | 后端 pytest 160 passed（分批运行，intake_dedup 6 用例 ~119s）；前端 npm run build 通过；bash -n 通过。补修：ProxyHandler 禁代理 DNS(BUG-138)、NLC+OL 纯年份校验(BUG-139)、.shtm+octet-stream MIME(BUG-140)、持锁后 db.commit 破快照隔离(BUG-141)、normalizeNumberInput 处理 0/NaN(BUG-142)、rAF 等 canvas(BUG-143)、sqlite3 CLI WAL checkpoint busy(BUG-144)、_venv_py_ok .exe 检测(BUG-145)、根级 pytest.ini/conftest.py(BUG-146)。确认已正确无需改动：BUG-117/123 aggregate_book_status 优先级聚合、BUG-118 model_fields_set null 清空、BUG-129 to_read 响应回传、BUG-130 inflightRequests try-finally。BUG-113 原有修复（匿名 GET 隐藏 channel_bindings + 绑定后拒匿名写）已正确，误加的签名密钥强制要求已回退。 |
+| CHK-037 | 检查 | 审查当前工作区代码变更并输出优先级问题清单 | 2026-08-11 17:14 | 2026-08-11 17:14 | 已完成 | 审查 staged、unstaged、untracked 变更；发现线程池超时无效、合并丢失阅读日志及封面文件共享/覆盖风险；pytest 因环境中 alembic 导入异常未能启动 |
+| CHK-038 | 检查 | WBS-9: Agent 安全与端到端验收（11 项 E2E 测试 + 8 项隐私测试 + 187 项全量回归 + 前端构建 + Alembic 空库升级） | 2026-08-11 19:00 | 2026-08-11 17:30 | 已完成 | - |
+| CHK-039 | 检查 | 审查当前工作区 staged、unstaged 与 untracked 代码变更并输出优先级问题清单 | 2026-08-11 19:29 | 2026-08-11 19:29 | 已完成 | 发现 Owner 密码初始化可被远程抢占、Agent Scope 绕过、Web 会话未接入业务 API、授权前端与 CLI 契约错误；验证 backend pytest 193 passed、frontend npm run build 通过、compileall 通过 |
+| CHK-040 | 修复 | CHK-039-P1: init-password端点升级场景保护--Owner已存在但密码未初始化时要求X-Setup-Token或loopback访问，防止匿名接管(web_auth.py) | 2026-08-11 19:52 | 2026-08-11 15:30 | 已修复 | - |
+| CHK-041 | 修复 | CHK-039-P2: 为intake/purchases/reading_logs/attachments/copies/custom_fields/progress补充required_scope并传递web_session_token | 2026-08-11 19:52 | 2026-08-11 15:30 | 已修复 | - |
+| CHK-042 | 修复 | CHK-039-P3: auth_context支持Web Session Cookie(hbs_session)认证，Web UI用户可正常访问业务API | 2026-08-11 19:52 | 2026-08-11 15:30 | 已修复 | - |
+| CHK-043 | 修复 | CHK-039-P4: Docker构建上下文改为repo root并COPY skills目录，skill_catalog路径解析适配Docker和dev环境 | 2026-08-11 19:52 | 2026-08-11 15:30 | 已修复 | - |
+| CHK-044 | 修复 | CHK-039-P5: CLI bootstrap改用/auth/introspect验证Token，替代匿名/api/v1/members端点 | 2026-08-11 19:52 | 2026-08-11 15:30 | 已修复 | - |
+| CHK-045 | 修复 | CHK-039-P6: AgentAuthorizationView修复members响应解析(m.data.items)并添加credentials:include | 2026-08-11 19:52 | 2026-08-11 15:30 | 已修复 | - |
+| CHK-046 | 修复 | CHK-039-P7: AgentAccessListView BASE改为import.meta.env.BASE_URL，路径对齐根级auth/agent-access路由 | 2026-08-11 19:52 | 2026-08-11 15:30 | 已修复 | - |
+| CHK-047 | 修复 | CHK-039-P8: agent_discovery修复OpenAPI路径({{id}}->{book_id})并移除不存在的GET progress/notes路由；auth_context修复Depends导入顺序 | 2026-08-11 19:52 | 2026-08-11 15:30 | 已修复 | - |
+| CHK-048 | 检查 | 复核 CHK-039 九条授权体系审查意见是否闭环 | 2026-08-11 20:00 | 2026-08-11 20:15 | 已完成 | 结论：9/9 全部闭环。BUG-158 修复后 Skills Docker 分发链路打通：版本从 manifest.json 读取（不再硬编码），Dockerfile 构建阶段生成 dist/skills 产物。后端全量 202 passed（含 7 项新增版本一致性测试）。 |
+| CHK-049 | 检查 | Agent 授权矩阵端到端测试：13 Scope x 多端点覆盖，含越权拒绝、跨成员隔离、匿名 403、Token 过期/无效、空 scope 拒绝、HTML 注入拒绝 | 2026-08-12 09:00 | 2026-08-12 12:00 | 已完成 | test_authorization_matrix.py 17 项 + test_agent_access_management.py 23 项 + test_agent_discovery_contract.py 20 项 + test_agent_discovery_privacy.py + test_agent_access_e2e.py，共 76 项新增后端测试全绿 |
+| CHK-050 | 检查 | CLI Bootstrap 与 Skills Bundle 安全测试：bootstrap 命令(连接失败/无 Auth 头泄露/auth status 校验/doctor --authorized)、build_skills_bundle(禁文件检测/符号链接拒绝/路径穿越防护/确定性 ZIP 构建) | 2026-08-12 09:00 | 2026-08-12 11:00 | 已完成 | cli/tests/test_bootstrap.py 11 项 + cli/tests/test_skill_bundle.py 33 项，共 44 项 CLI 测试全绿 |
+| CHK-051 | 检查 | 前端 AgentConnectView 组件测试：渲染标题/URL 列表/manifest 详情/capabilities/onboarding 步骤、加载态、错误态、复制按钮+剪贴板降级、无硬编码端口 | 2026-08-12 10:00 | 2026-08-12 11:30 | 已完成 | 新建 vitest.config.ts + src/test/setup.ts + AgentConnectView.spec.ts 11 项；提取 CopyAddressCard.vue/CapabilityCatalog.vue 组件 |
 
 ## 测试数据
 
@@ -243,6 +274,8 @@
 | DOC-022 | 文档 | 文档最新性核查与更新：①frontend-evaluation-report.md 新增第八节修复状态（P0-P3 全部已修复 + 关键改进表 + task-list 记录回链）；②design/README.md 补列 frontend-audit-2026-08-09.md（原仅列评估报告漏列审计报告）；③docs/web-ui.md 新增设计系统段（暗色模式/A11y WCAG AA/响应式三断点/骨架屏/性能优化）与安全段（SPA 路径穿越护栏 BUG-106） | 2026-08-09 05:33 | 2026-08-09 06:10 | 已完成 | 核查 27 份 md：audit 文档声称的 28 项修复逐项核对代码无虚标；README/deployment/get-started 等已最新无需改；frontend-evaluation-report 原为评估快照现补修复回链 |
 | DOC-023 | 文档 | reading-tracker 技能声称超过总页数仍按原值记录，服务实际会静默截断到 page_count，Agent 对用户反馈可能与落库值不一致 | 2026-08-09 15:03 | 2026-08-09 18:30 | 已修复 | skills/reading-tracker/SKILL.md:110 对照 services/reading.py:51-57 |
 | DOC-024 | 文档 | 同步 BUG-134~137 修复到全部文档：README、docs/、design/、skills/ | 2026-08-09 22:15 | 2026-08-09 22:15 | 已完成 | README 安全提示中英双语补 X-UI-Client；docs/web-ui 鉴权模型；docs/faq 新增 Web UI 403 条目；docs/cli-reference+deployment 补 CHANNEL_SIGNING_SECRET；design v1.4 §7.3 补 BUG-134~137；skills/README+bookshelf-setup+reading-tracker+book-intake+note-taker 渠道鉴权说明更新 |
+| DOC-025 | 文档 | WBS-9 文档更新：agent-setup.md（Agent Bootstrap 流程）、deployment.md（安全模型迁移说明）、faq.md（Token/认证 FAQ） | 2026-08-11 19:00 | 2026-08-11 17:30 | 已完成 | - |
+| DOC-026 | 文档 | 更新 design/Agent引导入口与能力授权体系规划.md：状态改为 WBS-0~9 已实施完成；WBS 概览表增加状态列(0~9 ✅ / 10 ⏸)；修正 bundle_version 2026.08.11.1→0.2.4 等过期引用；结尾补 2026-08-12 完成声明 | 2026-08-12 12:00 | 2026-08-12 12:00 | 已完成 | - |
 
 ## 功能开发
 
@@ -261,6 +294,13 @@
 | DEV-011 | 开发 | 文档承诺端点全量补全：8 API + 6 表写入 + stats/members/cover + CLI note/reading-log/stats + Skills | 2026-06-26 17:56 | 2026-06-26 17:56 | 已完成 | api/v1/* + services/* + skills/note-taker + shelf-report |
 | DEV-012 | 开发 | 书架初始化：bookshelf-setup Skill + bookshelf doctor/bind CLI + health 诊断字段 | 2026-06-26 18:30 | 2026-06-26 18:30 | 已完成 | skills/bookshelf-setup/；cli/bookshelf/doctor.py；health google_books/barcode 标志 |
 | DEV-013 | 开发 | 可配置部署基址（base path）支持路径别名部署：前端新增 VITE_BASE 环境变量，Vite base/Router/API client 三处通过 import.meta.env.BASE_URL 对齐；后端路由保持绝对根路径（反向代理 handle_path 剥离前缀）；默认 / 行为不变 | 2026-08-09 22:37 | 2026-08-09 21:30 | 已完成 | vite.config.ts base、router/index.ts createWebHistory(BASE_URL)、stores/api.ts BASE 派生、index.html 相对路径；docs/web-ui.md 新增路径别名部署段、deployment.md lwa 段补充、README 中英双语补充 |
+| DEV-014 | 开发 | WBS-0~2: Agent Bootstrap Gateway 发现面（/agent入口、manifest、bootstrap.md、api-catalog、openapi、skills索引/下载） | 2026-08-11 19:00 | 2026-08-11 17:00 | 已完成 | - |
+| DEV-015 | 开发 | WBS-3~4: 前端 Agent 页面（AgentConnectView/AgentAuthorizationView/ScopeSelector）+ Skills 确定性构建与分发（build_skills_bundle.py、skill_catalog.py） | 2026-08-11 19:00 | 2026-08-11 17:00 | 已完成 | - |
+| DEV-016 | 开发 | WBS-5: Agent 身份/Grant/Token 模型与服务（Argon2id 密码、Web 会话、Token 签发与验证、Scope 管理） | 2026-08-11 19:00 | 2026-08-11 17:00 | 已完成 | - |
+| DEV-017 | 开发 | WBS-6: 统一授权上下文 AuthContext（替代旧 channel_headers 两段式鉴权、移除 X-UI-Client 旁路与匿名回退） | 2026-08-11 19:00 | 2026-08-11 17:00 | 已完成 | - |
+| DEV-018 | 开发 | WBS-7: Web 授权中心前端（AgentAuthorizationView 管理页 + AgentAccessListView 总览页 + ScopeSelector 组件） | 2026-08-11 19:00 | 2026-08-11 17:00 | 已完成 | - |
+| DEV-019 | 开发 | WBS-8: CLI Bootstrap 命令与 Bearer Token 支持（bookshelf bootstrap、auth status、BOOKSHELF_TOKEN 环境变量） | 2026-08-11 19:00 | 2026-08-11 17:00 | 已完成 | - |
+| DEV-020 | 开发 | WBS-0~9 Agent Bootstrap Gateway 全量实施：发现面(bootstrap.md/llms.txt/openapi.json/skills index+bundle)、授权面(AgentClient/Grant/Token CRUD+Scope 矩阵)、业务面(AuthContext 统一 agent/web/channel/匿名四源认证)三平面贯通 | 2026-08-11 10:10 | 2026-08-12 12:00 | 已完成 | 新增后端模块：agent_access.py/agent_discovery.py/web_auth.py/auth_context.py/admin.py/skill_catalog.py+模型+Schema+Service；13 Scope 授权矩阵；CLI bootstrap 命令；前端 AgentConnectView/AgentAccessListView/AgentAuthorizationView；Dockerfile 构建阶段生成 skills bundle；后端 280 passed、CLI 44 passed |
 
 ## 配置运维
 
@@ -281,6 +321,7 @@
 | PLN-002 | 规划 | 二期：藏书概览图生成与阅读统计——后端年度聚合+前端趋势可视化+Canvas概览图导出 | 2026-06-26 16:45 | 2026-08-09 14:00 | 已完成 | 4 工作包全部完成：WP1 后端 stats 扩展(YearlyStat schema + _compute_yearly_stats 按 substr(purchase_date/log_date,1,4)+strftime(created_at) 年度聚合入库/花费/页数，CNY口径一致，4测试)、WP2 前端 StatsView 扩展(年度趋势表格+花费条形图+概览图入口)、WP3 OverviewView(Canvas 1080x1350 封面6x4拼图+统计摘要+分类TOP3+toBlob导出PNG+navigator.share分享+crossOrigin防tainted)、WP4 docs/web-ui.md更新。前端 npm run build 通过(TS严格模式无错误)，后端 pytest 113 passed。对标 virtual-bookshelf/calibre-web 视觉。范围不含在线阅读(PLN-003) |
 | PLN-003 | 规划 | 二期：电子书上传与浏览器在线阅读（EPUB/PDF） | 2026-06-26 16:45 | - | 待开发 | epub.js / pdf.js + book_copies.file_path |
 | PLN-004 | 规划 | 三期预留：家庭间图书交换与信息发布（仅架构预留） | 2026-06-26 16:45 | - | 待开发 | 本期不实现，book_copies.status 预留 lent_out |
+| PLN-005 | 规划 | 规划 Agent Bootstrap 引导入口、公开能力发现、Skills 安全分发与用户授权体系 | 2026-08-11 10:10 | 2026-08-11 10:10 | 已完成 | 方案 B；文档 design/Agent引导入口与能力授权体系规划.md；明确能力可发现但家庭业务数据默认不可访问，含标准调研、安全模型、授权 Scope、数据模型、24–39 人日 WBS 与验收标准 |
 
 ## 优化事项
 
@@ -307,14 +348,14 @@
 
 | 分类 | 总数 | 已完成 | 待开发/待修复 | 完成率 |
 | --- | --- | --- | --- | --- |
-| 代码 Bug | 146 | 146 | 0 | 100% |
+| 代码 Bug | 162 | 162 | 0 | 100% |
 | 调整事项 | 3 | 3 | 0 | 100% |
-| 检查事项 | 36 | 35 | 1 | 97% |
+| 检查事项 | 51 | 50 | 1 | 98% |
 | 测试数据 | 3 | 3 | 0 | 100% |
-| 文档维护 | 24 | 24 | 0 | 100% |
-| 功能开发 | 13 | 13 | 0 | 100% |
+| 文档维护 | 26 | 26 | 0 | 100% |
+| 功能开发 | 20 | 20 | 0 | 100% |
 | 配置运维 | 6 | 6 | 0 | 100% |
-| 规划事项 | 4 | 2 | 2 | 50% |
+| 规划事项 | 5 | 3 | 2 | 60% |
 | 优化事项 | 8 | 8 | 0 | 100% |
 | 调研事项 | 3 | 3 | 0 | 100% |
-| **总计** | 246 | 243 | 3 | 99% |
+| **总计** | 287 | 284 | 3 | 99% |

@@ -111,9 +111,27 @@ bash deploy/backup.sh
 
 ## 安全提示
 
-- API **无公网 Token 登录**，依赖局域网隔离 + IM 渠道白名单。  
-- 不要把 `0.0.0.0:8000` 直接暴露到公网。  
-- 若 Agent/Webhook 需要公网入口，使用反向代理或内网穿透，并限制来源。  
+- **Owner 密码**：首次部署后必须通过 `python -m app.admin owner-init-password` 或 Web UI 初始化。密码使用 Argon2id 存储。
+- **HTTPS 要求**：正式家庭数据环境的 Owner 登录、Token 签发和 Bearer 调用必须通过 HTTPS；HTTP 只能访问发现面（`/agent`、manifest 等），业务鉴权端点在 HTTP 下会拒绝。
+- **Agent Token**：Token 以 `hbs_at_` 前缀格式签发，SHA-256 哈希存储，仅签发时显示一次明文。可在 Web 授权中心随时撤销。
+- **Scope 限制**：每个 Agent Token 绑定特定 Scope（共 13 个），高风险操作（删除、跨成员统计）需单独授权。
+- 不要把 `0.0.0.0:8000` 直接暴露到公网。
+- 若 Agent/Webhook 需要公网入口，使用反向代理（Nginx/Caddy）配置 HTTPS，并限制来源。
+
+### 安全模型迁移说明
+
+V0.2.5 起引入 Agent Bootstrap Gateway 和 Owner 认证体系，安全模型有以下变化：
+
+1. 移除了 `X-UI-Client: web` 头的匿名旁路（BUG-134 原修复已替换为 Owner 会话认证）
+2. 移除了匿名默认成员回退
+3. 所有业务端点要求认证（Bearer Token / Web 会话 / 渠道头）
+4. 旧的匿名 Web/CLI 调用可能返回 `401/403`
+
+迁移步骤：
+1. 初始化 Owner 密码
+2. Web UI 改用 Owner 登录会话
+3. CLI/Agent 迁移到 Bearer Token 或保留渠道头认证
+4. 确认所有调用方认证方式正确
 
 ---
 

@@ -25,7 +25,9 @@ def add_copy(
         body_member_id=payload.owner_member_id,
         channel=identity.channel,
         external_user_id=identity.external_user_id,
-
+        authorization=identity.authorization,
+        web_session_token=identity.web_session_token,
+        required_scope="books:write",
         ui_client=identity.ui_client,
         require_channel=True,
     )

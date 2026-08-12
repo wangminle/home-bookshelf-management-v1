@@ -22,6 +22,12 @@ class BookshelfClient:
 
     def _auth_headers(self) -> dict[str, str]:
         headers: dict[str, str] = {}
+        # WBS-5/8：Agent Bearer Token 优先（通过环境变量，不落文件不打印）
+        bearer_token = os.environ.get("BOOKSHELF_TOKEN")
+        if bearer_token:
+            headers["Authorization"] = f"Bearer {bearer_token}"
+            return headers  # Bearer Token 时不需要渠道头
+
         setup_token = os.environ.get("BOOKSHELF_SETUP_TOKEN") or os.environ.get("SETUP_TOKEN")
         if setup_token:
             headers["X-Setup-Token"] = setup_token

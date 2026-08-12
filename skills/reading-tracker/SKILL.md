@@ -1,6 +1,8 @@
 ---
 name: reading-tracker
 description: 阅读进度跟踪技能。当用户说「读到第 X 页」「在读」「读完了」「给这本书打 5 分」时使用。调用 bookshelf progress 更新进度。
+scopes: [reading:write, books:read]
+version: "0.2.4"
 ---
 
 # 阅读进度（reading-tracker）

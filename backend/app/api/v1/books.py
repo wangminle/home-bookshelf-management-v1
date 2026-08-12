@@ -1,13 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+import tempfile
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.auth import ChannelIdentity, channel_headers, enforce_channel_member
+from app.config import settings
 from app.db import get_db
 from app.models import Book, ReadingProgress
 from app.schemas.book import ApiResponse, BookCreate, BookListOut, BookUpdate
-from app.services.books import get_book_detail, update_book
+from app.services.books import delete_book, get_book_detail, merge_books, set_book_cover, update_book
+from app.services.storage import save_uploaded_image
 from app.utils.book_helpers import (
     canonical_isbn13,
     escape_like,
@@ -15,11 +21,13 @@ from app.utils.book_helpers import (
     like_pattern,
     normalize_isbn,
     normalize_title,
+    sanitize_filename_stem,
     serialize_json_list,
 )
 from app.utils.db_errors import ConflictError, rollback_on_integrity
 from app.utils.operation_log import log_and_commit
 from app.utils.serializers import book_to_out
+from app.utils.uploads import read_upload_limited
 
 router = APIRouter(prefix="/books", tags=["books"])
 
@@ -35,7 +43,17 @@ def list_books(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
+    identity: ChannelIdentity = Depends(channel_headers),
 ) -> ApiResponse:
+    enforce_channel_member(
+        db,
+        body_member_id=None,
+        channel=identity.channel,
+        external_user_id=identity.external_user_id,
+        authorization=identity.authorization,
+        web_session_token=identity.web_session_token,
+        required_scope="books:read",
+    )
     stmt = select(Book)
     count_stmt = select(func.count()).select_from(Book)
     conditions = []
@@ -120,7 +138,9 @@ def create_book(
         body_member_id=None,
         channel=identity.channel,
         external_user_id=identity.external_user_id,
-
+        authorization=identity.authorization,
+        web_session_token=identity.web_session_token,
+        required_scope="books:write",
         ui_client=identity.ui_client,
     )
     isbn13 = canonical_isbn13(payload.isbn13) or canonical_isbn13(payload.isbn10)
@@ -178,7 +198,9 @@ def patch_book(
         body_member_id=None,
         channel=identity.channel,
         external_user_id=identity.external_user_id,
-
+        authorization=identity.authorization,
+        web_session_token=identity.web_session_token,
+        required_scope="books:write",
         ui_client=identity.ui_client,
     )
     try:
@@ -190,3 +212,150 @@ def patch_book(
 
     log_and_commit(db, action="book.update", payload={"book_id": book_id})
     return ApiResponse(data={**book_to_out(result.book).model_dump(), "message": result.message})
+
+
+@router.delete("/{book_id}", response_model=ApiResponse)
+def remove_book(
+    book_id: int,
+    db: Session = Depends(get_db),
+    identity: ChannelIdentity = Depends(channel_headers),
+) -> ApiResponse:
+    """BUG-147：删除一本书。此前全 API 无 DELETE 端点，录错只能降级到直接操作 SQLite。"""
+    enforce_channel_member(
+        db,
+        body_member_id=None,
+        channel=identity.channel,
+        external_user_id=identity.external_user_id,
+        authorization=identity.authorization,
+        web_session_token=identity.web_session_token,
+        required_scope="books:delete",
+        ui_client=identity.ui_client,
+    )
+    try:
+        title = delete_book(db, book_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    log_and_commit(db, action="book.delete", payload={"book_id": book_id, "title": title})
+    return ApiResponse(data={"id": book_id, "message": f"已删除《{title}》"})
+
+
+@router.post("/{book_id}/merge", response_model=ApiResponse)
+def merge_book(
+    book_id: int,
+    source_id: int = Query(..., description="被合并进来的源书 ID（合并后删除）"),
+    db: Session = Depends(get_db),
+    identity: ChannelIdentity = Depends(channel_headers),
+) -> ApiResponse:
+    """BUG-148：把 source 书合并进 target（book_id），迁移副本/购买/进度/笔记/附件/标签后删 source。"""
+    enforce_channel_member(
+        db,
+        body_member_id=None,
+        channel=identity.channel,
+        external_user_id=identity.external_user_id,
+        authorization=identity.authorization,
+        web_session_token=identity.web_session_token,
+        required_scope="books:write",
+        ui_client=identity.ui_client,
+    )
+    try:
+        result = merge_books(db, target_id=book_id, source_id=source_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    log_and_commit(
+        db,
+        action="book.merge",
+        payload={"target_id": book_id, "source_id": source_id, "source_title": result.source_title},
+    )
+    return ApiResponse(
+        data={
+            **book_to_out(result.target).model_dump(),
+            "source_title": result.source_title,
+            "migrated": {
+                "copies": result.migrated_copies,
+                "purchases": result.migrated_purchases,
+                "progress": result.migrated_progress,
+                "notes": result.migrated_notes,
+                "logs": result.migrated_logs,
+                "attachments": result.migrated_attachments,
+                "custom_fields": result.migrated_custom_fields,
+                "tags": result.merged_tags,
+            },
+            "message": f"已将《{result.source_title}》合并入《{result.target.title}》",
+        }
+    )
+
+
+@router.post("/{book_id}/cover", response_model=ApiResponse)
+async def set_cover(
+    book_id: int,
+    image: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    identity: ChannelIdentity = Depends(channel_headers),
+) -> ApiResponse:
+    """BUG-151：上传图片设为指定书的封面。
+
+    POST /books 不处理封面，cover_path 与附件表无联动；
+    本端点提供统一的"设封面"入口，落盘后写入 books.cover_path。
+    """
+    enforce_channel_member(
+        db,
+        body_member_id=None,
+        channel=identity.channel,
+        external_user_id=identity.external_user_id,
+        authorization=identity.authorization,
+        web_session_token=identity.web_session_token,
+        required_scope="books:write",
+        ui_client=identity.ui_client,
+    )
+    if not image.filename:
+        raise HTTPException(status_code=400, detail="请上传图片文件")
+
+    book = db.get(Book, book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail=f"书籍 ID {book_id} 不存在")
+
+    suffix = Path(image.filename).suffix or ".jpg"
+    temp_file: Path | None = None
+    try:
+        content = await read_upload_limited(image)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            temp_file = Path(tmp.name)
+            tmp.write(content)
+
+        # 落盘到 covers/，文件名优先 ISBN，其次书名归一化。
+        # 必须追加 book_id 后缀：无 ISBN 且同名的两本书会生成相同目标文件名，
+        # overwrite=True 会直接覆盖另一本书正在引用的封面。加 book_id 后保证唯一。
+        name_base = canonical_isbn13(book.isbn13) or book.isbn10 or normalize_title(book.title) or "book"
+        target_name = f"{name_base}_{book.id}"
+        # save_uploaded_image 是同步 IO，放线程池避免阻塞事件循环（与 intake/recognize 一致）
+        cover_rel = await run_in_threadpool(
+            save_uploaded_image, temp_file, target_name, overwrite=True
+        )
+    except HTTPException:
+        raise
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=f"保存封面失败：{exc}") from exc
+    finally:
+        if temp_file and temp_file.exists():
+            temp_file.unlink(missing_ok=True)
+
+    if not cover_rel:
+        raise HTTPException(status_code=500, detail="封面落盘失败")
+
+    try:
+        book = set_book_cover(db, book_id, cover_rel)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    log_and_commit(db, action="book.set_cover", payload={"book_id": book_id, "cover_path": cover_rel})
+    return ApiResponse(data={**book_to_out(book).model_dump(), "message": "封面已设置"})

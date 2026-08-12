@@ -138,7 +138,7 @@ def test_bug123_stats_filter_consistency(client):
 
     stats = client.get("/api/v1/stats").json()["data"]["by_status"]
     for status in ("reading", "finished", "unread"):
-        listed = client.get(f"/api/v1/books?status={status}&limit=100").json()["data"]["total"]
+        listed = client.get(f"/api/v1/books?status={status}&limit=100", headers=headers).json()["data"]["total"]
         assert listed == stats[status], (
             f"status={status}: stats={stats[status]} 但 books 列表={listed}"
         )
@@ -212,5 +212,5 @@ def test_bug119_concurrent_no_isbn_intake_dedup(client):
     assert r2.json()["data"]["already_exists"] is True, "第二次入库应命中已有书"
 
     # 库中应只有一本该书
-    listed = client.get("/api/v1/books?keyword=重复书名测试").json()["data"]["items"]
+    listed = client.get("/api/v1/books?keyword=重复书名测试", headers=headers).json()["data"]["items"]
     assert len([b for b in listed if b["title"] == "重复书名测试"]) == 1

@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Depends, Response, status
 
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.auth_context import AuthContext, require_scope
 from app.config import settings
-from app.db import SessionLocal
+from app import db as db_module
 from app.schemas.agent_discovery import PublicHealthData
 from app.schemas.book import ApiResponse, HealthOut
 from app.services.agent_discovery import build_public_health
@@ -28,12 +29,16 @@ def public_health() -> ApiResponse:
 
 
 @router.get("/health", response_model=ApiResponse)
-def health_check(response: Response) -> ApiResponse:
-    """WBS-2：受保护诊断端点。暴露数据库连接、Google Books Key 配置和条码依赖状态。
-    WBS-6 完成后此端点需要 owner 会话或 agent Token 授权。"""
+def health_check(
+    response: Response,
+    _ctx: AuthContext = Depends(require_scope("members:read")),
+) -> ApiResponse:
+    """WBS-2：受保护诊断端点（BUG-167 落地矩阵声明的 members:read）。
+    暴露数据库连接、Google Books Key 配置和条码依赖状态；
+    无凭证探活请用 /public-health（Docker healthcheck 已切换）。"""
     database = "connected"
     try:
-        with SessionLocal() as db:
+        with db_module.SessionLocal() as db:
             db.execute(text("SELECT 1"))
     except SQLAlchemyError:
         database = "disconnected"

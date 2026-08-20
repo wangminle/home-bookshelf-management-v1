@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app import db as db_module
-from app.auth import ChannelIdentity, channel_headers, enforce_channel_member
+from app.auth_context import AuthContext, require_scope, resolve_body_member, verify_csrf
 from app.db import get_db
 from app.schemas.book import ApiResponse
 from app.schemas.intake import IntakeOut, IntakeRequest
@@ -36,27 +36,18 @@ def _build_intake_response(result: IntakeResult) -> tuple[IntakeOut, int]:
 
 def _run_intake_in_thread(
     *,
-    identity: ChannelIdentity,
+    member_id: int,
+    channel: str | None,
     isbn: str | None,
     title: str | None,
     author: str | None,
     image_path: Path | None,
     price: float | None,
-    channel: str | None,
+    purchase_channel: str | None,
     location: str | None,
-    member_id: int | None,
 ) -> tuple[dict, int]:
+    """BUG-168：鉴权与成员解析已在外层由 AuthContext 完成，线程内只做业务。"""
     with db_module.SessionLocal() as db:
-        resolved_member_id = enforce_channel_member(
-            db,
-            body_member_id=member_id,
-            channel=identity.channel,
-            external_user_id=identity.external_user_id,
-            authorization=identity.authorization,
-            web_session_token=identity.web_session_token,
-            required_scope="books:write",
-            ui_client=identity.ui_client,
-        )
         result = intake_book(
             db,
             IntakeInput(
@@ -65,16 +56,16 @@ def _run_intake_in_thread(
                 author=author,
                 image_path=image_path,
                 price=price,
-                channel=channel,
+                channel=purchase_channel,
                 location=location,
-                member_id=resolved_member_id,
+                member_id=member_id,
             ),
         )
         log_and_commit(
             db,
             action="book.intake",
-            member_id=resolved_member_id,
-            channel=identity.channel,
+            member_id=member_id,
+            channel=channel,
             payload={"book_id": result.book.id, "action": result.action, "isbn_detected": result.isbn_detected},
         )
         data, status_code = _build_intake_response(result)
@@ -92,8 +83,11 @@ async def intake(
     location: str | None = Form(default=None),
     member_id: int | None = Form(default=None),
     image: UploadFile | None = File(default=None),
-    identity: ChannelIdentity = Depends(channel_headers),
+    ctx: AuthContext = Depends(require_scope("books:write")),
+    _csrf: None = Depends(verify_csrf),
+    db: Session = Depends(get_db),
 ) -> ApiResponse:
+    resolved_member_id = resolve_body_member(ctx, member_id, db=db)
     image_path: Path | None = None
     temp_file: Path | None = None
 
@@ -108,15 +102,15 @@ async def intake(
 
         data, status_code = await run_in_threadpool(
             _run_intake_in_thread,
-            identity=identity,
+            member_id=resolved_member_id,
+            channel=ctx.channel,
             isbn=isbn,
             title=title,
             author=author,
             image_path=image_path,
             price=price,
-            channel=channel,
+            purchase_channel=channel,
             location=location,
-            member_id=member_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -136,19 +130,11 @@ async def intake(
 def intake_json(
     payload: IntakeRequest,
     response: Response,
-    identity: ChannelIdentity = Depends(channel_headers),
+    ctx: AuthContext = Depends(require_scope("books:write")),
+    _csrf: None = Depends(verify_csrf),
     db: Session = Depends(get_db),
 ) -> ApiResponse:
-    resolved_member_id = enforce_channel_member(
-        db,
-        body_member_id=payload.member_id,
-        channel=identity.channel,
-        external_user_id=identity.external_user_id,
-        authorization=identity.authorization,
-        web_session_token=identity.web_session_token,
-        required_scope="books:write",
-        ui_client=identity.ui_client,
-    )
+    resolved_member_id = resolve_body_member(ctx, payload.member_id, db=db)
     payload = payload.model_copy(update={"member_id": resolved_member_id})
     try:
         result = intake_book(
@@ -174,7 +160,7 @@ def intake_json(
         db,
         action="book.intake",
         member_id=resolved_member_id,
-        channel=identity.channel,
+        channel=ctx.channel,
         payload={"book_id": result.book.id, "action": result.action, "isbn_detected": result.isbn_detected},
     )
     data, status_code = _build_intake_response(result)

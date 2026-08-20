@@ -29,12 +29,13 @@ def test_bug054_copies_anonymous_rejected(client):
     assert book.status_code == 201
     book_id = book.json()["data"]["id"]
 
-    # 匿名（无渠道头）应被拒绝
+    # 匿名（无渠道头）应被拒绝（BUG-168 后匿名一律 401）
+    client.cookies.clear()
     r = client.post(
         f"/api/v1/books/{book_id}/copies",
         json={"copy_type": "physical", "location": "书房"},
     )
-    assert r.status_code == 403, r.text
+    assert r.status_code in (401, 403), r.text
 
     # 带渠道头正常工作
     r2 = client.post(
@@ -52,7 +53,8 @@ def test_bug054_custom_fields_anonymous_rejected(client):
     book = client.post("/api/v1/books", json={"title": "自定义字段测试"}, headers=headers)
     book_id = book.json()["data"]["id"]
 
-    # 匿名应被拒绝
+    # 匿名应被拒绝（BUG-168 后匿名一律 401）
+    client.cookies.clear()
     r = client.post(
         "/api/v1/custom-fields",
         json={
@@ -62,7 +64,7 @@ def test_bug054_custom_fields_anonymous_rejected(client):
             "field_value": "blue",
         },
     )
-    assert r.status_code == 403, r.text
+    assert r.status_code in (401, 403), r.text
 
     # 带渠道头正常工作
     r2 = client.post(
@@ -82,6 +84,7 @@ def test_bug054_members_anonymous_rejected_after_bindings(client):
     """白名单建立后，匿名 POST /members 应返回 403。"""
     _bootstrap(client)
 
+    client.cookies.clear()
     r = client.post("/api/v1/members", json={"name": "新人", "role": "member"})
     assert r.status_code == 403, r.text
 

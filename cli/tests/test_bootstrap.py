@@ -22,7 +22,7 @@ def _mock_manifest() -> dict:
         "service": {
             "id": "home-bookshelf",
             "name": "家庭图书管理系统",
-            "version": "0.2.4",
+            "version": "0.2.5",
             "description": "自托管家庭藏书管理服务",
         },
         "links": {
@@ -46,7 +46,7 @@ def _mock_manifest() -> dict:
             },
         ],
         "skills": {
-            "bundle_version": "0.2.4",
+            "bundle_version": "0.2.5",
             "index": "/agent/skills/index.json",
         },
     }
@@ -54,13 +54,13 @@ def _mock_manifest() -> dict:
 
 def _mock_skills_index() -> dict:
     return {
-        "bundle_version": "0.2.4",
+        "bundle_version": "0.2.5",
         "skills": [
             {
                 "name": "book-intake",
-                "version": "0.2.4",
+                "version": "0.2.5",
                 "description": "图书入库",
-                "archive_url": "/agent/skills/download/0.2.4.zip",
+                "archive_url": "/agent/skills/download/0.2.5.zip",
                 "sha256": "abc123",
                 "size_bytes": 16000,
                 "requested_scopes": ["books:write"],
@@ -120,7 +120,7 @@ class TestBootstrapCommand:
         output = json.loads(result.output)
         assert output["ok"] is True
         assert output["manifest"]["service"]["name"] == "家庭图书管理系统"
-        assert output["skills_index"]["bundle_version"] == "0.2.4"
+        assert output["skills_index"]["bundle_version"] == "0.2.5"
         assert output["health"]["data"]["status"] == "available"
 
     def test_bootstrap_success_human(self):

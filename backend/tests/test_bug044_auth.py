@@ -47,6 +47,7 @@ def test_anonymous_bind_blocked_after_whitelist_exists(client):
     assert m2.status_code == 201
     id2 = m2.json()["data"]["id"]
 
+    client.cookies.clear()  # 夹具默认 owner 会话；此处验证真正的匿名 bind
     bind = client.post(
         "/api/v1/members/bind",
         json={

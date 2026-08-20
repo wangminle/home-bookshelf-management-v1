@@ -27,6 +27,8 @@ class DataPolicy(BaseModel):
     discovery_contains_business_data: bool = False
     business_access_requires_user_authorization: bool = True
     credentials_in_urls: bool = False
+    # 业务 API 的认证方式（发现面如实声明，供 Agent 与引导页展示；CHK-056）
+    authentication: str = "Bearer Token"
 
 
 class Capability(BaseModel):

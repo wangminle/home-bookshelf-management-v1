@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from app.auth import ChannelIdentity, channel_headers, enforce_channel_member
+from app.auth_context import AuthContext, require_scope, verify_csrf
 from app.config import settings
 from app.db import get_db
 from app.models import Book, ReadingProgress
@@ -43,17 +43,8 @@ def list_books(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
-    identity: ChannelIdentity = Depends(channel_headers),
+    _ctx: AuthContext = Depends(require_scope("books:read")),
 ) -> ApiResponse:
-    enforce_channel_member(
-        db,
-        body_member_id=None,
-        channel=identity.channel,
-        external_user_id=identity.external_user_id,
-        authorization=identity.authorization,
-        web_session_token=identity.web_session_token,
-        required_scope="books:read",
-    )
     stmt = select(Book)
     count_stmt = select(func.count()).select_from(Book)
     conditions = []
@@ -130,19 +121,9 @@ def list_books(
 def create_book(
     payload: BookCreate,
     db: Session = Depends(get_db),
-    identity: ChannelIdentity = Depends(channel_headers),
+    _ctx: AuthContext = Depends(require_scope("books:write")),
+    _csrf: None = Depends(verify_csrf),
 ) -> ApiResponse:
-    # BUG-102：白名单建立后，写入操作必须经过渠道身份鉴权
-    enforce_channel_member(
-        db,
-        body_member_id=None,
-        channel=identity.channel,
-        external_user_id=identity.external_user_id,
-        authorization=identity.authorization,
-        web_session_token=identity.web_session_token,
-        required_scope="books:write",
-        ui_client=identity.ui_client,
-    )
     isbn13 = canonical_isbn13(payload.isbn13) or canonical_isbn13(payload.isbn10)
     isbn10 = normalize_isbn(payload.isbn10)
     lookup_keys = isbn_lookup_keys(isbn13) | isbn_lookup_keys(isbn10)
@@ -177,11 +158,23 @@ def create_book(
 
 
 @router.get("/{book_id}", response_model=ApiResponse)
-def get_book(book_id: int, db: Session = Depends(get_db)) -> ApiResponse:
+def get_book(
+    book_id: int,
+    db: Session = Depends(get_db),
+    ctx: AuthContext = Depends(require_scope("books:read")),
+) -> ApiResponse:
+    """BUG-166：详情接 books:read 鉴权；敏感子资源再按各自 scope 过滤。"""
     try:
         data = get_book_detail(db, book_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    # books:read 不隐含读进度/购买/笔记：缺对应 scope 的调用方不下发这些子资源
+    if "reading:read" not in ctx.scopes:
+        data.pop("reading_progress", None)
+    if "purchases:read" not in ctx.scopes:
+        data.pop("purchase_records", None)
+    if "notes:read" not in ctx.scopes:
+        data.pop("reading_notes", None)
     return ApiResponse(data=data)
 
 
@@ -190,19 +183,9 @@ def patch_book(
     book_id: int,
     payload: BookUpdate,
     db: Session = Depends(get_db),
-    identity: ChannelIdentity = Depends(channel_headers),
+    _ctx: AuthContext = Depends(require_scope("books:write")),
+    _csrf: None = Depends(verify_csrf),
 ) -> ApiResponse:
-    # BUG-102：白名单建立后，写入操作必须经过渠道身份鉴权
-    enforce_channel_member(
-        db,
-        body_member_id=None,
-        channel=identity.channel,
-        external_user_id=identity.external_user_id,
-        authorization=identity.authorization,
-        web_session_token=identity.web_session_token,
-        required_scope="books:write",
-        ui_client=identity.ui_client,
-    )
     try:
         result = update_book(db, book_id, payload)
     except ValueError as exc:
@@ -218,19 +201,10 @@ def patch_book(
 def remove_book(
     book_id: int,
     db: Session = Depends(get_db),
-    identity: ChannelIdentity = Depends(channel_headers),
+    _ctx: AuthContext = Depends(require_scope("books:delete")),
+    _csrf: None = Depends(verify_csrf),
 ) -> ApiResponse:
     """BUG-147：删除一本书。此前全 API 无 DELETE 端点，录错只能降级到直接操作 SQLite。"""
-    enforce_channel_member(
-        db,
-        body_member_id=None,
-        channel=identity.channel,
-        external_user_id=identity.external_user_id,
-        authorization=identity.authorization,
-        web_session_token=identity.web_session_token,
-        required_scope="books:delete",
-        ui_client=identity.ui_client,
-    )
     try:
         title = delete_book(db, book_id)
     except ValueError as exc:
@@ -247,19 +221,10 @@ def merge_book(
     book_id: int,
     source_id: int = Query(..., description="被合并进来的源书 ID（合并后删除）"),
     db: Session = Depends(get_db),
-    identity: ChannelIdentity = Depends(channel_headers),
+    _ctx: AuthContext = Depends(require_scope("books:write")),
+    _csrf: None = Depends(verify_csrf),
 ) -> ApiResponse:
     """BUG-148：把 source 书合并进 target（book_id），迁移副本/购买/进度/笔记/附件/标签后删 source。"""
-    enforce_channel_member(
-        db,
-        body_member_id=None,
-        channel=identity.channel,
-        external_user_id=identity.external_user_id,
-        authorization=identity.authorization,
-        web_session_token=identity.web_session_token,
-        required_scope="books:write",
-        ui_client=identity.ui_client,
-    )
     try:
         result = merge_books(db, target_id=book_id, source_id=source_id)
     except ValueError as exc:
@@ -298,23 +263,14 @@ async def set_cover(
     book_id: int,
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
-    identity: ChannelIdentity = Depends(channel_headers),
+    _ctx: AuthContext = Depends(require_scope("books:write")),
+    _csrf: None = Depends(verify_csrf),
 ) -> ApiResponse:
     """BUG-151：上传图片设为指定书的封面。
 
     POST /books 不处理封面，cover_path 与附件表无联动；
     本端点提供统一的"设封面"入口，落盘后写入 books.cover_path。
     """
-    enforce_channel_member(
-        db,
-        body_member_id=None,
-        channel=identity.channel,
-        external_user_id=identity.external_user_id,
-        authorization=identity.authorization,
-        web_session_token=identity.web_session_token,
-        required_scope="books:write",
-        ui_client=identity.ui_client,
-    )
     if not image.filename:
         raise HTTPException(status_code=400, detail="请上传图片文件")
 

@@ -28,7 +28,7 @@ SKILLS_DIR = _PROJECT_ROOT / "skills"
 BUNDLE_DIR = _PROJECT_ROOT / "dist" / "skills"
 
 # 版本号
-_SKILLS_VERSION = "0.2.4"
+_SKILLS_VERSION = "0.2.5"
 
 
 @dataclass

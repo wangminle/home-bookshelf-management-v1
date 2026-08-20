@@ -2,7 +2,7 @@
 name: book-intake
 description: 家庭藏书入库技能。当用户发送书封照片、ISBN、或说「买了本书/入库/加书」时使用。调用 bookshelf CLI 完成识别、元数据补全与落库。
 scopes: [books:write, files:read]
-version: "0.2.4"
+version: "0.2.5"
 ---
 
 # 藏书入库（book-intake）
@@ -98,7 +98,7 @@ bookshelf add --isbn 9787506365437 --price 38 --channel 当当
 |------|------|
 | `recognize` 未找到条码 | 请用户补 ISBN，或描述封面文字后 `--title --author` 入库 |
 | API 400 / 422 | 转述错误，提示补 ISBN/书名/更清晰照片；ISBN 校验位错误请用户核对 ISBN |
-| API 403 | 渠道身份未绑定/与 member_id 不一致，提示先 `bind` 或核对成员（内置 Web UI 不受此限制，通过 `X-UI-Client: web` 头旁路） |
+| API 403 | 渠道身份未绑定/与 member_id 不一致，提示先 `bind` 或核对成员（Web UI 走 Owner 会话认证；`X-UI-Client` 头已无授权含义） |
 | API 503 | 后端或识别服务不可用，稍后重试 |
 | 重复入库 | 告知已存在，询问是否记购买/加副本 |
 
@@ -107,3 +107,4 @@ bookshelf add --isbn 9787506365437 --price 38 --channel 当当
 - 不要跳过 CLI 直接写数据库
 - 不要在用户未确认时批量入库多本
 - 识别结果存疑时先确认再 `add`
+- 要评测视觉模型识书能力时转 **cover-eval**，不要把评测集当入库清单

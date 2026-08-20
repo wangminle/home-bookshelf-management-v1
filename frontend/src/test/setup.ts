@@ -22,3 +22,6 @@ window.matchMedia = window.matchMedia || vi.fn().mockReturnValue({
   removeEventListener: vi.fn(),
   dispatchEvent: vi.fn(),
 })
+
+// Mock execCommand (jsdom doesn't implement it; used by clipboard fallback)
+document.execCommand = vi.fn().mockReturnValue(true)

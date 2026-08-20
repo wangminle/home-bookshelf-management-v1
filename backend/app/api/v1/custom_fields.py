@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
-from app.auth import ChannelIdentity, channel_headers, enforce_channel_member
+from app.auth_context import AuthContext, require_scope, verify_csrf
 from app.db import get_db
 from app.schemas.book import ApiResponse
 from app.schemas.custom_field import CustomFieldCreate, CustomFieldOut
@@ -16,20 +16,10 @@ router = APIRouter(prefix="/custom-fields", tags=["custom-fields"])
 def upsert_field(
     payload: CustomFieldCreate,
     response: Response,
-    identity: ChannelIdentity = Depends(channel_headers),
+    ctx: AuthContext = Depends(require_scope("books:write")),
+    _csrf: None = Depends(verify_csrf),
     db: Session = Depends(get_db),
 ) -> ApiResponse:
-    member_id = enforce_channel_member(
-        db,
-        body_member_id=None,
-        channel=identity.channel,
-        external_user_id=identity.external_user_id,
-        authorization=identity.authorization,
-        web_session_token=identity.web_session_token,
-        required_scope="books:write",
-        ui_client=identity.ui_client,
-        require_channel=True,
-    )
     try:
         result = upsert_custom_field(db, payload)
     except ValueError as exc:
@@ -41,8 +31,8 @@ def upsert_field(
     log_and_commit(
         db,
         action="custom_field.upsert",
-        member_id=member_id,
-        channel=identity.channel,
+        member_id=ctx.member_id,
+        channel=ctx.channel,
         payload={
             "field_id": result.field.id,
             "entity_type": payload.entity_type,

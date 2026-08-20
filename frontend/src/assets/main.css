@@ -184,6 +184,20 @@ body {
   flex-shrink: 0;
 }
 
+/* 版本号徽标：跟随 package.json version，logo 右侧常驻展示 */
+.version-badge {
+  background: var(--primary-soft);
+  color: var(--primary);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+  align-self: center;
+}
+
 .nav {
   display: flex;
   gap: 4px;
@@ -960,6 +974,11 @@ body {
 
   .logo {
     font-size: 16px;
+  }
+
+  /* 窄屏顶栏空间紧张，隐藏版本徽标避免溢出（BUG-122 同类问题） */
+  .version-badge {
+    display: none;
   }
 
   .nav a {

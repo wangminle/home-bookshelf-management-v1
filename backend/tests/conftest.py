@@ -24,7 +24,10 @@ from alembic import command  # noqa: E402
 from alembic.config import Config  # noqa: E402
 from app.db import get_db  # noqa: E402
 from app.main import app  # noqa: E402
+from app.models import Member  # noqa: E402
 from app.models.base import create_engine_from_url  # noqa: E402
+from app.services import agent_access  # noqa: E402
+from app.utils.member_helpers import resolve_member_id  # noqa: E402
 
 
 def _run_migrations(db_url: str) -> None:
@@ -73,6 +76,40 @@ def db_session(db_engine) -> Generator[Session, None, None]:
 
 @pytest.fixture()
 def client(db_engine, db_session: Session) -> Generator[TestClient, None, None]:
+    def _override_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = _override_db
+
+    # BUG-168：业务端点已全部接入 AuthContext（匿名一律 401）。
+    # 默认 client 以 owner Web 会话认证，使既有用例（原本匿名可用的引导期语义）
+    # 无需逐个改造；无凭证/缺 scope 行为由专门的鉴权测试覆盖。
+    # 注意：不预设 owner 密码——保留「首次初始化密码」类用例的初始状态
+    #（Web 会话与密码相互独立，verify_web_session 只校验会话本身）。
+    member_id = resolve_member_id(db_session, None)
+    member = db_session.get(Member, member_id)
+    if member is None or member.role != "owner":
+        member = Member(name="测试 Owner", role="owner")
+        db_session.add(member)
+        db_session.commit()
+    session_token, _ = agent_access.create_web_session(db_session, member.id)
+
+    with TestClient(app) as c:
+        # domain 对准 TestClient 实际 host（testserver.local）：与服务器 Set-Cookie
+        # 落在同一条 jar 记录上——登录会覆盖、logout 能删干净（避免夹具会话残留）
+        c.cookies.set("hbs_session", session_token, domain="testserver.local")
+        # verify_csrf 只对 Cookie 会话校验 Origin；loopback 在白名单内
+        c.headers.update({"Origin": "http://127.0.0.1"})
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def anon_client(db_engine, db_session: Session) -> Generator[TestClient, None, None]:
+    """无任何凭证的裸客户端（鉴权拒绝路径测试用）。"""
     def _override_db():
         try:
             yield db_session

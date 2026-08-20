@@ -81,7 +81,7 @@ describe('AgentConnectView', () => {
   })
 
   it('renders the page title', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockManifest),
     } as Response)
@@ -91,7 +91,7 @@ describe('AgentConnectView', () => {
   })
 
   it('renders discovery URL list', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockManifest),
     } as Response)
@@ -107,7 +107,7 @@ describe('AgentConnectView', () => {
   })
 
   it('renders manifest details after loading', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockManifest),
     } as Response)
@@ -121,7 +121,7 @@ describe('AgentConnectView', () => {
   })
 
   it('renders capabilities from manifest', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockManifest),
     } as Response)
@@ -135,7 +135,7 @@ describe('AgentConnectView', () => {
   })
 
   it('renders onboarding steps', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockManifest),
     } as Response)
@@ -148,20 +148,20 @@ describe('AgentConnectView', () => {
   })
 
   it('shows loading state initially', () => {
-    vi.spyOn(global, 'fetch').mockReturnValue(new Promise(() => {}))
+    vi.spyOn(globalThis, 'fetch').mockReturnValue(new Promise(() => {}))
     const wrapper = mountView()
     expect(wrapper.text()).toContain('加载中')
   })
 
   it('shows error on fetch failure', async () => {
-    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Network error'))
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network error'))
     const wrapper = mountView()
     await flushPromises()
     expect(wrapper.text()).toContain('Network error')
   })
 
   it('shows error on non-200 response', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: false,
       status: 500,
     } as Response)
@@ -171,7 +171,7 @@ describe('AgentConnectView', () => {
   })
 
   it('copies URL on button click', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockManifest),
     } as Response)
@@ -187,7 +187,7 @@ describe('AgentConnectView', () => {
     vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('denied'))
     const execSpy = vi.spyOn(document, 'execCommand').mockReturnValue(true)
 
-    vi.spyOn(global, 'fetch').mockResolvedValue({
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockManifest),
     } as Response)
@@ -200,7 +200,7 @@ describe('AgentConnectView', () => {
   })
 
   it('does not hardcode localhost port in URLs', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(mockManifest),
     } as Response)

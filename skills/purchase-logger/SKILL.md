@@ -2,7 +2,7 @@
 name: purchase-logger
 description: 购书记录技能。当用户说「这本花了 X 元」「在京东买的」「补录购买信息」时使用。调用 bookshelf purchase 写入购买记录。
 scopes: [purchases:write, books:read]
-version: "0.2.4"
+version: "0.2.5"
 ---
 
 # 购书记录（purchase-logger）

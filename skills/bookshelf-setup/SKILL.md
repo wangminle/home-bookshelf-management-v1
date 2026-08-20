@@ -2,7 +2,7 @@
 name: bookshelf-setup
 description: 家庭书架初始化技能。当用户说「第一次使用」「初始化书架」「怎么配置」「连接不上」「setup」时使用。引导完成 API 连通、Google Books Key、Agent 对接与成员渠道绑定。
 scopes: []
-version: "0.2.4"
+version: "0.2.5"
 ---
 
 # 书架初始化（bookshelf-setup）
@@ -99,6 +99,7 @@ bookshelf doctor
 | purchase-logger | 购书记录 |
 | note-taker | 笔记 |
 | shelf-report | 统计 |
+| cover-eval | 封面识书评测（不入库） |
 
 ---
 
@@ -125,7 +126,7 @@ bookshelf doctor
 
 4. 绑定后 `bookshelf doctor` 应显示 `members_bound >= 1`
 
-> 绑定后业务写端点（progress/notes/reading-logs/purchases/intake，以及 attachments/copies/custom-fields 等写接口）会校验 `X-Channel`/`X-External-User-Id`，未绑定的渠道身份返回 403。内置 Web UI 通过 `X-UI-Client: web` 头在白名单建立后仍可写入（BUG-134），外部 Agent/CLI 不受此旁路影响。
+> 绑定后业务写端点（progress/notes/reading-logs/purchases/intake，以及 attachments/copies/custom-fields 等写接口）会校验 `X-Channel`/`X-External-User-Id`，未绑定的渠道身份返回 403；无任何凭证一律 401（`X-UI-Client` 头已无授权含义，Web UI 走 Owner 会话认证）。
 > 若 Agent 是通过 CLI 执行命令，只需在运行环境设置 `BOOKSHELF_CHANNEL` / `BOOKSHELF_EXTERNAL_USER_ID`，CLI 会自动透传为请求头。配置了 `CHANNEL_SIGNING_SECRET` 时还需设置 `BOOKSHELF_CHANNEL_SIGNING_SECRET` 以生成 HMAC 签名。
 > 一期不做飞书 Webhook 自动配置；Agent 侧收到消息后映射成员 ID 即可。
 

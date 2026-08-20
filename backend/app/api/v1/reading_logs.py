@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import ChannelIdentity, channel_headers, enforce_channel_member
+from app.auth_context import AuthContext, require_scope, resolve_body_member, verify_csrf
 from app.db import get_db
 from app.schemas.book import ApiResponse
 from app.schemas.reading_log import ReadingLogCreate, ReadingLogOut
@@ -16,19 +16,11 @@ router = APIRouter(prefix="/books", tags=["reading-logs"])
 def add_reading_log(
     book_id: int,
     payload: ReadingLogCreate,
-    identity: ChannelIdentity = Depends(channel_headers),
+    ctx: AuthContext = Depends(require_scope("reading:write")),
+    _csrf: None = Depends(verify_csrf),
     db: Session = Depends(get_db),
 ) -> ApiResponse:
-    member_id = enforce_channel_member(
-        db,
-        body_member_id=payload.member_id,
-        channel=identity.channel,
-        external_user_id=identity.external_user_id,
-        authorization=identity.authorization,
-        web_session_token=identity.web_session_token,
-        required_scope="reading:write",
-        ui_client=identity.ui_client,
-    )
+    member_id = resolve_body_member(ctx, payload.member_id, db=db)
     payload = payload.model_copy(update={"member_id": member_id})
     try:
         result = create_reading_log(db, book_id, payload)
@@ -41,7 +33,7 @@ def add_reading_log(
         db,
         action="reading_log.create",
         member_id=result.log.member_id,
-        channel=identity.channel,
+        channel=ctx.channel,
         payload={"book_id": book_id, "log_id": result.log.id},
     )
     data = ReadingLogOut.model_validate(result.log).model_dump()

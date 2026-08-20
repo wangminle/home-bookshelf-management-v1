@@ -3,6 +3,7 @@ import { onMounted } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useMembersStore } from '@/stores/members'
 import { lastError, backendOffline } from '@/stores/api'
+import { version } from '../package.json'
 
 const members = useMembersStore()
 // 成员列表在 main.ts 启动时已加载，此处不再重复请求（修复 P2：避免重复加载竞态）
@@ -26,6 +27,7 @@ function onMemberChange(e: Event) {
   <div class="app">
     <header class="topbar">
       <RouterLink to="/" class="logo" aria-label="家庭书架首页">📚 家庭书架</RouterLink>
+      <span class="version-badge" aria-label="版本号">v{{ version }}</span>
       <nav class="nav" aria-label="主导航">
         <RouterLink to="/">书架</RouterLink>
         <RouterLink to="/stats">统计</RouterLink>

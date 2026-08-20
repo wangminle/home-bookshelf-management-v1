@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from app import db as db_module
-from app.auth import ChannelIdentity, channel_headers, enforce_channel_member, system_has_channel_bindings
+from app.auth_context import AuthContext, require_scope, verify_csrf
 from app.schemas.attachment import AttachmentCreate, AttachmentOut
 from app.schemas.book import ApiResponse
 from app.services.attachments import create_attachment
@@ -21,28 +21,17 @@ def _create_attachment_in_thread(
     *,
     payload: AttachmentCreate,
     upload_path: Path | None,
-    identity: ChannelIdentity,
+    member_id: int,
+    channel: str | None,
 ) -> dict:
+    """BUG-168：鉴权已在外层由 AuthContext 完成，线程内只做业务。"""
     with db_module.SessionLocal() as db:
-        # BUG-115：白名单建立后拒绝匿名回退；引导期（无绑定）仍允许匿名
-        require_channel = system_has_channel_bindings(db)
-        member_id = enforce_channel_member(
-            db,
-            body_member_id=None,
-            channel=identity.channel,
-            external_user_id=identity.external_user_id,
-            authorization=identity.authorization,
-            web_session_token=identity.web_session_token,
-            required_scope="notes:write",
-            ui_client=identity.ui_client,
-            require_channel=require_channel,
-        )
         result = create_attachment(db, payload, upload_path=upload_path)
         log_and_commit(
             db,
             action="attachment.create",
             member_id=member_id,
-            channel=identity.channel,
+            channel=channel,
             payload={"attachment_id": result.attachment.id},
         )
         data = AttachmentOut.model_validate(result.attachment).model_dump()
@@ -61,7 +50,8 @@ async def add_attachment(
     mime_type: str | None = Form(default=None),
     sort_order: int = Form(default=0),
     file: UploadFile | None = File(default=None),
-    identity: ChannelIdentity = Depends(channel_headers),
+    ctx: AuthContext = Depends(require_scope("notes:write")),
+    _csrf: None = Depends(verify_csrf),
 ) -> ApiResponse:
     temp_file: Path | None = None
     try:
@@ -91,7 +81,9 @@ async def add_attachment(
                 _create_attachment_in_thread,
                 payload=payload,
                 upload_path=temp_file,
-                identity=identity,
+                # require_scope 已保证认证身份，member_id 必有值
+                member_id=ctx.member_id,  # type: ignore[arg-type]
+                channel=ctx.channel,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

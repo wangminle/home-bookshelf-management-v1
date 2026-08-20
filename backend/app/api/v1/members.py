@@ -1,12 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.auth_context import (
+    AuthContext,
+    build_auth_context,
+    require_scope,
+    verify_csrf,
+)
 from app.auth import (
     ChannelIdentity,
     authorize_member_bind,
     channel_headers,
-    enforce_channel_member,
-    resolve_member_by_binding,
     system_has_channel_bindings,
 )
 from app.db import get_db
@@ -23,15 +27,12 @@ router = APIRouter(prefix="/members", tags=["members"])
 
 @router.get("", response_model=ApiResponse)
 def get_members(
-    identity: ChannelIdentity = Depends(channel_headers),
+    ctx: AuthContext = Depends(require_scope("members:read")),
     db: Session = Depends(get_db),
 ) -> ApiResponse:
+    """BUG-167：接 members:read 鉴权。channel_bindings 仅 owner 可见（BUG-113）。"""
     members = list_members(db)
-    # BUG-113：匿名请求不返回 channel_bindings，防止复制 owner 外部身份冒充
-    caller_member = None
-    if identity.channel and identity.external_user_id:
-        caller_member = resolve_member_by_binding(db, identity.channel, identity.external_user_id)
-    show_bindings = caller_member is not None and caller_member.role == "owner"
+    show_bindings = ctx.is_owner
     items = [
         MemberOut(
             id=m.id,
@@ -51,44 +52,30 @@ def get_members(
 @router.post("", response_model=ApiResponse, status_code=201)
 def add_member(
     payload: MemberCreate,
-    identity: ChannelIdentity = Depends(channel_headers),
+    ctx: AuthContext = Depends(build_auth_context),
+    _csrf: None = Depends(verify_csrf),
     db: Session = Depends(get_db),
 ) -> ApiResponse:
-    # 引导期（尚无任何渠道绑定）：允许匿名创建成员，与 README 先 member 后 bind 流程兼容；
-    # 白名单建立后：必须有渠道身份，防止匿名无限创建成员。
-    # 带渠道头时始终校验完整性与绑定。
+    """创建成员（BUG-168：改走 AuthContext）。
+
+    引导期（尚无任何渠道绑定）：允许匿名创建成员，与 README 先 member 后 bind 流程兼容；
+    白名单建立后：要求 owner 身份（Web 会话/Agent Token/已绑定 owner 渠道）。
+    """
     caller_role: str | None = None
-    if system_has_channel_bindings(db):
-        if not identity.channel and not identity.external_user_id:
+    if ctx.is_authenticated:
+        if ctx.member_role != "owner" and system_has_channel_bindings(db):
+            raise HTTPException(
+                status_code=403,
+                detail="只有 owner 角色的成员可以创建成员（白名单已建立）",
+            )
+        caller_role = ctx.member_role
+    else:
+        # 匿名：仅引导期放行
+        if system_has_channel_bindings(db):
             raise HTTPException(
                 status_code=403,
                 detail="白名单已建立，请使用已绑定渠道身份创建成员",
             )
-        caller_member = enforce_channel_member(
-            db,
-            body_member_id=None,
-            channel=identity.channel,
-            external_user_id=identity.external_user_id,
-            authorization=identity.authorization,
-        web_session_token=identity.web_session_token,
-
-            ui_client=identity.ui_client,
-        )
-        caller = db.get(Member, caller_member) if caller_member else None
-        caller_role = caller.role if caller else None
-    elif identity.channel or identity.external_user_id:
-        caller_member = enforce_channel_member(
-            db,
-            body_member_id=None,
-            channel=identity.channel,
-            external_user_id=identity.external_user_id,
-            authorization=identity.authorization,
-        web_session_token=identity.web_session_token,
-
-            ui_client=identity.ui_client,
-        )
-        caller = db.get(Member, caller_member) if caller_member else None
-        caller_role = caller.role if caller else None
 
     # BUG-112：只有 owner 可创建 owner，防止 guest/member 自行提权
     if payload.role == "owner" and caller_role != "owner":
@@ -108,7 +95,7 @@ def add_member(
     log_and_commit(
         db,
         action="member.create",
-        channel=identity.channel,
+        channel=ctx.channel,
         payload={"member_id": member.id, "name": member.name},
     )
     data = MemberOut(

@@ -2,7 +2,7 @@
 name: book-query
 description: 家庭藏书查询技能。当用户问「有没有 XX 书」「我家关于历史的书」「这本书详情」时使用。调用 bookshelf find / show 检索书架。
 scopes: [books:read]
-version: "0.2.4"
+version: "0.2.5"
 ---
 
 # 藏书查询（book-query）

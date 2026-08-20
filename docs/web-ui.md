@@ -147,7 +147,7 @@ cp -r dist/* ../backend/static/
 
 ## 鉴权模型
 
-Web UI 继承局域网信任模型：不做浏览器登录，写操作时从顶栏选择家庭成员，请求体中携带 `member_id`。前端所有请求自动附带 `X-UI-Client: web` 头（BUG-134），后端 `enforce_channel_member` 识别此头后允许内置 UI 在渠道白名单建立后仍回退到 `resolve_member_id`，无需浏览器发送渠道身份头。外部 Agent/CLI 不发送此头，仍受完整渠道鉴权约束。**请勿将 Web UI 直接暴露到公网。**
+Web UI 使用 Owner 密码登录（前端「Agent 授权」页首次设置）：登录后持有 `hbs_session` 会话 Cookie，全部业务请求凭该会话通过统一鉴权（AuthContext）；`X-UI-Client` 头已无任何授权含义。Owner 会话可在顶栏切换家庭成员并代表其操作（写请求携带所选 `member_id`）；外部 Agent/CLI 走 Bearer Token 或渠道头，只能操作绑定成员本人的数据。**请勿将 Web UI 直接暴露到公网。**
 
 ## 技术栈
 
@@ -158,7 +158,7 @@ Web UI 继承局域网信任模型：不做浏览器登录，写操作时从顶�
 
 ### 设计系统
 
-前端使用 CSS 变量（design token）体系，所有颜色/间距/圆角均通过 `var(--...)` 引用，详见 [`design/frontend-audit-2026-08-09.md`](../design/frontend-audit-2026-08-09.md)。
+前端使用 CSS 变量（design token）体系，所有颜色/间距/圆角均通过 `var(--...)` 引用，详见 [`design/plans/frontend-audit-2026-08-09.md`](../design/plans/frontend-audit-2026-08-09.md)。
 
 - **暗色模式**：完整 `@media (prefers-color-scheme: dark)` token 覆盖，跟随系统主题，晚间阅读不刺眼
 - **可访问性（A11y）**：对比度全部 ≥ WCAG AA（4.5:1）；ARIA tablist + 键盘导航；表单 `label`/`id` 关联；`role="alert"` 错误播报；`role="img"` 占位符；页面 `<h1>` 标题层级

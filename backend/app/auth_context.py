@@ -27,10 +27,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db import SessionLocal
+from app import db as db_module
 from app.models import Member
 from app.services import agent_access
 from app.utils.member_helpers import resolve_member_id
+
+# SessionLocal 经模块属性引用（而非 from-import 直接绑定名字）：
+# 测试夹具会按用例重绑 app.db.SessionLocal，直接绑定会持有旧引擎引用。
 
 AuthType = Literal["agent", "web", "channel", "anonymous"]
 
@@ -340,11 +343,13 @@ def build_auth_context(
     x_external_user_id: str | None = Header(default=None, alias="X-External-User-Id"),
     x_channel_signature: str | None = Header(default=None, alias="X-Channel-Signature"),
 ) -> AuthContext:
-    """FastAPI 依赖：构建 AuthContext，按优先级尝试 Agent → Web → Channel。
+    """FastAPI 依赖：构建 AuthContext，按优先级尝试 Agent → Channel → Web → 匿名。
 
-    如果都不匹配，返回匿名 AuthContext（业务端点应调用 require_authenticated() 来拒绝）。
+    显式渠道头优先于 Cookie：请求显式声明渠道身份时按渠道解析（不完整/未绑定
+    在此报 400/403），避免环境残留的 Web Cookie 静默遮蔽渠道语义。
+    如果都不匹配，返回匿名 AuthContext（业务端点应调用 require_auth() 来拒绝）。
     """
-    db = SessionLocal()
+    db = db_module.SessionLocal()
     try:
         # 1. Bearer Token (Agent)
         if authorization and authorization.startswith("Bearer "):
@@ -358,14 +363,14 @@ def build_auth_context(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        # 2. Web Session Cookie
-        session_token = request.cookies.get("hbs_session")
-        ctx = _build_from_web_session(db, session_token)
+        # 2. Channel Headers（显式渠道身份，优先于环境 Cookie）
+        ctx = _build_from_channel_headers(db, x_channel, x_external_user_id, x_channel_signature)
         if ctx is not None:
             return ctx
 
-        # 3. Channel Headers (兼容)
-        ctx = _build_from_channel_headers(db, x_channel, x_external_user_id, x_channel_signature)
+        # 3. Web Session Cookie
+        session_token = request.cookies.get("hbs_session")
+        ctx = _build_from_web_session(db, session_token)
         if ctx is not None:
             return ctx
 
@@ -398,6 +403,41 @@ def require_scope(scope: str):
         ctx.require_scope(scope)
         return ctx
     return _dep
+
+
+def resolve_body_member(
+    ctx: AuthContext,
+    body_member_id: int | None,
+    db: Session | None = None,
+) -> int:
+    """业务路由辅助：body member_id 与认证身份的一致性校验。
+
+    替代旧 enforce_channel_member 的成员解析段：
+    - 未指定 member_id → 认证身份本人；
+    - 指定本人 → 放行；
+    - Web owner 指定其他成员 → 放行（Web UI 成员切换器以 owner 会话代表家庭成员操作，
+      与 can_access_member 的 owner 全量口径一致）；传入 db 时校验成员存在（400）。
+      Agent/Channel 即便绑定 owner 成员也不获得代表权——矩阵口径是"绑定成员"；
+    - 其他情况指定他人 → 403。
+    """
+    if ctx.member_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="此端点要求认证",
+        )
+    if body_member_id is None or body_member_id == ctx.member_id:
+        return ctx.member_id
+    if ctx.auth_type == "web" and ctx.is_owner:
+        if db is not None and db.get(Member, body_member_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"成员 ID {body_member_id} 不存在",
+            )
+        return body_member_id
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=f"认证身份绑定的成员 ({ctx.member_id}) 与请求的 member_id ({body_member_id}) 不一致",
+    )
 
 
 # ── CSRF / Origin 校验 ──

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import ChannelIdentity, channel_headers, enforce_channel_member
+from app.auth_context import AuthContext, require_scope, resolve_body_member, verify_csrf
 from app.db import get_db
 from app.schemas.book import ApiResponse
 from app.schemas.purchase import PurchaseCreate, PurchaseOut
@@ -16,19 +16,11 @@ router = APIRouter(prefix="/books", tags=["purchases"])
 def add_purchase(
     book_id: int,
     payload: PurchaseCreate,
-    identity: ChannelIdentity = Depends(channel_headers),
+    ctx: AuthContext = Depends(require_scope("purchases:write")),
+    _csrf: None = Depends(verify_csrf),
     db: Session = Depends(get_db),
 ) -> ApiResponse:
-    member_id = enforce_channel_member(
-        db,
-        body_member_id=payload.member_id,
-        channel=identity.channel,
-        external_user_id=identity.external_user_id,
-        authorization=identity.authorization,
-        web_session_token=identity.web_session_token,
-        required_scope="purchases:write",
-        ui_client=identity.ui_client,
-    )
+    member_id = resolve_body_member(ctx, payload.member_id, db=db)
     payload = payload.model_copy(update={"member_id": member_id})
     try:
         result = create_purchase(db, book_id, payload)
@@ -41,7 +33,7 @@ def add_purchase(
         db,
         action="purchase.create",
         member_id=result.purchase.buyer_member_id,
-        channel=identity.channel,
+        channel=ctx.channel,
         payload={"book_id": book_id, "purchase_id": result.purchase.id},
     )
 

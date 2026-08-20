@@ -15,6 +15,7 @@ Agent 能力层：每个 Skill 描述**何时触发、如何调用 CLI、如何�
 | 购书记录 | [purchase-logger](./purchase-logger/SKILL.md) | 「38 块当当买的」 |
 | 读书笔记 | [note-taker](./note-taker/SKILL.md) | 「记一段摘录」/ 「写点感想」 |
 | 藏书统计 | [shelf-report](./shelf-report/SKILL.md) | 「有多少书」/ 「花了多少钱」 |
+| 封面识书评测 | [cover-eval](./cover-eval/SKILL.md) | 「评测视觉模型」/ 「封面 eval 达标吗」 |
 
 ## Agent 编排原则
 
@@ -23,8 +24,8 @@ Agent 能力层：每个 Skill 描述**何时触发、如何调用 CLI、如何�
 2. **先查后改**：更新进度/购买前，若只有书名则 `find` 拿 `book_id`
 3. **默认 JSON**：所有 CLI 命令保持 `--json`，便于解析 `data.message`
 4. **用户确认**：入库、消歧、识别存疑时先确认再执行
-5. **单一职责**：入库用 book-intake，查询用 book-query，不要混用命令
-6. **渠道鉴权**：业务写端点（progress/notes/reading-logs/purchases/intake，以及 attachments/copies/custom-fields 等写接口）由后端读取 `X-Channel`/`X-External-User-Id` 鉴权--无渠道头回退默认成员、未绑定 403、与 body `member_id` 不一致 403；内置 Web UI 发送 `X-UI-Client: web` 头在白名单建立后仍可写入（BUG-134），外部 Agent/CLI 不受此旁路影响；CLI 若设置了 `BOOKSHELF_CHANNEL` / `BOOKSHELF_EXTERNAL_USER_ID` 会自动注入，不必再手工拼头
+5. **单一职责**：入库用 book-intake，查询用 book-query，评测视觉模型用 cover-eval，不要混用命令
+6. **统一鉴权**：业务端点（读+写）统一走 AuthContext 鉴权：Agent Bearer Token（按 Grant scope 校验）/ Web 会话 / 已绑定渠道头三选一，无凭证 401；CLI 设置 BOOKSHELF_TOKEN 或 BOOKSHELF_CHANNEL/BOOKSHELF_EXTERNAL_USER_ID 后自动注入，不必手工拼头；可选 CHANNEL_SIGNING_SECRET 开启渠道头 HMAC 签名
 
 ## 本地模拟对话
 
@@ -39,6 +40,9 @@ Agent：→ book-query → bookshelf find --keyword 三体
 
 用户：活着读到 50 页了
 Agent：→ book-query find → reading-tracker progress --book-id N --page 50
+
+用户：评测一下当前视觉模型能不能识书封
+Agent：→ cover-eval → 看 tests/eval/covers → 填 predictions.json → python3 scripts/eval_cover_recognition.py compare
 ```
 
 ## 环境变量

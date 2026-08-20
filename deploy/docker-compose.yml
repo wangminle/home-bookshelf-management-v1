@@ -16,7 +16,8 @@ services:
       DATA_DIR: /data
       PORT: "8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')"]
+      # BUG-167：/health 已要求认证，healthcheck 改打免认证的 /public-health（最小可用性探活）
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/public-health')"]
       interval: 30s
       timeout: 5s
       retries: 3

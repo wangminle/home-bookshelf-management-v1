@@ -103,7 +103,8 @@ def test_anonymous_cannot_access_business_endpoints(client: TestClient):
         json={"member_id": mid, "channel": "feishu", "external_user_id": "ou_test"},
     )
 
-    # 匿名创建书籍应被拒绝
+    # 匿名创建书籍应被拒绝（清掉夹具 owner 会话再探）
+    client.cookies.clear()
     r = client.post("/api/v1/books", json={"title": "test"})
     assert r.status_code in (401, 403), f"匿名不应能写入业务端点: {r.status_code}"
 

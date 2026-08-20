@@ -59,7 +59,7 @@ shasum -a 256 -c SHA256SUMS
 unzip skills-latest.zip -d ~/.agent/skills/
 ```
 
-Skills 包含 8 个技能：
+Skills 包含 9 个技能：
 
 | Skill | Scope | 用途 |
 | --- | --- | --- |
@@ -71,6 +71,7 @@ Skills 包含 8 个技能：
 | `purchase-logger` | `purchases:write`, `books:read` | 购买 |
 | `note-taker` | `notes:write`, `books:read` | 笔记 |
 | `shelf-report` | `stats:read`, `books:read` | 统计 |
+| `cover-eval` | - | 封面识书评测（本地脚本 + 视觉看图，不入库） |
 
 ---
 
@@ -182,4 +183,6 @@ export BOOKSHELF_CHANNEL_SIGNING_SECRET=<与后端相同的密钥>
 - Skills 说明总览：[`skills/README.md`](../skills/README.md)
 - Agent 授权管理页面：`/agent-authorization`
 - Agent 连接信息页面：`/agent`
-- 设计文档：[`design/Agent引导入口与能力授权体系规划.md`](../design/Agent引导入口与能力授权体系规划.md)
+
+> 提示：业务端点读+写均需认证。给 Agent 的 Grant 除写 scope 外记得包含读 scope（如 `books:read`），否则 `find`/`show`/`stats` 等读命令会 403。
+- 设计文档：[`design/plans/Agent引导入口与能力授权体系规划-20260812.md`](../design/plans/Agent引导入口与能力授权体系规划-20260812.md)

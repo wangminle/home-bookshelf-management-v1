@@ -2,7 +2,7 @@
 name: note-taker
 description: 读书笔记技能。当用户说「记一段摘录」「写点感想」「给这本书做个笔记」时使用。调用 bookshelf note 写入 reading_notes。
 scopes: [notes:write, books:read]
-version: "0.2.4"
+version: "0.2.5"
 ---
 
 # 读书笔记（note-taker）
@@ -48,4 +48,4 @@ bookshelf note --book-id <ID> --content "..." [--type excerpt|review|thought] [-
 |------|------|
 | 找不到书 | 提示先入库或提供更准确书名 |
 | 多本同名 | 列出候选让用户选择 |
-| API 403 | 渠道身份未绑定/与 member_id 不一致，提示先 `bind` 或核对成员（`/notes` 端点接入渠道鉴权，行为同 reading-tracker；内置 Web UI 通过 `X-UI-Client: web` 头旁路，不受此限制） |
+| API 403 | 渠道身份未绑定/与 member_id 不一致，提示先 `bind` 或核对成员（Web UI 走 Owner 会话认证，Agent/CLI 见 `docs/agent-setup.md`） |

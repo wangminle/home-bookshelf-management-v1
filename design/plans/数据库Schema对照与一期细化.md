@@ -3,7 +3,7 @@
 > 对照来源：mybibliotheca（v1 SQLite + v2 KuzuDB）、jelu（SQLite + Exposed ORM）
 > 日期：2026-07-11（与主设计方案 v1.3 / 代码对齐修订）
 > 目的：逐字段对照参考项目，细化家庭图书管理系统一期表设计；并与当前实现保持一致
-> 说明：本文件属于 **design/**（开发与需求）。用户向说明见 [`docs/get-started.md`](../docs/get-started.md)。
+> 说明：本文件属于 **design/**（开发与需求）。用户向说明见 [`docs/get-started.md`](../../docs/get-started.md)。
 ---
 
 ## 1. 参考项目 Schema 摘要

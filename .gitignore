@@ -32,6 +32,10 @@ backups/
 htmlcov/
 backend/tests/_tmp/
 
+# 识书评测运行产物（金标准与合成封面入库，预测与结果不入库）
+tests/eval/predictions.json
+tests/eval/results-*.json
+
 # 临时与备份文件
 *.log
 *.tmp

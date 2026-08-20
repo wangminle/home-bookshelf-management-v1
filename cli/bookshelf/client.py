@@ -97,10 +97,13 @@ class BookshelfClient:
         return payload
 
     def health_probe(self) -> tuple[dict[str, Any] | None, int | None]:
+        return self._probe_path("/health")
+
+    def _probe_path(self, path: str) -> tuple[dict[str, Any] | None, int | None]:
         request_timeout = self.timeout
         try:
             with httpx.Client(timeout=request_timeout) as client:
-                resp = client.get(self._url("/health"))
+                resp = client.get(self._url(path))
                 try:
                     payload = resp.json()
                 except Exception:
@@ -115,6 +118,20 @@ class BookshelfClient:
         payload, status = self.health_probe()
         if payload is None:
             raise RuntimeError(f"无法连接 API：{self.base_url}")
+        if status in (401, 403):
+            # BUG-167：/health 已要求认证；无凭证时退回 public-health 确认可达性
+            #（不含 DB 诊断细节），并标注 auth_protected 供 doctor 区分口径。
+            pub, pub_status = self._probe_path("/public-health")
+            if pub is not None and pub_status == 200 and isinstance(pub, dict):
+                data = pub.get("data")
+                if isinstance(data, dict):
+                    data["auth_protected"] = True
+                    data["database"] = "unknown"
+                return pub
+            raise RuntimeError(
+                f"[HTTP {status}] /health 需要认证（BOOKSHELF_TOKEN / 渠道身份 / Web 会话），"
+                f"public-health 亦不可达（HTTP {pub_status}）"
+            )
         if status and status >= 400:
             detail = payload.get("detail") if isinstance(payload, dict) else payload
             raise RuntimeError(f"[HTTP {status}] {detail or 'health 检查失败'}")

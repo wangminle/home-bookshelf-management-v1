@@ -39,9 +39,10 @@ def test_bug134_ui_client_header_allows_write_after_bindings(client):
     """
     _, channel_headers = _bootstrap_with_bindings(client)
 
-    # 匿名（无任何头）应被拒绝
+    client.cookies.clear()  # 夹具默认 owner 会话；匿名探针需无凭证
+    # 匿名（无任何头）应被拒绝（BUG-168 后匿名一律 401）
     r = client.post("/api/v1/books", json={"title": "匿名测试"})
-    assert r.status_code == 403, r.text
+    assert r.status_code in (401, 403), r.text
 
     # 带 X-UI-Client: web 头的匿名写也必须被拒绝（WBS-6 移除旁路）
     r2 = client.post(
@@ -49,7 +50,7 @@ def test_bug134_ui_client_header_allows_write_after_bindings(client):
         json={"title": "UI 客户端测试"},
         headers={"X-UI-Client": "web"},
     )
-    assert r2.status_code == 403, r2.text
+    assert r2.status_code in (401, 403), r2.text
 
     # 带渠道头 + UI 头也应正常工作（渠道身份有效，UI 头被忽略）
     r3 = client.post(
@@ -65,6 +66,7 @@ def test_bug134_ui_client_does_not_affect_bind_protection(client):
     mid, _ = _bootstrap_with_bindings(client)
 
     # 绑定已有白名单后，匿名 + UI 头不能执行绑定
+    client.cookies.clear()  # 夹具默认 owner 会话；此处验证真正的匿名 bind
     r = client.post(
         "/api/v1/members/bind",
         json={"member_id": mid, "channel": "feishu", "external_user_id": "ou_hijack"},
@@ -77,12 +79,13 @@ def test_bug134_non_web_ui_client_rejected(client):
     """X-UI-Client 设为非 web 值不应触发旁路。"""
     _bootstrap_with_bindings(client)
 
+    client.cookies.clear()  # 匿名 + 伪 UI 头探针
     r = client.post(
         "/api/v1/books",
         json={"title": "伪 UI 客户端"},
         headers={"X-UI-Client": "desktop"},
     )
-    assert r.status_code == 403, r.text
+    assert r.status_code in (401, 403), r.text
 
 
 # ── BUG-136：recheck 命中时孤儿封面清理 ──────────────────

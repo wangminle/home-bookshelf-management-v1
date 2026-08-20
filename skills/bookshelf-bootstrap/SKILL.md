@@ -1,7 +1,7 @@
 ---
 name: bookshelf-bootstrap
 description: Agent 引导技能。当用户说「连接书架」「bootstrap」「agent 接入」「发现能力」时使用。引导 Agent 通过发现面获取系统契约，申请授权并安装 Skills。
-version: "0.2.4"
+version: "0.2.5"
 scopes: []
 ---
 

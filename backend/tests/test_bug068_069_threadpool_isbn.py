@@ -22,7 +22,8 @@ def test_bug068_intake_threadpool_opens_own_session(client, monkeypatch):
 
     r = client.post("/api/v1/books/intake", data={"title": "线程池入库测试"})
     assert r.status_code == 201, r.text
-    assert captured["kwargs"]["identity"].channel is None
+    assert captured["kwargs"]["channel"] is None
+    assert captured["kwargs"]["member_id"] >= 1
 
 
 def test_bug068_attachment_threadpool_opens_own_session(client, monkeypatch):
@@ -51,7 +52,7 @@ def test_bug068_attachment_threadpool_opens_own_session(client, monkeypatch):
         },
     )
     assert r.status_code == 201, r.text
-    assert captured["kwargs"]["identity"].external_user_id is None
+    assert captured["kwargs"]["channel"] is None
 
 
 def test_bug069_patch_isbn10_backfills_isbn13(client):

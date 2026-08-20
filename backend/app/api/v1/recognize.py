@@ -1,9 +1,10 @@
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from starlette.concurrency import run_in_threadpool
 
+from app.auth_context import AuthContext, require_scope, verify_csrf
 from app.schemas.book import ApiResponse
 from app.schemas.intake import CoverRecognizeOut, IsbnRecognizeOut
 from app.services.cover_recognition import recognize_cover
@@ -14,7 +15,12 @@ router = APIRouter(prefix="/recognize", tags=["recognize"])
 
 
 @router.post("/isbn", response_model=ApiResponse)
-async def recognize_isbn(image: UploadFile = File(...)) -> ApiResponse:
+async def recognize_isbn(
+    image: UploadFile = File(...),
+    _ctx: AuthContext = Depends(require_scope("books:write")),
+    _csrf: None = Depends(verify_csrf),
+) -> ApiResponse:
+    """BUG-167：识别端点接 books:write 鉴权（授权矩阵声明）。"""
     if not image.filename:
         raise HTTPException(status_code=400, detail="请上传图片文件")
 
@@ -49,6 +55,8 @@ async def recognize_cover_endpoint(
     image: UploadFile = File(...),
     title: str | None = Form(default=None),
     author: str | None = Form(default=None),
+    _ctx: AuthContext = Depends(require_scope("books:write")),
+    _csrf: None = Depends(verify_csrf),
 ) -> ApiResponse:
     if not image.filename:
         raise HTTPException(status_code=400, detail="请上传图片文件")

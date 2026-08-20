@@ -84,7 +84,7 @@ export BOOKSHELF_EXTERNAL_USER_ID=ou_xxxxxxxx
 bookshelf doctor
 ```
 
-全部通过后再继续。若提示成员未绑定，可先跳过绑定，用 CLI 直接入库（局域网无渠道头时走默认成员）。
+全部通过后再继续。注意：业务端点（含读命令）均需认证——无凭证将得到 401。请先在前端「Agent 授权」页签发 Token 并 `export BOOKSHELF_TOKEN=hbs_at_...`（流程见 `docs/agent-setup.md`），或使用下方第 5 节的渠道绑定身份。
 
 ---
 

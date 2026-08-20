@@ -29,24 +29,24 @@ def _setup_owner(client: TestClient) -> int:
 
 class TestOwnerOnlyAccess:
 
-    def test_anonymous_cannot_list_clients(self, client: TestClient):
+    def test_anonymous_cannot_list_clients(self, anon_client: TestClient):
         """匿名不能列出 Agent 客户端。"""
-        r = client.get("/agent-access/clients")
+        r = anon_client.get("/agent-access/clients")
         assert r.status_code == 401
 
-    def test_anonymous_cannot_create_client(self, client: TestClient):
+    def test_anonymous_cannot_create_client(self, anon_client: TestClient):
         """匿名不能创建 Agent 客户端。"""
-        r = client.post("/agent-access/clients", json={"display_name": "hacker"})
+        r = anon_client.post("/agent-access/clients", json={"display_name": "hacker"})
         assert r.status_code == 401
 
-    def test_anonymous_cannot_list_grants(self, client: TestClient):
+    def test_anonymous_cannot_list_grants(self, anon_client: TestClient):
         """匿名不能列出授权。"""
-        r = client.get("/agent-access/grants")
+        r = anon_client.get("/agent-access/grants")
         assert r.status_code == 401
 
-    def test_anonymous_cannot_issue_token(self, client: TestClient):
+    def test_anonymous_cannot_issue_token(self, anon_client: TestClient):
         """匿名不能签发令牌。"""
-        r = client.post("/agent-access/tokens", json={"grant_id": 1})
+        r = anon_client.post("/agent-access/tokens", json={"grant_id": 1})
         assert r.status_code == 401
 
 

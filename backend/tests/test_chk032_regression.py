@@ -22,8 +22,9 @@ def _setup_owner(client):
 def test_bug113_anonymous_write_blocked_after_bindings(client):
     """白名单建立后，匿名 POST /books 应 403（不再回退到 resolve_member_id）。"""
     _setup_owner(client)
+    client.cookies.clear()  # 夹具默认 owner 会话；此处验证真正的无凭证请求
     r = client.post("/api/v1/books", json={"title": "匿名书"})
-    assert r.status_code == 403, r.text
+    assert r.status_code in (401, 403), r.text
 
 
 def test_bug113_bound_channel_write_ok(client):
@@ -127,10 +128,10 @@ def test_bug117_by_status_sum_le_total_books(client):
 
 def test_bug123_stats_filter_consistency(client):
     """GET /stats 的 by_status 与 GET /books?status=X 计数一致。"""
-    _, headers = _setup_owner(client)
-    # 建几本不同状态的书
-    _seed_book_with_status(client, headers, "读完了A", 1, "finished")
-    _seed_book_with_status(client, headers, "在读B", 1, "reading")
+    owner_mid, headers = _setup_owner(client)
+    # 建几本不同状态的书（进度 member_id 须与渠道身份一致）
+    _seed_book_with_status(client, headers, "读完了A", owner_mid, "finished")
+    _seed_book_with_status(client, headers, "在读B", owner_mid, "reading")
     # 一本无进度的书（unread）
 
     r = client.post("/api/v1/books", json={"title": "未读C"}, headers=headers)
@@ -173,14 +174,14 @@ def test_bug118_patch_clear_authors_and_tags(client):
 
 
 def test_bug129_progress_response_includes_to_read(client):
-    _, headers = _setup_owner(client)
+    owner_mid, headers = _setup_owner(client)
     r = client.post("/api/v1/books", json={"title": "想读书"}, headers=headers)
     assert r.status_code == 201
     book_id = r.json()["data"]["id"]
 
     pr = client.post(
         f"/api/v1/books/{book_id}/progress",
-        json={"member_id": 1, "to_read": True},
+        json={"member_id": owner_mid, "to_read": True},
         headers=headers,
     )
     assert pr.status_code in (200, 201), pr.text

@@ -13,7 +13,8 @@ class DoctorReport:
     api_url: str
     api_reachable: bool = False
     api_http_status: int | None = None
-    db_ok: bool = False
+    # BUG-167 后 /health 需认证：无凭证时仅能经 public-health 验证可达，DB 状态未知（None）
+    db_ok: bool | None = False
     google_books_configured: bool = False
     barcode_scan_available: bool = False
     members_total: int = 0
@@ -26,7 +27,7 @@ class DoctorReport:
 
     @property
     def ready(self) -> bool:
-        return self.api_reachable and self.db_ok and not self.errors
+        return self.api_reachable and self.db_ok is not False and not self.errors
 
     def to_payload(self) -> dict[str, Any]:
         message = "初始化检查通过，可以开始使用藏书功能" if self.ready else "初始化检查未通过，请按 errors/warnings 处理"
@@ -78,43 +79,46 @@ def run_doctor(client: BookshelfClient | None = None) -> DoctorReport:
     )
     probe_client = client or BookshelfClient(base_url=api_url)
 
-    health_payload, http_status = probe_client.health_probe()
-    report.api_http_status = http_status
-
-    if health_payload is None:
-        if http_status is None:
-            report.errors.append(f"无法连接 API：{api_url}（请确认后端已启动且 BOOKSHELF_API_URL 正确）")
-            report.hints.append("本机启动：cd backend && uvicorn app.main:app --reload --host 127.0.0.1 --port 8000")
-            report.hints.append("Docker：cd deploy && docker compose up -d")
-        else:
-            report.errors.append(
-                f"API 可达但返回非 JSON 响应（HTTP {http_status}），可能被反向代理拦截或后端版本过旧"
-            )
-            report.hints.append("检查反向代理（nginx/caddy）配置，或拉取最新代码重启后端")
+    # BUG-167：/health 已要求认证；client.health 在无凭证时自动回退 public-health，
+    # 返回体带 auth_protected=True、database="unknown"，诊断细节（DB/Key/条码）不可得。
+    try:
+        health_payload = probe_client.health()
+    except RuntimeError as exc:
+        report.errors.append(str(exc))
+        report.hints.append("本机启动：cd backend && uvicorn app.main:app --reload --host 127.0.0.1 --port 8000")
+        report.hints.append("Docker：cd deploy && docker compose up -d")
         return report
 
     report.api_reachable = True
+    report.api_http_status = health_payload.get("_http_status")
     health_data = health_payload.get("data") if isinstance(health_payload, dict) else None
     if not isinstance(health_data, dict):
         report.errors.append("health 响应格式异常")
         return report
 
-    report.db_ok = health_data.get("database") == "connected"
-    if not report.db_ok:
-        report.errors.append("数据库未连接（/health 返回 database=disconnected）")
-        report.hints.append("检查 DATABASE_URL / data/ 目录权限，并运行 alembic upgrade head")
-
-    report.google_books_configured = bool(health_data.get("google_books_configured"))
-    if not report.google_books_configured:
+    if health_data.get("auth_protected"):
+        report.db_ok = None
         report.warnings.append(
-            "服务端未配置 GOOGLE_BOOKS_API_KEY，中文书 metadata 命中率可能下降（OpenLibrary/国图仍可用）"
+            "/health 需要认证（BOOKSHELF_TOKEN 无 members:read 或未设置），本次仅验证可达性（public-health），数据库/依赖诊断不可用"
         )
-        report.hints.append("在 deploy/.env 或 backend/.env 设置 GOOGLE_BOOKS_API_KEY 后重启 API")
+        report.hints.append("完整诊断：在前端 Agent 授权页签发含 members:read 的 Token，export BOOKSHELF_TOKEN=... 后重试")
+    else:
+        report.db_ok = health_data.get("database") == "connected"
+        if not report.db_ok:
+            report.errors.append("数据库未连接（/health 返回 database=disconnected）")
+            report.hints.append("检查 DATABASE_URL / data/ 目录权限，并运行 alembic upgrade head")
 
-    report.barcode_scan_available = bool(health_data.get("barcode_scan_available"))
-    if not report.barcode_scan_available:
-        report.warnings.append("服务端未安装条码识别依赖（pyzbar/Pillow 或系统 libzbar0）")
-        report.hints.append("macOS: brew install zbar；Docker 镜像已含 libzbar0")
+        report.google_books_configured = bool(health_data.get("google_books_configured"))
+        if not report.google_books_configured:
+            report.warnings.append(
+                "服务端未配置 GOOGLE_BOOKS_API_KEY，中文书 metadata 命中率可能下降（OpenLibrary/国图仍可用）"
+            )
+            report.hints.append("在 deploy/.env 或 backend/.env 设置 GOOGLE_BOOKS_API_KEY 后重启 API")
+
+        report.barcode_scan_available = bool(health_data.get("barcode_scan_available"))
+        if not report.barcode_scan_available:
+            report.warnings.append("服务端未安装条码识别依赖（pyzbar/Pillow 或系统 libzbar0）")
+            report.hints.append("macOS: brew install zbar；Docker 镜像已含 libzbar0")
 
     try:
         members_payload = probe_client.members()
@@ -131,6 +135,10 @@ def run_doctor(client: BookshelfClient | None = None) -> DoctorReport:
         msg = str(exc)
         if "[HTTP 404]" in msg or msg.strip().endswith("404"):
             report.warnings.append("API 可能未更新到最新版本（缺少 GET /members），请拉取代码并重启后端")
+        elif "[HTTP 401]" in msg or "[HTTP 403]" in msg:
+            # BUG-167：GET /members 需 members:read，无凭证时属预期而非故障
+            report.warnings.append("GET /members 需要认证（members:read），未读取成员/绑定状态")
+            report.hints.append("export BOOKSHELF_TOKEN=...（含 members:read 的 Grant）后重试，或使用已绑定渠道身份")
         else:
             report.warnings.append(f"无法读取成员列表：{exc}")
 
@@ -160,7 +168,8 @@ def emit_doctor(payload: dict[str, Any], as_json: bool) -> None:
     checks = data.get("checks") or {}
     print(data.get("message", "初始化检查"))
     print(f"  API: {checks.get('api_url')} ({'可达' if checks.get('api_reachable') else '不可达'})")
-    print(f"  数据库: {'正常' if checks.get('db_ok') else '异常'}")
+    db_state = checks.get("db_ok")
+    print(f"  数据库: {'正常' if db_state else ('未知（/health 需认证）' if db_state is None else '异常')}")
     print(f"  Google Books Key: {'已配置' if checks.get('google_books_configured') else '未配置'}")
     print(f"  条码识别(服务端): {'可用' if checks.get('barcode_scan_available') else '不可用'}")
     print(f"  成员: {checks.get('members_total', 0)} 人，已绑定渠道 {checks.get('members_bound', 0)} 人")

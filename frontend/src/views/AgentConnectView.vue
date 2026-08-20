@@ -122,9 +122,9 @@ onMounted(() => {
       <h3>能力列表</h3>
       <div v-if="manifest.capabilities?.length" class="capabilities">
         <div v-for="cap in manifest.capabilities" :key="cap.id" class="capability-item">
-          <strong>{{ cap.name }}</strong>
+          <strong>{{ cap.name || cap.id }}</strong>
           <p>{{ cap.description }}</p>
-          <span v-for="s in cap.scopes" :key="s" class="scope-tag">{{ s }}</span>
+          <span v-for="s in cap.required_scopes" :key="s" class="scope-tag">{{ s }}</span>
         </div>
       </div>
     </section>

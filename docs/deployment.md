@@ -11,7 +11,7 @@ cd deploy
 cp .env.example .env    # 按需修改 BOOKSHELF_BIND / BOOKSHELF_DATA_DIR
 docker compose up -d
 docker compose ps
-curl http://127.0.0.1:8000/api/v1/health
+curl http://127.0.0.1:8000/api/v1/public-health   # /health 需认证（members:read），无凭证探活用 public-health
 ```
 
 默认把宿主机数据目录挂到容器 `/data`（库文件、封面、附件）。

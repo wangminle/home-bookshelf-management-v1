@@ -134,6 +134,11 @@ def intake_book(db: Session, payload: IntakeInput) -> IntakeResult:
         isbn_detected = None
 
     authors = payload.authors or ([payload.author] if payload.author else None)
+    # BUG-163：保存原始输入书名/作者，用于去重和 normalized_title。
+    # 元数据可能改写书名（如 OpenLibrary 返回英文译名），导致同一输入因元数据
+    # 命中/超时差异而绕过去重。normalized_title 基于原始输入确保去重键稳定。
+    original_title = payload.title.strip()[:500] if payload.title else None
+    original_authors = authors
     metadata = fetch_metadata(isbn=isbn_detected, title=payload.title, author=payload.author)
 
     if metadata:
@@ -169,7 +174,10 @@ def intake_book(db: Session, payload: IntakeInput) -> IntakeResult:
         extra = None
         cover_url = None
 
-    existing = _find_existing(db, isbn13=isbn13, isbn10=isbn10, title=title, authors=authors)
+    existing = _find_existing_dedup(
+        db, isbn13=isbn13, isbn10=isbn10, title=title, authors=authors,
+        original_title=original_title, original_authors=original_authors,
+    )
     if existing:
         cover_backfilled = False
         # 已有书：仅当缺封面时才回填上传图，避免每次重复扫码都落盘孤儿文件
@@ -204,7 +212,10 @@ def intake_book(db: Session, payload: IntakeInput) -> IntakeResult:
         # 开启了隐式事务，持锁后仍是同一快照）。
         db.commit()
         # 持锁后再次查重：锁外第一次查重到此处之间，另一个请求可能已建好书
-        recheck = _find_existing(db, isbn13=isbn13, isbn10=isbn10, title=title, authors=authors)
+        recheck = _find_existing_dedup(
+            db, isbn13=isbn13, isbn10=isbn10, title=title, authors=authors,
+            original_title=original_title, original_authors=original_authors,
+        )
         if recheck:
             recheck_backfilled = False
             # BUG-136：锁外预生成的封面在命中 recheck 时需要清理或复用，避免孤儿文件堆积
@@ -233,8 +244,13 @@ def intake_book(db: Session, payload: IntakeInput) -> IntakeResult:
             subtitle=subtitle,
             isbn13=isbn13,
             isbn10=isbn10,
-            normalized_title=normalize_title(title),
-            authors=serialize_json_list(authors),
+            # BUG-163：normalized_title 基于原始输入书名（稳定），而非元数据书名（波动）。
+            # 确保同一输入无论元数据命中或超时，去重键始终一致。
+            normalized_title=normalize_title(original_title or title),
+            # BUG-171：作者同样存原始输入值作为稳定去重锚点；仅无输入作者
+            # （如仅 ISBN 入库）时才用元数据作者。代价是展示作者不再富化为
+            # 元数据值——换取同书名不同作者的两本书不被宽松回退误合并。
+            authors=serialize_json_list(original_authors or authors),
             publisher=publisher,
             publish_date=publish_date,
             page_count=page_count,
@@ -276,7 +292,10 @@ def intake_book(db: Session, payload: IntakeInput) -> IntakeResult:
         except IntegrityError as exc:
             # BUG-119：并发入库可能导致 find-then-insert 竞态--回滚后重试查找
             db.rollback()
-            retry_existing = _find_existing(db, isbn13=isbn13, isbn10=isbn10, title=title, authors=authors)
+            retry_existing = _find_existing_dedup(
+                db, isbn13=isbn13, isbn10=isbn10, title=title, authors=authors,
+                original_title=original_title, original_authors=original_authors,
+            )
             if retry_existing:
                 # BUG-136：命中重试时清理预生成封面，避免孤儿文件
                 _cleanup_orphan_cover(cover_path)
@@ -412,6 +431,14 @@ def _find_existing(
     normalized = normalize_title(title)
     candidates = db.scalars(select(Book).where(Book.normalized_title == normalized)).all()
     if not candidates:
+        # BUG-169：normalized_title 存的是原始输入书名（BUG-163），以展示书名
+        # （元数据改写的英文译名，或用户/Agent 从书目详情读到的 title）再入库时
+        # 索引不命中。回退按展示书名逐行比对——家庭藏书量级（数百本）O(N) 可接受。
+        candidates = [
+            book for book in db.scalars(select(Book)).all()
+            if normalize_title(book.title or "") == normalized
+        ]
+    if not candidates:
         return None
     if not authors:
         return candidates[0] if len(candidates) == 1 else None
@@ -426,6 +453,38 @@ def _authors_match(book_authors_raw: str | None, author_hint: str) -> bool:
     if not book_authors:
         return False
     return any(name.strip().lower() == author_hint for name in book_authors)
+
+
+def _find_existing_dedup(
+    db: Session,
+    *,
+    isbn13: str | None,
+    isbn10: str | None,
+    title: str,
+    authors: list[str] | None,
+    original_title: str | None = None,
+    original_authors: list[str] | None = None,
+) -> Book | None:
+    """BUG-163：去重查找，同时尝试元数据书名和原始输入书名。
+
+    无 ISBN 入库时，元数据可能改写书名和作者（如 OpenLibrary 返回英文译名），
+    导致同一输入因元数据命中/超时差异而绕过去重。新建时 normalized_title 与
+    authors 均存原始输入（BUG-171），因此这里做两次严格匹配：
+    元数据书名+当前作者 → 原始输入书名+原始作者。
+
+    不做"不限作者"的宽松回退（BUG-171）：同书名不同作者的两本书会在候选
+    唯一时被误合并。输入本身无作者时 _find_existing 内部保留"候选唯一即
+    命中"的既有语义（无作者信号可判别，与 HEAD 行为一致）。
+    """
+    existing = _find_existing(db, isbn13=isbn13, isbn10=isbn10, title=title, authors=authors)
+    if existing:
+        return existing
+    if not original_title:
+        return None
+    # 严格匹配原始输入书名 + 原始输入作者（覆盖元数据改写书名/作者的组合）
+    return _find_existing(
+        db, isbn13=isbn13, isbn10=isbn10, title=original_title, authors=original_authors
+    )
 
 
 def _create_purchase(db: Session, book: Book, payload: IntakeInput, copy_id: int | None = None) -> None:

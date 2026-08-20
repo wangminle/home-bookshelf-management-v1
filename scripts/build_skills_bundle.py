@@ -172,7 +172,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # 版本号
-    version = args.version or os.environ.get("SKILLS_VERSION", "0.2.4")
+    version = args.version or os.environ.get("SKILLS_VERSION", "0.2.5")
 
     output_dir = Path(args.output)
     if not output_dir.is_absolute():

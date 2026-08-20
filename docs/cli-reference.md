@@ -5,6 +5,7 @@
 | 变量 | 作用 |
 | --- | --- |
 | `BOOKSHELF_API_URL` | API 根地址，默认 `http://127.0.0.1:8000` |
+| `BOOKSHELF_TOKEN` | Agent Bearer Token，CLI 全部请求（含 find/show/stats 等读命令）自动附带；签发见 `docs/agent-setup.md` |
 | `BOOKSHELF_SETUP_TOKEN` / `SETUP_TOKEN` | CLI 全部请求都会自动透传为 `X-Setup-Token`；主要用于白名单建立后的 `bind` |
 | `BOOKSHELF_CHANNEL` | CLI 全部请求都会自动透传为 `X-Channel` |
 | `BOOKSHELF_EXTERNAL_USER_ID` | CLI 全部请求都会自动透传为 `X-External-User-Id` |
@@ -103,6 +104,7 @@ bookshelf stats
 
 - `bookshelf doctor` 在检查未通过时会以退出码 `1` 结束，便于 Agent / 脚本判断失败
 - `bookshelf health` / 其他命令若遇到 API 非 JSON、网络错误或 HTTP 4xx/5xx，会返回更明确的中文错误而不是裸 traceback
+- `GET /api/v1/health` 已要求认证（`members:read`）：无凭证时 `health`/`doctor` 自动回退 `GET /api/v1/public-health` 验证可达性，并以警告提示诊断细节不可用（数据库状态显示「未知」而非误报异常）
 
 ---
 

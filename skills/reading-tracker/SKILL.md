@@ -2,7 +2,7 @@
 name: reading-tracker
 description: 阅读进度跟踪技能。当用户说「读到第 X 页」「在读」「读完了」「给这本书打 5 分」时使用。调用 bookshelf progress 更新进度。
 scopes: [reading:write, books:read]
-version: "0.2.4"
+version: "0.2.5"
 ---
 
 # 阅读进度（reading-tracker）
@@ -36,7 +36,7 @@ bookshelf health
 可选 `--member-id`；未指定时使用系统默认成员（首个成员或自动创建的「默认用户」）。
 
 > **渠道鉴权**（Agent 走后端时）：调用 `/progress` 端点时，后端读取 HTTP 头 `X-Channel` / `X-External-User-Id`：
-> - 无渠道头 -> 回退到默认成员（一期可信局域网兜底）
+> - 无任何凭证 -> 401（业务端点不再有匿名回退；CLI 需设置 BOOKSHELF_TOKEN 或渠道头环境变量）
 > - 有渠道头但未绑定 -> 403
 > - 有渠道头且绑定，但与 body `member_id` 不一致 -> 403
 >

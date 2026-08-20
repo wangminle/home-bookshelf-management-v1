@@ -40,7 +40,7 @@ home-bookshelf-management-v1/
 ├── frontend/             Vue 3 SPA（封面墙 / 详情 / 统计 / 概览图）
 ├── cli/                  Typer CLI（命令 bookshelf）
 ├── deploy/               docker-compose / systemd / backup.sh
-├── skills/               Agent 技能（7 个）
+├── skills/               Agent 技能（8 个）
 ├── design/               开发与需求文档（设计方案 / Schema / 调研 / 前端评估）
 ├── docs/                 用户说明（get-started / user-guide / web-ui / faq …）
 ├── AGENTS.md / CLAUDE.md
@@ -50,7 +50,7 @@ home-bookshelf-management-v1/
 ### 文档入口
 
 - **使用说明**（`docs/`）：[快速开始](docs/get-started.md) · [使用指南](docs/user-guide.md) · [CLI 参考](docs/cli-reference.md) · [部署](docs/deployment.md) · [Web UI](docs/web-ui.md) · [接入 Agent](docs/agent-setup.md) · [FAQ](docs/faq.md)
-- **设计与需求**（`design/`）：[设计方案](design/家庭图书管理系统-设计方案.md) · [Schema 细化](design/数据库Schema对照与一期细化.md) · [前端评估报告](design/frontend-evaluation-report.md)
+- **设计与需求**（`design/plans/`）：[设计方案](design/plans/家庭图书管理系统-设计方案.md) · [Schema 细化](design/plans/数据库Schema对照与一期细化.md) · [前端评估报告](design/plans/frontend-evaluation-report.md)
 
 ### 后端安装与运行
 
@@ -109,7 +109,7 @@ VITE_BASE=/home-bookshelf/ npm run build
 
 ### Skills（Agent 技能）
 
-`skills/` 目录提供 7 个技能：`book-intake` · `book-query` · `bookshelf-setup` · `note-taker` · `purchase-logger` · `reading-tracker` · `shelf-report`。把该目录加入 Agent（OpenClaw / Hermes）的技能路径即可调用。
+`skills/` 目录提供 8 个技能：`book-intake` · `book-query` · `bookshelf-setup` · `cover-eval` · `note-taker` · `purchase-logger` · `reading-tracker` · `shelf-report`。把该目录加入 Agent（OpenClaw / Hermes）的技能路径即可调用。
 
 ### Agent 使用指南
 
@@ -120,7 +120,7 @@ VITE_BASE=/home-bookshelf/ npm run build
 5. 绑定成员（白名单）：`bookshelf bind --member-id 1 --channel feishu --external-user-id <渠道用户ID>`（空库首次绑定 `member_id=1` 会自动创建默认 owner）
 6. 将 `skills/` 加入 Agent 技能路径，即可自然语言操作藏书
 
-> ⚠️ **安全**：业务写端点（progress/notes/reading-logs/purchases/intake，以及 attachments/copies/custom-fields 等）已接入渠道鉴权，读取 HTTP 头 `X-Channel`/`X-External-User-Id`：无渠道头回退默认成员（一期可信局域网兜底），有渠道头但未绑定返回 403，与 body `member_id` 不一致返回 403。内置 Web UI 自动发送 `X-UI-Client: web` 头，在渠道白名单建立后仍可正常写入（BUG-134）；外部 Agent/CLI 不发此头，仍需渠道身份鉴权。可选配置 `CHANNEL_SIGNING_SECRET` 开启渠道头 HMAC 签名校验（`X-Channel-Signature`），防止伪造明文头冒充已绑定成员；CLI 侧用 `BOOKSHELF_CHANNEL_SIGNING_SECRET` 透传。仍建议**只在可信家庭局域网内运行，请勿暴露到公网**。
+> ⚠️ **安全**：全部业务端点（读+写）均已接入统一鉴权（AuthContext），无凭证一律 401。认证方式三选一：Agent Bearer Token（`Authorization: Bearer ...`，按 Grant 的 scope 校验，见授权矩阵 `design/plans/agent-authorization-matrix.md`）、Web 会话 Cookie（Owner 密码登录，前端「Agent 授权」页设置）、渠道头 `X-Channel`/`X-External-User-Id`（须已绑定成员；可选 `CHANNEL_SIGNING_SECRET` 开启 HMAC 签名校验，CLI 用 `BOOKSHELF_CHANNEL_SIGNING_SECRET` 透传）。`X-UI-Client` 头不再有任何授权含义。Web Owner 会话可代表家庭成员操作；Agent/渠道身份只能操作绑定成员本人的数据。探活用公开的 `GET /api/v1/public-health`（Docker healthcheck 已切换）；`GET /api/v1/health` 需 `members:read`。引导期（尚无任何渠道绑定）仅 `POST /members` 与 `bind` 允许匿名初始化。仍建议**只在可信家庭局域网内运行，请勿暴露到公网**。
 
 ---
 
@@ -156,7 +156,7 @@ home-bookshelf-management-v1/
 ├── frontend/             Vue 3 SPA (cover wall / details / stats / overview)
 ├── cli/                  Typer CLI (command: bookshelf)
 ├── deploy/               docker-compose / systemd / backup.sh
-├── skills/               Agent skills (7)
+├── skills/               Agent skills (8)
 ├── design/               design & requirements
 ├── docs/                 user guides (get-started / user-guide / web-ui / faq …)
 ├── AGENTS.md / CLAUDE.md
@@ -166,7 +166,7 @@ home-bookshelf-management-v1/
 ### Docs
 
 - User: [get-started](docs/get-started.md) · [user guide](docs/user-guide.md) · [FAQ](docs/faq.md) · [CLI](docs/cli-reference.md) · [deploy](docs/deployment.md) · [Web UI](docs/web-ui.md) · [agent](docs/agent-setup.md)
-- Design: [design方案](design/家庭图书管理系统-设计方案.md) · [frontend evaluation](design/frontend-evaluation-report.md)
+- Design: [design方案](design/plans/家庭图书管理系统-设计方案.md) · [frontend evaluation](design/plans/frontend-evaluation-report.md)
 
 ### Backend Setup & Run
 
@@ -225,7 +225,7 @@ See [Path Alias Deployment](docs/web-ui.md#路径别名部署path-alias).
 
 ### Skills (Agent)
 
-The `skills/` directory ships 7 skills: `book-intake` · `book-query` · `bookshelf-setup` · `note-taker` · `purchase-logger` · `reading-tracker` · `shelf-report`. Add the directory to your Agent's (OpenClaw / Hermes) skill path to use them.
+The `skills/` directory ships 8 skills: `book-intake` · `book-query` · `bookshelf-setup` · `cover-eval` · `note-taker` · `purchase-logger` · `reading-tracker` · `shelf-report`. Add the directory to your Agent's (OpenClaw / Hermes) skill path to use them.
 
 ### Agent Guide
 
@@ -236,4 +236,4 @@ The `skills/` directory ships 7 skills: `book-intake` · `book-query` · `booksh
 5. Bind a member (whitelist): `bookshelf bind --member-id 1 --channel feishu --external-user-id <channel-user-id>` (empty-library first bind with `member_id=1` auto-creates a default owner)
 6. Add `skills/` to your Agent's skill path, then manage books via natural language
 
-> ⚠️ **Security**: business write endpoints (progress/notes/reading-logs/purchases/intake, plus attachments/copies/custom-fields) enforce channel auth, reading the `X-Channel` / `X-External-User-Id` headers: no channel header falls back to the default member (trusted-LAN), an unbound channel identity is rejected with 403, and a mismatch with body `member_id` is rejected with 403. The built-in Web UI sends an `X-UI-Client: web` header automatically, allowing it to write after channel bindings are established (BUG-134); external Agents/CLI do not send this header and still require channel auth. Optionally set `CHANNEL_SIGNING_SECRET` to require an HMAC signature (`X-Channel-Signature`) on channel headers, preventing forged plaintext headers from impersonating a bound member; the CLI passes it through via `BOOKSHELF_CHANNEL_SIGNING_SECRET`. Still recommended to **run only on a trusted home LAN; do not expose to the public internet**.
+> ⚠️ **Security**: all business endpoints (reads and writes) enforce unified auth (AuthContext); unauthenticated requests get 401. Pick one of: Agent Bearer Token (`Authorization: Bearer ...`, scope-checked per grant — see the matrix at `design/plans/agent-authorization-matrix.md`), Web session cookie (owner password login, set from the frontend "Agent" page), or channel headers `X-Channel` / `X-External-User-Id` (must be bound to a member; optionally enable HMAC signing via `CHANNEL_SIGNING_SECRET`, passed through by the CLI as `BOOKSHELF_CHANNEL_SIGNING_SECRET`). The `X-UI-Client` header no longer carries any authorization meaning. A web owner session may act for family members; agent/channel identities are limited to their bound member. Liveness probes use the public `GET /api/v1/public-health` (the Docker healthcheck has switched); `GET /api/v1/health` requires `members:read`. During bootstrap (no channel bindings yet) only `POST /members` and `bind` accept anonymous initialization. Still recommended to **run only on a trusted home LAN; do not expose to the public internet**.

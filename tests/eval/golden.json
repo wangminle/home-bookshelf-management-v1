@@ -1,0 +1,134 @@
+[
+  {
+    "id": "vlm-book-001",
+    "file": "normal_01.png",
+    "task": "cover_title_author",
+    "difficulty": "normal",
+    "expected": {
+      "title": "三体",
+      "author": "刘慈欣",
+      "isbn": "9787536692930"
+    }
+  },
+  {
+    "id": "vlm-book-002",
+    "file": "normal_02.png",
+    "task": "cover_title_author",
+    "difficulty": "normal",
+    "expected": {
+      "title": "活着",
+      "author": "余华",
+      "isbn": null
+    }
+  },
+  {
+    "id": "vlm-book-003",
+    "file": "art_font_01.png",
+    "task": "cover_title_author",
+    "difficulty": "art_font",
+    "expected": {
+      "title": "坚如磐石",
+      "author": "孙颙",
+      "isbn": null
+    }
+  },
+  {
+    "id": "vlm-book-004",
+    "file": "art_font_02.png",
+    "task": "cover_title_author",
+    "difficulty": "art_font",
+    "expected": {
+      "title": "百年孤独",
+      "author": "加西亚·马尔克斯",
+      "isbn": null
+    }
+  },
+  {
+    "id": "vlm-book-005",
+    "file": "vertical_01.png",
+    "task": "cover_title_author",
+    "difficulty": "vertical",
+    "expected": {
+      "title": "边城",
+      "author": "沈从文",
+      "isbn": null
+    }
+  },
+  {
+    "id": "vlm-book-006",
+    "file": "vertical_02.png",
+    "task": "cover_title_author",
+    "difficulty": "vertical",
+    "expected": {
+      "title": "围城",
+      "author": "钱钟书",
+      "isbn": null
+    }
+  },
+  {
+    "id": "vlm-book-007",
+    "file": "foreign_01.png",
+    "task": "cover_title_author",
+    "difficulty": "foreign",
+    "expected": {
+      "title": "Sapiens",
+      "author": "Yuval Noah Harari",
+      "isbn": null
+    }
+  },
+  {
+    "id": "vlm-book-008",
+    "file": "foreign_02.png",
+    "task": "cover_title_author",
+    "difficulty": "foreign",
+    "expected": {
+      "title": "The Little Prince",
+      "author": "Antoine de Saint-Exupéry",
+      "isbn": null
+    }
+  },
+  {
+    "id": "vlm-book-009",
+    "file": "blurry_01.png",
+    "task": "cover_title_author",
+    "difficulty": "blurry",
+    "expected": {
+      "title": "红楼梦",
+      "author": "曹雪芹",
+      "isbn": null
+    }
+  },
+  {
+    "id": "vlm-book-010",
+    "file": "blurry_02.png",
+    "task": "cover_title_author",
+    "difficulty": "blurry",
+    "expected": {
+      "title": "平凡的世界",
+      "author": "路遥",
+      "isbn": null
+    }
+  },
+  {
+    "id": "vlm-book-011",
+    "file": "angle_01.png",
+    "task": "cover_title_author",
+    "difficulty": "angle",
+    "expected": {
+      "title": "小王子",
+      "author": "圣埃克苏佩里",
+      "isbn": null
+    }
+  },
+  {
+    "id": "vlm-book-012",
+    "file": "angle_02.png",
+    "task": "cover_title_author",
+    "difficulty": "angle",
+    "expected": {
+      "title": "1984",
+      "author": "George Orwell",
+      "isbn": "9787532743476"
+    }
+  }
+]

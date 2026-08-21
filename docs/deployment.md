@@ -171,6 +171,21 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir .
 
 ---
 
+## 成员账号管理（权限阶段 2）
+
+Owner 与家庭成员使用统一登录页 `/login`（用户名 + 密码；系统只有一条凭据时
+用户名可留空）。成员账号由 Owner 管理：
+
+- **创建成员并设密码**：`POST /members` 建成员 → `POST /members/{id}/password`
+  设置初始密码（登录用户名默认按成员显示名生成，响应中返回）；
+- **停用/恢复与角色调整**：`PATCH /members/{id}`（`{"disabled": true}` 或
+  `{"role": "member"}`）；变更后该成员全部会话立即失效；唯一活跃 owner 不可
+  停用或降级；
+- **重置密码**：`POST /members/{id}/password`（重置后该成员全部会话失效）；
+- **自助改密**：登录后 `POST /auth/change-password`（保留当前会话，其余失效）；
+- 连续 5 次密码错误锁定 15 分钟；登录接口按来源 IP 限流失败尝试。
+
+---
 ## 备份
 
 ```bash

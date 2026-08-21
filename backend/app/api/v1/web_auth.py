@@ -19,6 +19,7 @@ from app.schemas.agent_access import (
     OwnerLoginResponse,
     OwnerPasswordSetRequest,
     OwnerSessionOut,
+    SelfPasswordChangeRequest,
 )
 from app.services import agent_access
 
@@ -247,23 +248,30 @@ def login(
             headers={"Retry-After": "60", "X-Error-Code": "RATE_LIMITED"},
         )
 
-    if not agent_access.has_owner_password(db):
-        raise HTTPException(status_code=400, detail="Owner 密码尚未设置，请先初始化")
-    member = agent_access.verify_owner_password(db, body.password)
+    # 权限阶段 2：统一登录入口——按用户名解析成员（单凭据可省略用户名）
+    member = agent_access.resolve_login_member(db, body.username)
     if member is None:
+        if body.username:
+            raise HTTPException(status_code=401, detail="用户名或密码错误")
+        raise HTTPException(status_code=400, detail="存在多个登录账号，请提供用户名")
+    if not agent_access.member_has_password(db, member.id):
+        raise HTTPException(status_code=400, detail="该账号尚未设置密码")
+    if not agent_access.verify_member_password(db, member, body.password):
         rate_limit.check(
             rl_key,
             limit=settings.auth_login_rate_limit_per_minute,
             window_seconds=60,
         )
-        raise HTTPException(status_code=401, detail="密码错误")
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
     token, _ = agent_access.create_web_session(
         db, member.id,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )
     _set_session_cookie(response, token, secure=_is_secure_request(request))
-    return OwnerLoginResponse(authenticated=True, member_id=member.id, member_name=member.name)
+    return OwnerLoginResponse(
+        authenticated=True, member_id=member.id, member_name=member.name, role=member.role
+    )
 
 
 @router.post("/logout")
@@ -285,11 +293,48 @@ def session_status(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """查询当前会话状态。"""
+    """查询当前会话状态（权限阶段 2：附角色，前端按角色渲染导航与能力）。"""
     token = request.cookies.get(_COOKIE_NAME)
     if not token:
         return OwnerSessionOut(authenticated=False)
     member = agent_access.verify_web_session(db, token)
     if member is None:
         return OwnerSessionOut(authenticated=False)
-    return OwnerSessionOut(authenticated=True, member_id=member.id, member_name=member.name)
+    return OwnerSessionOut(
+        authenticated=True, member_id=member.id,
+        member_name=member.name, role=member.role,
+    )
+
+
+@router.post("/change-password")
+def change_password(
+    body: SelfPasswordChangeRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """自助修改密码（权限阶段 2）：验证旧密码→设置新密码→撤销其它会话。
+
+    当前会话保留（keep_token），其余全部失效（基线 §5.2：密码变化撤销受影响会话）。
+    """
+    token = request.cookies.get(_COOKIE_NAME)
+    if not token:
+        raise HTTPException(status_code=401, detail="未登录")
+    member = agent_access.verify_web_session(db, token)
+    if member is None:
+        raise HTTPException(status_code=401, detail="会话已过期或无效")
+    if body.new_password != body.confirm:
+        raise HTTPException(status_code=400, detail="两次输入的新密码不一致")
+    if not agent_access.change_member_password(
+        db, member, old_password=body.old_password, new_password=body.new_password
+    ):
+        raise HTTPException(status_code=401, detail="旧密码错误")
+    revoked = agent_access.revoke_member_sessions(db, member.id, keep_token=token)
+    from app.utils.operation_log import log_and_commit
+
+    log_and_commit(
+        db,
+        action="member.password_change",
+        member_id=member.id,
+        payload={"revoked_sessions": revoked},
+    )
+    return {"ok": True, "revoked_sessions": revoked}

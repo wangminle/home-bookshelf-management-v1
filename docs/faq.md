@@ -84,15 +84,15 @@ export BOOKSHELF_EXTERNAL_USER_ID=ou_xxx
 
 ### Web UI 绑定后写操作 403？
 
-V0.2.5 起，Web UI 使用 Owner 密码登录获取会话 Cookie，不再依赖 `X-UI-Client` 头。如果遇到 403：
+Web UI 通过统一登录页 `/login` 获取会话 Cookie（权限阶段 2 起 Owner 与家庭成员共用入口；不再依赖 `X-UI-Client` 头）。如果遇到 403：
 
-1. 确认已通过 `/agent-authorization` 页面初始化 Owner 密码并登录
+1. 确认 Owner 已初始化密码（`/agent-authorization` 页首次设置），并已在 `/login` 登录
 2. 清除浏览器 Cookie 后重新登录
 3. 旧的 `X-UI-Client: web` 旁路已移除，不再有效
 
 ### Agent Token 怎么获取？
 
-Owner 登录 `/agent-authorization` 页面后：
+Owner 在 `/login` 登录后进入 `/agent-authorization` 页面：
 
 1. 创建 Agent 客户端
 2. 创建授权（选择成员、Scope、有效期）

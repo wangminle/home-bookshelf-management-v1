@@ -102,6 +102,8 @@ class AgentTokenInfo(BaseModel):
 # ── Owner Auth ──
 
 class OwnerLoginRequest(BaseModel):
+    # 权限阶段 2：统一登录入口——用户名可省略（系统仅一条凭据时回退，兼容旧流程）
+    username: str | None = Field(None, min_length=1, max_length=50)
     password: str = Field(..., min_length=1)
 
 
@@ -109,6 +111,13 @@ class OwnerLoginResponse(BaseModel):
     authenticated: bool
     member_id: int
     member_name: str
+    role: str = "owner"
+
+
+class SelfPasswordChangeRequest(BaseModel):
+    old_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=128)
+    confirm: str = Field(..., min_length=8, max_length=128)
 
 
 class OwnerPasswordSetRequest(BaseModel):
@@ -120,3 +129,4 @@ class OwnerSessionOut(BaseModel):
     authenticated: bool
     member_id: int | None = None
     member_name: str | None = None
+    role: str | None = None

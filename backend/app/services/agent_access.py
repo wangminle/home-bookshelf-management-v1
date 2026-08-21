@@ -22,7 +22,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import AgentClient, AgentGrant, AgentToken, Member, OwnerCredential, WebSession
+from app.models import AgentClient, AgentGrant, AgentToken, Member, MemberCredential, WebSession
 from app.services.permission_policy import (
     AGENT_GRANTABLE_SCOPES,
     ALL_SCOPES,  # noqa: F401 — 历史引用经 agent_access.ALL_SCOPES 继续可用
@@ -323,6 +323,9 @@ def verify_token(db: Session, plaintext: str) -> tuple[AgentToken, AgentGrant, A
     member = db.get(Member, grant.member_id)
     if member is None:
         return None
+    # BUG-203：停用成员的 Agent 凭据即时失效（与 Web 会话/渠道口径一致）
+    if member.disabled_at is not None:
+        return None
 
     # 更新使用时间
     token_row.last_used_at = now
@@ -346,48 +349,101 @@ def revoke_token(db: Session, token_id: int) -> None:
     db.commit()
 
 
-# ── Owner 密码 ──
+# ── 成员凭据（权限阶段 2：Owner/Member 统一，基线 §12.1） ──
 
 def get_owner_member(db: Session) -> Member | None:
     """获取 owner 角色的成员。"""
     return db.scalar(select(Member).where(Member.role == "owner"))
 
 
+def get_member_credential(db: Session, member_id: int) -> MemberCredential | None:
+    return db.scalar(select(MemberCredential).where(MemberCredential.member_id == member_id))
+
+
+def member_has_password(db: Session, member_id: int) -> bool:
+    return get_member_credential(db, member_id) is not None
+
+
 def has_owner_password(db: Session) -> bool:
+    """兼容既有调用（/auth/status、init-password 守卫、admin CLI）：owner 是否已设密码。"""
     owner = get_owner_member(db)
     if owner is None:
         return False
-    cred = db.scalar(select(OwnerCredential).where(OwnerCredential.member_id == owner.id))
-    return cred is not None
+    return member_has_password(db, owner.id)
 
 
-def set_owner_password(db: Session, password: str) -> None:
-    owner = get_owner_member(db)
-    if owner is None:
-        raise HTTPException(status_code=400, detail="系统中尚无 owner 成员，请先完成初始化")
+def set_member_password(db: Session, member: Member, password: str) -> None:
+    """设置/重置成员密码（重置后由调用方决定撤销会话）。
+
+    任何凭据都隐含登录身份：无用户名的成员在此补齐（按显示名生成唯一值）。
+    """
     hashed = _argon2.hash(password)
-    cred = db.scalar(select(OwnerCredential).where(OwnerCredential.member_id == owner.id))
+    cred = get_member_credential(db, member.id)
     if cred is None:
-        cred = OwnerCredential(member_id=owner.id, password_hash=hashed)
+        cred = MemberCredential(member_id=member.id, password_hash=hashed)
         db.add(cred)
     else:
         cred.password_hash = hashed
         cred.failed_attempts = 0
         cred.locked_until = None
+    if not member.username:
+        member.username = ensure_unique_username(db, member.name or "user", exclude_id=member.id)
     db.commit()
 
 
-def verify_owner_password(db: Session, password: str) -> Member | None:
-    """验证 owner 密码。返回 owner member 或 None。
-
-    包含防爆破：连续失败 MAX_LOGIN_ATTEMPTS 次后锁定 LOCK_DURATION_MINUTES 分钟。
-    """
+def set_owner_password(db: Session, password: str) -> None:
+    """兼容既有调用（init-password/admin CLI）：设置 owner 密码并补登录用户名。"""
     owner = get_owner_member(db)
     if owner is None:
-        return None
-    cred = db.scalar(select(OwnerCredential).where(OwnerCredential.member_id == owner.id))
+        raise HTTPException(status_code=400, detail="系统中尚无 owner 成员，请先完成初始化")
+    set_member_password(db, owner, password)
+    if not owner.username:
+        owner.username = ensure_unique_username(db, owner.name or "owner", exclude_id=owner.id)
+        db.commit()
+
+
+def ensure_unique_username(db: Session, base: str, *, exclude_id: int | None = None) -> str:
+    """以显示名（或指定基名）生成唯一用户名，冲突追加 _2/_3…。"""
+    base = (base or "user").strip() or "user"
+    candidates = {row[0] for row in db.execute(
+        select(Member.username).where(Member.username.is_not(None))
+    ).all() if row[0]}
+    username, seq = base, 2
+    while username in candidates:
+        username, seq = f"{base}_{seq}", seq + 1
+    return username
+
+
+def resolve_login_member(db: Session, username: str | None) -> Member | None:
+    """按用户名解析登录成员（大小写不敏感）。
+
+    未提供用户名时：系统恰有一条凭据则回退到该成员（单账号家庭/兼容
+    既有仅密码登录流程），多于一条则返回 None（调用方要求提供用户名）。
+    """
+    if username:
+        member = db.scalar(
+            select(Member).where(Member.username == username.strip())
+        )
+        if member is None:
+            # 大小写不敏感兜底
+            rows = db.scalars(select(Member).where(Member.username.is_not(None))).all()
+            member = next(
+                (m for m in rows if (m.username or "").lower() == username.strip().lower()), None
+            )
+        return member
+    rows = db.scalars(select(MemberCredential.member_id)).all()
+    if len(rows) == 1:
+        return db.get(Member, rows[0])
+    return None
+
+
+def verify_member_password(db: Session, member: Member, password: str) -> bool:
+    """验证成员密码（含停用检查与防爆破锁定）。成功 True；失败/锁定抛错或 False。"""
+    if member.disabled_at is not None:
+        raise HTTPException(status_code=403, detail="该成员已停用，无法登录")
+    cred = get_member_credential(db, member.id)
     if cred is None:
-        return None
+        return False
 
     now = _now()
     if cred.locked_until is not None and cred.locked_until > now:
@@ -404,13 +460,53 @@ def verify_owner_password(db: Session, password: str) -> Member | None:
             cred.locked_until = now + timedelta(minutes=LOCK_DURATION_MINUTES)
             cred.failed_attempts = 0
         db.commit()
-        return None
+        return False
 
-    # 成功：重置计数
     cred.failed_attempts = 0
     cred.locked_until = None
     db.commit()
-    return owner
+    return True
+
+
+def verify_owner_password(db: Session, password: str) -> Member | None:
+    """兼容既有调用：仅密码登录 owner（无用户名，要求 owner 恰为单凭据场景）。"""
+    owner = get_owner_member(db)
+    if owner is None:
+        return None
+    if verify_member_password(db, owner, password):
+        return owner
+    return None
+
+
+def change_member_password(
+    db: Session, member: Member, *, old_password: str, new_password: str
+) -> bool:
+    """自助修改密码：验证旧密码成功后设置新密码。返回是否成功。"""
+    if not verify_member_password(db, member, old_password):
+        return False
+    set_member_password(db, member, new_password)
+    return True
+
+
+def revoke_member_sessions(
+    db: Session, member_id: int, *, keep_token: str | None = None
+) -> int:
+    """撤销成员全部会话（角色变化/密码重置/停用后调用）。返回撤销数。"""
+    now = _now()
+    stmt = (
+        update(WebSession)
+        .where(
+            WebSession.member_id == member_id,
+            WebSession.revoked_at.is_(None),
+            WebSession.expires_at > now,
+        )
+        .values(revoked_at=now)
+    )
+    if keep_token is not None:
+        stmt = stmt.where(WebSession.session_token != keep_token)
+    result = db.execute(stmt)
+    db.commit()
+    return result.rowcount or 0
 
 
 # ── Web Session ──
@@ -451,6 +547,9 @@ def verify_web_session(db: Session, session_token: str) -> Member | None:
         return None
     member = db.get(Member, session.member_id)
     if member is None:
+        return None
+    # 权限阶段 2：停用成员的既有会话立即失效
+    if member.disabled_at is not None:
         return None
     return member
 

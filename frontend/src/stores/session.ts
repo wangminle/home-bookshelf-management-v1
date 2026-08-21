@@ -6,6 +6,10 @@ import { ref } from 'vue'
  * SPA 内登录/登出后必须失效缓存，否则路由守卫会拿到过期结论。
  */
 export const sessionAuthenticated = ref<boolean | null>(null)
+/** 权限阶段 2：会话角色与成员 ID（前端只做展示分流，权限判定仍在后端） */
+export const sessionRole = ref<string | null>(null)
+export const sessionMemberId = ref<number | null>(null)
+export const sessionMemberName = ref<string | null>(null)
 
 /** 探测会话；force=true 绕过缓存（登录/登出后调用）。 */
 export async function probeSession(force = false): Promise<boolean> {
@@ -18,8 +22,14 @@ export async function probeSession(force = false): Promise<boolean> {
     })
     const body = await res.json()
     sessionAuthenticated.value = Boolean(body?.authenticated)
+    sessionRole.value = body?.role ?? null
+    sessionMemberId.value = body?.member_id ?? null
+    sessionMemberName.value = body?.member_name ?? null
   } catch {
     sessionAuthenticated.value = false
+    sessionRole.value = null
+    sessionMemberId.value = null
+    sessionMemberName.value = null
   }
   return sessionAuthenticated.value
 }
@@ -27,4 +37,7 @@ export async function probeSession(force = false): Promise<boolean> {
 /** 登录/登出后失效缓存，下一次守卫触发时重新探测。 */
 export function invalidateSession(): void {
   sessionAuthenticated.value = null
+  sessionRole.value = null
+  sessionMemberId.value = null
+  sessionMemberName.value = null
 }

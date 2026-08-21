@@ -35,11 +35,14 @@ def member_count(db: Session) -> int:
 
 
 def create_member(db: Session, payload: MemberCreate) -> MemberCreateResult:
+    from app.services.agent_access import ensure_unique_username
+
     member = Member(
         name=payload.name,
         role=payload.role,
         avatar_path=payload.avatar_path,
         reading_streak_offset=payload.reading_streak_offset,
+        username=payload.username or ensure_unique_username(db, payload.name),
     )
     db.add(member)
     try:

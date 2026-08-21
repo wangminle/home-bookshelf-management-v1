@@ -34,6 +34,7 @@ def update_progress(
     log_and_commit(
         db,
         action="progress.update",
+        operator_member_id=ctx.member_id,
         member_id=result.progress.member_id,
         channel=ctx.channel,
         payload={"book_id": book_id, "progress_id": result.progress.id},

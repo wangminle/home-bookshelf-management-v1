@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Integer, String, Text
+from sqlalchemy import DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampUpdateMixin
@@ -17,10 +18,18 @@ class Member(Base, TimestampUpdateMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
+    # 权限阶段 2：登录用户名（大小写不敏感比对；显示名 name 独立保留）
+    username: Mapped[str | None] = mapped_column(String(50), index=True)
     role: Mapped[str] = mapped_column(String(20), default="member", server_default="member", nullable=False)
     avatar_path: Mapped[str | None] = mapped_column(String(500))
     channel_bindings: Mapped[str | None] = mapped_column(Text)  # JSON: {"feishu":"ou_xxx"}
     reading_streak_offset: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # 权限阶段 2：停用时间——非空表示停用（禁止登录、现有会话全部失效）
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    @property
+    def is_disabled(self) -> bool:
+        return self.disabled_at is not None
 
     reading_progress: Mapped[list[ReadingProgress]] = relationship(back_populates="member")
     reading_logs: Mapped[list[ReadingLog]] = relationship(back_populates="member")

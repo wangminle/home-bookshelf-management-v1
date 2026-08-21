@@ -4,7 +4,7 @@ from app.models.book import Book, BookCopy, PurchaseRecord, ReadingLog, ReadingN
 from app.models.extension import Attachment, CustomField, OperationLog
 from app.models.member import Member
 from app.models.tag import BookTag, Tag
-from app.models.web_auth import OwnerCredential, WebSession
+from app.models.web_auth import MemberCredential, WebSession
 
 __all__ = [
     "Base",
@@ -23,6 +23,6 @@ __all__ = [
     "AgentClient",
     "AgentGrant",
     "AgentToken",
-    "OwnerCredential",
+    "MemberCredential",
     "WebSession",
 ]

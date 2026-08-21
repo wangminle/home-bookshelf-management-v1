@@ -32,6 +32,7 @@ def add_purchase(
     log_and_commit(
         db,
         action="purchase.create",
+        operator_member_id=ctx.member_id,
         member_id=result.purchase.buyer_member_id,
         channel=ctx.channel,
         payload={"book_id": book_id, "purchase_id": result.purchase.id},

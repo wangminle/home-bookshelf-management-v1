@@ -1108,3 +1108,15 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* 权限阶段 2：顶栏退出入口 */
+.logout-btn {
+  border: 1px solid var(--border, #d7dee8);
+  background: transparent;
+  color: inherit;
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.logout-btn:hover { background: var(--border, #eef2f6); }

@@ -30,6 +30,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      // 统一登录页（权限阶段 2）：Owner/Member 共用，不内嵌于授权页
+      path: '/login',
+      name: 'login',
+      component: () => import('@/views/LoginView.vue'),
+    },
+    {
       // 匿名共享书架（权限阶段 1：C 模式），无需登录
       path: '/shared',
       name: 'shared-bookshelf',

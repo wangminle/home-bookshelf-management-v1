@@ -151,11 +151,21 @@ def _mcp_item(summary: dict[str, Any]) -> dict[str, Any]:
 
 
 def search_books(db: Session, arguments: dict[str, Any]) -> dict[str, Any]:
+    # BUG-204：入参类型/枚举校验前移到工具边界--畸形 JSON 类型不得引发 500
+    # （非字符串 query/author 等在 search_catalog 内 .strip() 崩溃；非字符串
+    # cursor 在 decode_cursor .split() 崩溃），无效 availability 也不得被
+    # 静默当作"不过滤"处理。
+    for key in ("query", "author", "category", "language"):
+        value = arguments.get(key)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, str)):
+            raise ToolError("PARAM_INVALID", f"{key} 必须是字符串")
+    availability = arguments.get("availability")
+    if availability is not None and availability not in ("in_shelf", "borrowed", "unknown"):
+        raise ToolError("PARAM_INVALID", "availability 必须是 in_shelf/borrowed/unknown 之一")
     query = arguments.get("query")
     author = arguments.get("author")
     category = arguments.get("category")
     language = arguments.get("language")
-    availability = arguments.get("availability")
     if not any((query, author, category, language, availability)):
         raise ToolError(
             "QUERY_REQUIRED",
@@ -168,6 +178,8 @@ def search_books(db: Session, arguments: dict[str, Any]) -> dict[str, Any]:
     if limit < 1 or limit > settings.mcp_max_page_size:
         raise ToolError("LIMIT_INVALID", f"limit 必须在 1-{settings.mcp_max_page_size} 之间")
     cursor = arguments.get("cursor")
+    if cursor is not None and not isinstance(cursor, str):
+        raise ToolError("INVALID_CURSOR", "cursor 必须是字符串")
     filters = {
         "query": query, "author": author, "category": category,
         "language": language, "availability": availability,

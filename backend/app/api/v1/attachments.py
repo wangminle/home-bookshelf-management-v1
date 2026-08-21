@@ -23,6 +23,7 @@ def _create_attachment_in_thread(
     upload_path: Path | None,
     member_id: int,
     channel: str | None,
+    operator_member_id: int | None = None,
 ) -> dict:
     """BUG-168：鉴权已在外层由 AuthContext 完成，线程内只做业务。"""
     with db_module.SessionLocal() as db:
@@ -32,6 +33,7 @@ def _create_attachment_in_thread(
             action="attachment.create",
             member_id=member_id,
             channel=channel,
+            operator_member_id=operator_member_id,
             payload={"attachment_id": result.attachment.id},
         )
         data = AttachmentOut.model_validate(result.attachment).model_dump()
@@ -84,6 +86,7 @@ async def add_attachment(
                 # require_scope 已保证认证身份，member_id 必有值
                 member_id=ctx.member_id,  # type: ignore[arg-type]
                 channel=ctx.channel,
+                operator_member_id=ctx.member_id,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

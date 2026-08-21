@@ -22,7 +22,7 @@ cd backend && python -m app.admin owner-init-password
 # 或通过 Web UI 访问 /agent-authorization 页面
 ```
 
-设置后，Owner 可通过 Web UI 登录管理 Agent 授权。
+设置后，Owner 通过统一登录页 `/login` 登录（权限阶段 2 起 Owner 与家庭成员使用同一入口；只有一个账号时用户名可留空）管理 Agent 授权。
 
 ---
 
@@ -83,7 +83,7 @@ Skills 包含 9 个技能：
 
 ### Web UI 方式（推荐）
 
-1. Owner 登录 `/agent-authorization` 页面
+1. Owner 在 `/login` 登录后进入 `/agent-authorization` 页面
 2. 创建 Agent 客户端（名称 + 类型）
 3. 创建授权（选择成员、Scope、有效期）
 4. 签发 Token — **Token 仅显示一次，请立即保存**
@@ -94,7 +94,7 @@ Skills 包含 9 个技能：
 # 1. Owner 登录获取 Cookie
 curl -c cookies.txt -X POST http://<服务器>/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"password": "your-password"}'
+  -d '{"username": "your-username", "password": "your-password"}'
 
 # 2. 创建 Agent 客户端
 curl -b cookies.txt -X POST http://<服务器>/agent-access/clients \

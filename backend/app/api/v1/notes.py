@@ -33,6 +33,7 @@ def add_note(
     log_and_commit(
         db,
         action="note.create",
+        operator_member_id=ctx.member_id,
         member_id=result.note.member_id,
         channel=ctx.channel,
         payload={"book_id": book_id, "note_id": result.note.id},

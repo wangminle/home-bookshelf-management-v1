@@ -83,19 +83,19 @@ onMounted(() => load(1))
         <h1>共享书架</h1>
         <p class="shared-note">局域网共享视图 · 仅展示书目公开信息</p>
       </div>
-      <RouterLink to="/agent-authorization" class="login-link">登录管理</RouterLink>
+      <RouterLink to="/login" class="login-link">登录管理</RouterLink>
     </div>
 
     <!-- 降级状态：不可信来源 / 模式关闭 / 限流 -->
     <div v-if="status === 'lan_required'" class="gate-card" role="status">
       <p class="gate-title">共享书架仅在可信家庭局域网内开放</p>
       <p>当前无法确认请求来自家庭局域网，已自动切换为登录模式。</p>
-      <RouterLink to="/agent-authorization" class="login-link">前往登录</RouterLink>
+      <RouterLink to="/login" class="login-link">前往登录</RouterLink>
     </div>
     <div v-else-if="status === 'disabled'" class="gate-card" role="status">
       <p class="gate-title">匿名浏览未开启</p>
       <p>Owner 可在部署配置中将 ANONYMOUS_CATALOG_MODE 设为 lan_shared 开启局域网共享。</p>
-      <RouterLink to="/agent-authorization" class="login-link">前往登录</RouterLink>
+      <RouterLink to="/login" class="login-link">前往登录</RouterLink>
     </div>
     <div v-else-if="status === 'rate_limited'" class="gate-card" role="status">
       <p class="gate-title">浏览过于频繁</p>

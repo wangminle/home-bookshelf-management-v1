@@ -54,6 +54,8 @@ class AuthContext:
     # Channel 兼容
     channel: str | None = None
     external_user_id: str | None = None
+    # 权限阶段 2：Owner 显式代操作——Web Owner 代表其他成员写入时记录数据归属人
+    acting_for_member_id: int | None = None
 
     @property
     def is_owner(self) -> bool:
@@ -319,6 +321,9 @@ def _build_from_channel_headers(
             status_code=403,
             detail=f"渠道 {channel} 的外部用户 {external_user_id} 未绑定任何家庭成员",
         )
+    # BUG-203：停用成员的渠道身份即时失效（与 Web 会话/Agent 口径一致）
+    if member.disabled_at is not None:
+        raise HTTPException(status_code=403, detail="该成员已停用，无法通过渠道访问")
     # 权限阶段 0（任务 0.5）：修复死分支——渠道能力按绑定 Member 角色映射
     # （基线 §5.4/§8）。此前 owner/member 两分支均给 ALL_SCOPES，非 Owner 渠道
     # 身份实际持有全量能力；现缩权为：member → member 能力集（失去
@@ -434,6 +439,8 @@ def resolve_body_member(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"成员 ID {body_member_id} 不存在",
             )
+        # 权限阶段 2：显式代操作标记（操作者=ctx.member_id，数据归属人=body_member_id）
+        ctx.acting_for_member_id = body_member_id
         return body_member_id
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -622,6 +629,9 @@ def enforce_channel_member(
             status_code=403,
             detail=f"渠道 {channel} 的外部用户 {external_user_id} 未绑定任何家庭成员",
         )
+    # BUG-203：停用成员的渠道身份即时失效（与 Web 会话/Agent 口径一致）
+    if member.disabled_at is not None:
+        raise HTTPException(status_code=403, detail="该成员已停用，无法通过渠道访问")
     if body_member_id is not None and body_member_id != member.id:
         raise HTTPException(
             status_code=403,

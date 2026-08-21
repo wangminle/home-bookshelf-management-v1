@@ -11,7 +11,7 @@
  */
 import { ref, onMounted } from 'vue'
 import ScopeSelector from '@/components/ScopeSelector.vue'
-import { probeSession, invalidateSession } from '@/stores/session'
+import { invalidateSession } from '@/stores/session'
 
 // ── 类型 ──
 interface AgentClient {
@@ -40,9 +40,6 @@ interface Member {
 
 // ── 状态 ──
 const authStatus = ref<{ authenticated: boolean; member_id?: number; member_name?: string } | null>(null)
-const showLogin = ref(false)
-const loginPassword = ref('')
-const loginError = ref('')
 const passwordInitialized = ref(false)
 const initPassword = ref('')
 const initPasswordConfirm = ref('')
@@ -123,23 +120,6 @@ async function doInitPassword() {
     await checkAuthStatus()
   } catch (e: any) {
     initError.value = e.message
-  }
-}
-
-async function doLogin() {
-  loginError.value = ''
-  try {
-    await apiCall('auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ password: loginPassword.value }),
-    })
-    loginPassword.value = ''
-    showLogin.value = false
-    await checkAuthStatus()
-    // CHK-071：登录成功后强制刷新会话缓存，路由守卫立即放行受保护页面
-    await probeSession(true)
-  } catch (e: any) {
-    loginError.value = e.message
   }
 }
 
@@ -310,16 +290,9 @@ onMounted(() => {
         <button @click="doInitPassword">设置密码</button>
       </div>
       <div v-else class="login">
-        <h2>🔐 Owner 登录</h2>
-        <input
-          v-model="loginPassword"
-          type="password"
-          placeholder="Owner 密码"
-          aria-label="密码"
-          @keyup.enter="doLogin"
-        />
-        <p v-if="loginError" class="error">{{ loginError }}</p>
-        <button @click="doLogin">登录</button>
+        <h2>🔐 需要登录</h2>
+        <!-- 权限阶段 2（基线 §10.2）：统一登录页，授权页不再内嵌登录表单 -->
+        <RouterLink to="/login" class="btn-primary">前往登录</RouterLink>
       </div>
     </div>
 

@@ -23,4 +23,4 @@ def test_public_health_includes_frontend_version_fields() -> None:
     assert "frontend_version" in dumped
     assert "build_time" in dumped
     assert "app_version" in dumped
-    assert dumped["app_version"] == "0.3.8"
+    assert dumped["app_version"] == "0.3.9"

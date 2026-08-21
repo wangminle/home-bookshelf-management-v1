@@ -195,6 +195,24 @@ def get_book(
             ]
     else:
         data.pop("reading_notes", None)
+
+    # 权限阶段 2：Owner 跨成员查看 L3 → 共享安全审计（采样留痕，含数据归属人）
+    if _owner_view and ctx.member_id is not None:
+        foreign = [p.get("member_id") for p in data.get("reading_progress", [])
+                   if p.get("member_id") not in (None, ctx.member_id)]
+        foreign += [n.get("member_id") for n in data.get("reading_notes", [])
+                    if n.get("member_id") not in (None, ctx.member_id)]
+        foreign += [pr.get("buyer_member_id") for pr in data.get("purchase_records", [])
+                    if pr.get("buyer_member_id") not in (None, ctx.member_id)]
+        if foreign:
+            from app.services import security_audit
+
+            security_audit.log_security_event(
+                event_type="owner.delegate_view",
+                outcome="allow",
+                subject=f"web:{ctx.member_id}",
+                details={"book_id": book_id, "data_owner_member_ids": sorted({f for f in foreign if f})},
+            )
     return ApiResponse(data=data)
 
 

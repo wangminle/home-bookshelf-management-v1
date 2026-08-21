@@ -1,6 +1,9 @@
-"""WBS-5：Owner 凭证与 Web 会话。
+"""WBS-5 / 权限阶段 2：成员凭据与 Web 会话。
 
-Owner 使用 Argon2id 密码，Web 会话使用 HttpOnly Cookie。
+Member 独立凭据（权限基线 §12.1）：
+- owner_credentials 演进为 member_credentials——每名 Member 零或一条可撤销凭据；
+- 密码摘要 Argon2id；保留失败锁定（5 次/15 分钟）与密码重置/停用后的会话撤销。
+Web 会话使用 HttpOnly Cookie。
 """
 from __future__ import annotations
 
@@ -9,18 +12,18 @@ from datetime import datetime, timezone
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, TimestampMixin, TimestampUpdateMixin
+from app.models.base import Base, TimestampUpdateMixin
 
 
-class OwnerCredential(Base, TimestampUpdateMixin):
-    """Owner 凭证：Argon2id 哈希。"""
-    __tablename__ = "owner_credentials"
-    # DB 同时存在唯一约束与命名唯一索引（e5a2b3c4d6f8 建表口径），两者都显式声明
-    __table_args__ = (Index("ix_owner_credentials_member_id", "member_id", unique=True),)
+class MemberCredential(Base, TimestampUpdateMixin):
+    """成员登录凭据：一名 Member 零或一条；Argon2id 哈希，含防爆破锁定状态。"""
+    __tablename__ = "member_credentials"
+    # 唯一约束与命名唯一索引同时声明（与既有建表口径一致）
+    __table_args__ = (Index("ix_member_credentials_member_id", "member_id", unique=True),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     member_id: Mapped[int] = mapped_column(
-        ForeignKey("members.id"), unique=True, nullable=False
+        ForeignKey("members.id", ondelete="CASCADE"), unique=True, nullable=False
     )
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     failed_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)

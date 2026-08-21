@@ -32,6 +32,7 @@ def add_reading_log(
     log_and_commit(
         db,
         action="reading_log.create",
+        operator_member_id=ctx.member_id,
         member_id=result.log.member_id,
         channel=ctx.channel,
         payload={"book_id": book_id, "log_id": result.log.id},

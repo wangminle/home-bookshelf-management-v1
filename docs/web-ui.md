@@ -152,8 +152,10 @@ bash scripts/deploy_frontend.sh --base /home-bookshelf/
 | 书架概览图生成（封面拼图 + 统计摘要 + 分类 TOP3） | ✅ |
 | 概览图导出 PNG / 分享 | ✅ |
 | 匿名共享书架 `/shared`（C 模式：脱敏书目浏览/搜索/详情，权限阶段 1） | ✅ |
+| 统一登录页 `/login`（Owner/Member 共用，权限阶段 2） | ✅ |
+| 角色化导航（Member 无管理入口/无成员切换器；顶栏退出） | ✅ |
 | `/agent` Agent 连接信息页 | ✅ |
-| `/agent-authorization` Agent 授权管理（Owner 登录 / 密码初始化 / 签发 Token） | ✅ |
+| `/agent-authorization` Agent 授权管理（密码初始化 / 签发 Token；登录走 `/login`） | ✅ |
 | `/agent-access` 授权列表页 | ✅ |
 
 ### 概览图功能
@@ -168,7 +170,7 @@ bash scripts/deploy_frontend.sh --base /home-bookshelf/
 
 ## 鉴权模型
 
-Web UI 使用 Owner 密码登录（前端「Agent 授权」页首次设置）：登录后持有 `hbs_session` 会话 Cookie，全部业务请求凭该会话通过统一鉴权（AuthContext）；`X-UI-Client` 头已无任何授权含义。Owner 会话可在顶栏切换家庭成员并代表其操作（写请求携带所选 `member_id`）；外部 Agent/CLI 走 Bearer Token 或渠道头，只能操作绑定成员本人的数据。**请勿将 Web UI 直接暴露到公网。**
+Web UI 通过统一登录页 `/login` 登录（权限阶段 2：Owner 与家庭成员使用各自用户名+密码；Owner 密码在「Agent 授权」页首次设置，成员账号由 Owner 创建并设置密码）：登录后持有 `hbs_session` 会话 Cookie，全部业务请求凭该会话通过统一鉴权（AuthContext），`X-UI-Client` 头无任何授权含义。角色/密码/停用变更后受影响会话立即失效。Owner 会话可在顶栏切换家庭成员并代表其操作（写请求携带所选 `member_id`，操作日志记录实际操作者与数据归属人）；Member 登录后固定本人身份、无成员切换器、不显示管理入口；外部 Agent/CLI 走 Bearer Token 或渠道头，只能操作绑定成员本人的数据。**请勿将 Web UI 直接暴露到公网。**
 
 ## 技术栈
 

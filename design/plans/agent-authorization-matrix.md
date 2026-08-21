@@ -96,12 +96,15 @@ Grant 风险分级：`HIGH_RISK_SCOPES = {books:delete, stats:household}`——�
 | `/agent-access/tokens/{grant_id}` | GET | 无（owner 专用） | owner/web | L4 | 全局 | 授权管理 |
 | `/agent-access/tokens/{token_id}` | DELETE | 无（owner 专用） | owner/web | L4 | 全局 | 授权管理 |
 | `/mcp` | POST | 无（Agent Bearer；Grant 须恰 `books:read` 且显式 data_scope=household_shared） | agent | L1/L2 | household_shared | **CHK-073 硬化**：默认关闭 404；协议头必填（allowlist 2026-07-28）；Host 421/Origin 403 防护；server/discover+tools/list+tools/call（initialize 已移除）；Cookie/渠道头 401；限流（Client+Grant+Tool 三维）429；审计失败 503 fail-closed；工具输出无封面 URL/标签 |
+| `/api/v1/members/{id}` | PATCH | 无（owner web 专用） | owner/web | L4 | 全局 | **权限阶段 2**：角色调整/停用恢复；末位活跃 owner 保护；变更即撤销该成员会话 |
+| `/api/v1/members/{id}/password` | POST | 无（owner web 专用） | owner/web | L4 | 全局 | **权限阶段 2**：Owner 重置成员密码并撤销其全部会话 |
+| `/auth/change-password` | POST | 无（已认证） | owner/member(web) | L4 | 无 | **权限阶段 2**：自助改密；保留当前会话、撤销其它会话 |
 | `/auth/status` | GET | 无（公开） | 匿名 | L0 | 无 | 是否已初始化 Owner 密码 |
 | `/auth/init-password` | POST | 无（公开，限 loopback/`X-Setup-Token`） | 匿名 | L4 | 无 | Owner 密码初始化 |
-| `/auth/login` | POST | 无（公开） | 匿名 | L0 | 无 | owner 登录 |
+| `/auth/login` | POST | 无（公开；失败计数限流） | 匿名 | L0 | 无 | **阶段 2**：统一登录入口（owner/member；用户名+密码，单凭据可省略用户名；返回角色） |
 | `/auth/introspect` | GET | 无（需 Bearer Token） | agent | L0 | 无 | Token 自检 |
 | `/auth/logout` | POST | 无（已认证） | web | L0 | 无 | 登出 |
-| `/auth/session` | GET | 无（已认证） | web | L0 | 无 | 会话状态 |
+| `/auth/session` | GET | 无（已认证） | web | L0 | 无 | 会话状态（阶段 2 起附 role/member_id/member_name） |
 
 > 规划中但**未实现**的端点（勿依赖）：`GET /books/{id}/copies|progress|purchases|notes|reading-logs`（子资源读接口，数据经 `GET /books/{id}` 返回）、`PATCH /copies/{id}`、`DELETE /attachments/{id}`、`DELETE /custom-fields/{id}`、`GET /stats/household`、`POST /books/intake/photo`。
 
@@ -146,3 +149,23 @@ Agent Grant 不支持 `*` 或 `admin:*` 通配符。授权管理和系统配置�
 - 升级影响（基线 §13 匿名目录行）：代码默认 disabled，存量部署升级后匿名目录
   保持关闭；Owner 确认可信 CIDR 后设置 `ANONYMOUS_CATALOG_MODE=lan_shared` 启用，
   随时可改回 `disabled` 立即回到 L0/登录页，不改写任何书目数据。
+
+## 权限阶段 2 变更（2026-08-21：Member 独立登录与本人数据隔离）
+
+- **成员凭据**：owner_credentials 演进为 member_credentials（迁移 g7c4d5e6f8b0 平移数据），
+  members 增加 username（登录用户名，唯一）与 disabled_at（停用）；统一登录入口
+  `/login`（POST /auth/login 用户名+密码，仅一条凭据时用户名可省略——兼容旧流程）；
+- **会话失效**：角色变化、密码重置（Owner 重置或自助改密）、成员停用后，受影响
+  Web 会话立即失效（自助改密保留当前会话）；停用成员禁止登录且既有会话即刻无效；
+  末位活跃 owner 不可降级/停用；
+- **数据隔离**：member Web 会话与渠道/Agent 同口径——详情内嵌 L3 子资源、统计、
+  附件下载均按本人范围（附件下载继承父资源权限：note/member 实体附件仅归属人与
+  Owner，book/copy 附件按家庭共享）；
+- **Owner 显式代操作**：Web Owner 代写 L3 时操作日志记录 operator_member_id 与
+  acting_for 标记（操作者与数据归属人分离）；跨成员查看详情写入共享安全审计
+  `owner.delegate_view`（采样留痕）；
+- **前端**：统一登录页 /login（授权页不再内嵌登录）；导航按角色渲染（Agent 管理入口
+  仅 Owner）；Member 固定本人身份无成员切换器；顶栏新增退出入口；
+- 验收测试：`backend/tests/test_stage2_member_isolation.py`（16 项：篡改 member_id、
+  嵌套泄露、统计/附件越权、锁定/改密/重置/停用/角色变化的会话失效、末位 owner 保护、
+  代操作审计）。

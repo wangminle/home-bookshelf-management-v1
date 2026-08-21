@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -16,8 +18,16 @@ from app.auth import (
 from app.db import get_db
 from app.models import Member
 from app.schemas.book import ApiResponse
-from app.schemas.member import MemberBind, MemberCreate, MemberOut
+from app.schemas.member import (
+    MemberBind,
+    MemberCreate,
+    MemberOut,
+    MemberPasswordSetRequest,
+    MemberUpdateRequest,
+)
 from app.services.members import bind_member_channel, create_member, list_members
+from app.services import agent_access
+from app.api.v1.web_auth import require_owner
 from app.utils.db_errors import ConflictError
 from app.utils.operation_log import log_and_commit
 from app.utils.serializers import member_bindings
@@ -38,6 +48,8 @@ def get_members(
             id=m.id,
             name=m.name,
             role=m.role,
+            username=m.username,
+            disabled_at=m.disabled_at,
             avatar_path=m.avatar_path,
             channel_bindings=(member_bindings(m.channel_bindings) if show_bindings else None),
             reading_streak_offset=m.reading_streak_offset,
@@ -102,6 +114,8 @@ def add_member(
         id=member.id,
         name=member.name,
         role=member.role,
+        username=member.username,
+        disabled_at=member.disabled_at,
         avatar_path=member.avatar_path,
         channel_bindings=member_bindings(member.channel_bindings),
         reading_streak_offset=member.reading_streak_offset,
@@ -154,3 +168,99 @@ def bind_channel(
     ).model_dump()
     data["message"] = result.message
     return ApiResponse(data=data)
+
+
+@router.patch("/{member_id}", response_model=ApiResponse)
+def update_member(
+    member_id: int,
+    payload: MemberUpdateRequest,
+    db: Session = Depends(get_db),
+    owner=Depends(require_owner),
+    _csrf: None = Depends(verify_csrf),
+) -> ApiResponse:
+    """Owner 成员管理（权限阶段 2）：角色调整与停用/恢复。
+
+    - 末位活跃 owner 保护：不允许把唯一活跃 owner 降级或停用；
+    - 角色变化或停用后，该成员全部 Web 会话立即失效（基线 §5.2）。
+    """
+    member = db.get(Member, member_id)
+    if member is None:
+        raise HTTPException(status_code=404, detail="成员不存在")
+
+    changed: dict = {}
+    if payload.role is not None and payload.role != member.role:
+        if member.role == "owner" and payload.role != "owner":
+            _guard_last_active_owner(db, member)
+        member.role = payload.role
+        changed["role"] = payload.role
+        agent_access.revoke_member_sessions(db, member.id)
+    if payload.disabled is not None:
+        if payload.disabled:
+            if member.role == "owner":
+                _guard_last_active_owner(db, member)
+            member.disabled_at = member.disabled_at or datetime.now(timezone.utc).replace(tzinfo=None)
+            changed["disabled"] = True
+            agent_access.revoke_member_sessions(db, member.id)
+        else:
+            member.disabled_at = None
+            changed["disabled"] = False
+
+    if changed:
+        db.commit()
+        db.refresh(member)
+    log_and_commit(
+        db,
+        action="member.update",
+        member_id=member.id,
+        payload={"changes": changed, "operator_member_id": owner.id},
+    )
+    data = MemberOut(
+        id=member.id, name=member.name, role=member.role,
+        username=member.username, disabled_at=member.disabled_at,
+        avatar_path=member.avatar_path,
+        channel_bindings=(member_bindings(member.channel_bindings) if owner.role == "owner" else None),
+        reading_streak_offset=member.reading_streak_offset,
+        created_at=member.created_at, updated_at=member.updated_at,
+    ).model_dump()
+    data["message"] = "成员已更新" if changed else "无变更"
+    return ApiResponse(data=data)
+
+
+def _guard_last_active_owner(db: Session, member: Member) -> None:
+    """降级/停用 owner 前，确认仍有其它活跃 owner。"""
+    from sqlalchemy import select as sa_select
+
+    active_owners = [
+        m for m in db.scalars(sa_select(Member).where(Member.role == "owner")).all()
+        if m.id != member.id and m.disabled_at is None
+    ]
+    if not active_owners:
+        raise HTTPException(status_code=400, detail="不能停用或降级唯一的活跃 owner")
+
+
+@router.post("/{member_id}/password", response_model=ApiResponse)
+def reset_member_password(
+    member_id: int,
+    payload: MemberPasswordSetRequest,
+    db: Session = Depends(get_db),
+    owner=Depends(require_owner),
+    _csrf: None = Depends(verify_csrf),
+) -> ApiResponse:
+    """Owner 重置成员密码（权限阶段 2）：设置新密码并撤销该成员全部会话。"""
+    member = db.get(Member, member_id)
+    if member is None:
+        raise HTTPException(status_code=404, detail="成员不存在")
+    if member.disabled_at is not None:
+        raise HTTPException(status_code=400, detail="成员已停用，请先恢复再设置密码")
+    agent_access.set_member_password(db, member, payload.password)
+    revoked = agent_access.revoke_member_sessions(db, member.id)
+    if not member.username:
+        member.username = agent_access.ensure_unique_username(db, member.name or "user", exclude_id=member.id)
+        db.commit()
+    log_and_commit(
+        db,
+        action="member.password_reset",
+        member_id=member.id,
+        payload={"operator_member_id": owner.id, "revoked_sessions": revoked},
+    )
+    return ApiResponse(data={"member_id": member.id, "username": member.username, "revoked_sessions": revoked})

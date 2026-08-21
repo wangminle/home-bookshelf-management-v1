@@ -6,7 +6,6 @@
 */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { probeSession } from '@/stores/session'
 
 const router = useRouter()
 // CHK-039 P2: auth/* 和 agent-access/* 路由注册在根级，不在 /api/v1 下。
@@ -18,7 +17,6 @@ const loading = ref(false)
 const error = ref('')
 const authenticated = ref(false)
 const passwordInitialized = ref(false)
-const password = ref('')
 
 interface AgentClient {
   id: number
@@ -181,23 +179,6 @@ async function checkAuthStatus() {
   }
 }
 
-async function doLogin() {
-  error.value = ''
-  try {
-    await apiCall('auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ password: password.value }),
-    })
-    authenticated.value = true
-    password.value = ''
-    // CHK-073/BUG-199：登录成功后刷新全局会话缓存，主导航/路由守卫立即生效
-    await probeSession(true)
-    await loadData()
-  } catch (e) {
-    error.value = (e as Error).message
-  }
-}
-
 async function loadData() {
   loading.value = true
   error.value = ''
@@ -244,14 +225,8 @@ onMounted(async () => {
 
     <!-- 未登录 -->
     <div v-if="!authenticated && passwordInitialized" class="login-gate">
-      <p>请输入 Owner 密码登录以查看授权列表</p>
-      <input
-        v-model="password"
-        type="password"
-        placeholder="Owner 密码"
-        @keyup.enter="doLogin"
-      />
-      <button @click="doLogin">登录</button>
+      <p>请登录后查看授权列表</p>
+      <RouterLink to="/login">前往登录</RouterLink>
     </div>
 
     <!-- 未初始化 -->

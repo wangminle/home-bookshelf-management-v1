@@ -41,6 +41,24 @@ def test_health_posture_defaults_when_unconfigured(client: TestClient, monkeypat
     assert data["public_url_https"] is False
 
 
+def test_health_exposes_catalog_mode_posture(client: TestClient, monkeypatch) -> None:
+    """权限阶段 1：/health 附带匿名书架模式与可信 LAN 配置态势。"""
+    from app.config import settings
+    monkeypatch.setattr(settings, "anonymous_catalog_mode", "lan_shared")
+    monkeypatch.setattr(settings, "trusted_lan_cidrs", "192.168.1.0/24")
+    r = client.get("/api/v1/health")
+    data = r.json()["data"]
+    assert data["anonymous_catalog_mode"] == "lan_shared"
+    assert data["trusted_lan_configured"] is True
+
+    monkeypatch.setattr(settings, "anonymous_catalog_mode", "disabled")
+    monkeypatch.setattr(settings, "trusted_lan_cidrs", "")
+    r = client.get("/api/v1/health")
+    data = r.json()["data"]
+    assert data["anonymous_catalog_mode"] == "disabled"
+    assert data["trusted_lan_configured"] is False
+
+
 def test_health_channel_bindings_present_reflects_db(client: TestClient) -> None:
     """建立渠道绑定后 channel_bindings_present=True。"""
     owner_id = client.get("/auth/session").json()["member_id"]
@@ -62,3 +80,14 @@ def test_public_health_has_no_deployment_posture(client: TestClient) -> None:
     for key in ("channel_signing_configured", "trusted_proxies_configured",
                 "channel_bindings_present", "public_base_url"):
         assert key not in text, f"public-health 不应暴露 {key}"
+
+
+def test_health_invalid_cidrs_report_not_configured(client: TestClient, monkeypatch) -> None:
+    """CHK-071：无效 CIDR 被静默跳过后，健康口径必须报告未配置（不能只看字符串非空）。"""
+    from app.config import settings
+    monkeypatch.setattr(settings, "trusted_lan_cidrs", "not-a-cidr,also-bad")
+    monkeypatch.setattr(settings, "trusted_proxies", "???")
+    r = client.get("/api/v1/health")
+    data = r.json()["data"]
+    assert data["trusted_lan_configured"] is False
+    assert data["trusted_proxies_configured"] is False

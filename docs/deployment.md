@@ -114,8 +114,60 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir .
 | `GOOGLE_BOOKS_API_KEY` | 可选 |
 | `SETUP_TOKEN` | 可选；保护白名单建立后的 `/members/bind`。CLI 侧可用 `BOOKSHELF_SETUP_TOKEN` / `SETUP_TOKEN` 自动透传 |
 | `CHANNEL_SIGNING_SECRET` | 可选；配置后渠道头须附带 `X-Channel-Signature`（HMAC-SHA256），防伪造。CLI 侧用 `BOOKSHELF_CHANNEL_SIGNING_SECRET` 透传 |
+| `ANONYMOUS_CATALOG_MODE` | 匿名共享书架（C 模式）：`lan_shared` 开启 / `disabled` 关闭（代码默认；存量部署升级不改变现状，新部署在 deploy 模板引导下开启） |
+| `TRUSTED_LAN_CIDRS` | 可信家庭局域网网段（逗号分隔 CIDR，如 `192.168.1.0/24`）。匿名浏览只对回环、该列表内来源（或经 `TRUSTED_PROXIES` 还原后落在列表内）开放 |
+| `PUBLIC_CATALOG_RATE_LIMIT_PER_MINUTE` | 匿名书目接口每客户端 IP 每分钟请求上限（默认 60） |
+| `PUBLIC_CATALOG_MAX_PAGE_SIZE` | 匿名书目接口单页最大条数（默认 50） |
 
 完整示例见 `backend/.env.example`、`deploy/.env.example`。
+
+## 匿名共享书架（C 模式）
+
+权限阶段 1 起，可信家庭局域网内的访客无需登录即可在 `/shared` 浏览脱敏书目
+（书名、作者、出版社、分类、简介、公共标签、封面缩略图、在架/外借状态）；
+阅读进度、笔记、购买、成员与位置信息永不匿名展示，完整业务 API 仍要求登录。
+
+开启步骤：
+
+1. 确认家庭网段（如 `192.168.1.0/24`）；
+2. 设置 `ANONYMOUS_CATALOG_MODE=lan_shared` 与 `TRUSTED_LAN_CIDRS=192.168.1.0/24`；
+3. 重启后端；`bookshelf doctor` 会检查"lan_shared 已开启但未配置可信 CIDR"等不一致。
+
+行为说明：
+
+- 反向代理（lwa/nginx）后部署时，需同时配置 `TRUSTED_PROXIES`，系统按右值法
+  从 `X-Forwarded-For` 还原真实客户端地址再判定是否可信；
+- 无法确认请求来自可信局域网时，匿名接口自动降级（HTTP 403 `LAN_REQUIRED`），
+  前端显示登录入口；随时可把 `ANONYMOUS_CATALOG_MODE` 改回 `disabled` 立即关闭，
+  不改写任何书目数据。
+
+## MCP 只读试点（并行轨，默认关闭）
+
+`/mcp` 提供两个只读工具（`bookshelf_search_books` / `bookshelf_get_book`），
+面向支持 MCP 的 Agent 客户端。启用步骤：
+
+1. 生成独立高熵游标密钥：`openssl rand -hex 32` → `MCP_CURSOR_SIGNING_SECRET`
+   （不得复用 Agent Token、Owner 密码或渠道签名密钥）；
+2. 在前端「Agent 授权」页注册客户端并创建**专用只读 Grant**：Scope 仅
+   `books:read` **且显式声明数据范围 `household_shared`**，建议 30 天，签发
+   Token 交由 Agent 客户端保管——旧语义 Grant（未声明数据范围）会被 403
+   `PILOT_GRANT_REQUIRED` 拒绝，禁止旧 Grant 自动进入 MCP；
+3. 非回环部署配置 `MCP_ALLOWED_HOSTS`（Host 校验，默认仅内置回环精确值，
+   不匹配 421）；浏览器跨域客户端另配 `MCP_TRUSTED_ORIGINS`（Origin 精确
+   匹配，不可信 403）；
+4. 设置 `MCP_ENABLED=true` 重启后端；`/mcp` 只接受
+   `Authorization: Bearer <token>` + 必填的 `MCP-Protocol-Version` 头
+   （allowlist 仅 `2026-07-28`），Cookie/渠道头/匿名一律 401。
+
+行为要点：
+
+- 握手用 `server/discover`（该协议版本已移除 `initialize`）；数据范围由 Grant
+  显式声明且服务端固定为家庭共享书目（L1/L2 白名单字段），不含成员、阅读、
+  笔记、购买、封面 URL 或文件路径；
+- 搜索必须至少带一个筛选条件；单页最多 20 条；游标经 HMAC 签名防篡改；
+- 每个 Agent Client + 工具按分钟限流；Grant 撤销/过期后下一请求立即 401；
+- 全部调用进入共享安全审计（拒绝必记、放行采样）；
+- 关闭：`MCP_ENABLED=false` 重启即可，不影响 REST/Web/CLI。
 
 ---
 

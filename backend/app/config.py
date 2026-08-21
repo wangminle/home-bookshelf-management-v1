@@ -22,9 +22,82 @@ class Settings(BaseSettings):
     # 不配置则维持"可信局域网/网关代填头"的既有信任边界。
     channel_signing_secret: str | None = None
     # GitHub #8：可信反向代理列表（逗号分隔的 IP/CIDR，如 "172.18.0.0/16"）。
-    # 直接对端在列表内时，loopback 判定改用 X-Forwarded-For 首跳——用于 lwa/nginx
-    # 反代场景（后端看到的对端是网关 IP）。默认空：不信任任何代理，XFF 视为不可信。
+    # 直接对端在列表内时，loopback 判定按右值法解析 X-Forwarded-For（从右向左
+    # 跳过可信代理取首个非可信地址）——用于 lwa/nginx 反代场景（后端看到的
+    # 对端是网关 IP）。默认空：不信任任何代理，XFF 视为不可信。
     trusted_proxies: str = ""
+
+    # ── 权限阶段 1：C 模式匿名书架（基线 §4.3/§11.3/§13） ──
+    # 匿名目录系统策略：lan_shared（C 模式）/ explicit_public（B 模式，未实现，
+    # 阶段 1 按 disabled 处理）/ disabled（只保留 L0 与登录入口）。
+    # 代码默认 disabled：已有部署升级后不改变现状；新部署在 deploy/.env.example
+    # 引导下配置 lan_shared（基线 §13：升级需 Owner 确认可信 CIDR 后再启用）。
+    anonymous_catalog_mode: str = "disabled"
+    # 可信家庭局域网 CIDR（逗号分隔，如 "192.168.1.0/24,10.0.0.0/8"）。
+    # C 模式 L1 只对回环、该列表内的直连对端、或经可信代理还原后落在上述
+    # 范围的客户端开放；无法确认来源时自动降级为 L0/登录入口。
+    trusted_lan_cidrs: str = ""
+    # Public Catalog 匿名限流（每客户端 IP 每分钟请求数）与最大页长（基线 §3.2/§9.3）
+    public_catalog_rate_limit_per_minute: int = 60
+    public_catalog_max_page_size: int = 50
+
+    # ── MCP 只读试点（并行轨；MCP 设计 §13，默认关闭） ──
+    # 显式配置启用；路径固定 /mcp，不做运行时自定义路径
+    mcp_enabled: bool = False
+    # 目标协议 allowlist（SDK 旧协议兼容不等于应用允许；首期仅 2026-07-28）
+    mcp_allowed_protocol_versions: str = "2026-07-28"
+    # 单页最大返回条数（1-20）
+    mcp_max_page_size: int = 20
+    # Agent Client + Tool 维度限流（每分钟）
+    mcp_rate_limit_per_minute: int = 60
+    # 游标完整性签名的独立高熵密钥——不得复用 Agent Token、Owner 密码或渠道签名密钥；
+    # MCP_ENABLED=true 时必须配置，否则 /mcp 一律 500 拒绝服务
+    mcp_cursor_signing_secret: str | None = None
+    # MCP Host allowlist（逗号分隔；默认仅内置回环精确值，非回环部署必须显式配置）
+    mcp_allowed_hosts: str = ""
+    # MCP 可信 Origin（逗号分隔，含 scheme://host[:port]；非浏览器客户端可不带 Origin，
+    # 带则必须精确匹配，不接受通配符）
+    mcp_trusted_origins: str = ""
+
+    @property
+    def mcp_allowed_host_set(self) -> set[str]:
+        return {h.strip().lower() for h in self.mcp_allowed_hosts.split(",") if h.strip()}
+
+    @property
+    def mcp_trusted_origin_set(self) -> set[str]:
+        return {o.strip().lower() for o in self.mcp_trusted_origins.split(",") if o.strip()}
+
+    # ── 登录防爆破（BUG-193）──
+    # /auth/login 每来源 IP 每分钟失败尝试上限；只计失败，成功登录不消耗配额
+    # （与账号级 5 次锁定互补：这里挡跨密码的分布式爆破与高频试错）
+    auth_login_rate_limit_per_minute: int = 10
+
+    @property
+    def mcp_allowed_protocol_version_list(self) -> list[str]:
+        return [v.strip() for v in self.mcp_allowed_protocol_versions.split(",") if v.strip()]
+
+    @field_validator("anonymous_catalog_mode")
+    @classmethod
+    def _validate_anonymous_catalog_mode(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        if v not in ("lan_shared", "explicit_public", "disabled"):
+            raise ValueError("anonymous_catalog_mode 必须是 lan_shared/explicit_public/disabled")
+        return v
+
+    @property
+    def trusted_lan_networks(self) -> list:
+        import ipaddress
+
+        networks = []
+        for item in self.trusted_lan_cidrs.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            try:
+                networks.append(ipaddress.ip_network(item, strict=False))
+            except ValueError:
+                continue
+        return networks
 
     @property
     def trusted_proxy_networks(self) -> list:

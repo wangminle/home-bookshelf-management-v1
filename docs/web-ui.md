@@ -151,6 +151,7 @@ bash scripts/deploy_frontend.sh --base /home-bookshelf/
 | 花费趋势条形图 | ✅ |
 | 书架概览图生成（封面拼图 + 统计摘要 + 分类 TOP3） | ✅ |
 | 概览图导出 PNG / 分享 | ✅ |
+| 匿名共享书架 `/shared`（C 模式：脱敏书目浏览/搜索/详情，权限阶段 1） | ✅ |
 | `/agent` Agent 连接信息页 | ✅ |
 | `/agent-authorization` Agent 授权管理（Owner 登录 / 密码初始化 / 签发 Token） | ✅ |
 | `/agent-access` 授权列表页 | ✅ |

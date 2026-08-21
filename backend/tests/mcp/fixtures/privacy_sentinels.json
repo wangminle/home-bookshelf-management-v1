@@ -1,0 +1,11 @@
+{
+  "member_name": "SENTINEL_MEMBER_王五",
+  "private_note": "SENTINEL_NOTE_MCP私人笔记",
+  "purchase_channel": "SENTINEL_CHANNEL_京东618订单",
+  "file_path": "SENTINEL_PATH_attachments/receipt.pdf",
+  "cover_path": "SENTINEL_COVER_covers/secret.jpg",
+  "token_like": "hbs_at_SENTINEL1234",
+  "isbn": "9787302SENTINEL9",
+  "custom_field": "SENTINEL_EXTRA_内部流转字段",
+  "tag": "SENTINEL_TAG_不适合儿童"
+}

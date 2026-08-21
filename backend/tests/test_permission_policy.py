@@ -36,11 +36,11 @@ def test_role_scopes_known_roles() -> None:
     assert permission_policy.role_scopes("member") == permission_policy.MEMBER_ROLE_SCOPES
 
 
-def test_role_scopes_unknown_role_falls_back_to_member() -> None:
-    """未知角色按最小能力集（member）处理，不允许静默拿到全量。"""
-    assert permission_policy.role_scopes("guest") == permission_policy.MEMBER_ROLE_SCOPES
-    assert permission_policy.role_scopes("") == permission_policy.MEMBER_ROLE_SCOPES
-    assert permission_policy.role_scopes(None) == permission_policy.MEMBER_ROLE_SCOPES  # type: ignore[arg-type]
+def test_role_scopes_unknown_role_fails_closed() -> None:
+    """BUG-190：未知/历史脏角色（guest 等）一律空集 fail-closed，不回退 member。"""
+    assert permission_policy.role_scopes("guest") == frozenset()
+    assert permission_policy.role_scopes("") == frozenset()
+    assert permission_policy.role_scopes(None) == frozenset()  # type: ignore[arg-type]
 
 
 def test_agent_grantable_scopes_subset_of_all() -> None:

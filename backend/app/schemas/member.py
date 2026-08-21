@@ -4,7 +4,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-MemberRole = Literal["owner", "member", "guest"]
+# 权限基线 §1.2：登录角色只有 owner/member，不设 guest（BUG-190）
+MemberRole = Literal["owner", "member"]
 
 
 class MemberCreate(BaseModel):

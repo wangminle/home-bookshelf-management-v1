@@ -41,7 +41,7 @@ def _reading_streak(db: Session, member_id: int) -> int:
     return streak + offset
 
 
-def _compute_yearly_stats(db: Session) -> list[YearlyStat]:
+def _compute_yearly_stats(db: Session, member_id: int | None = None) -> list[YearlyStat]:
     """按年度聚合入库数、CNY 花费、阅读页数。purchase_date / log_date 均为 String(10) ISO 日期。"""
     # 年度入库数：按 Book.created_at 的年份分组
     books_by_year: dict[str, int] = {}
@@ -58,12 +58,15 @@ def _compute_yearly_stats(db: Session) -> list[YearlyStat]:
     # 年度花费：按 purchase_date 前 4 位分组（仅 CNY，与 total_spent 同口径）
     spent_by_year: dict[str, float] = {}
     cny_filter = func.coalesce(PurchaseRecord.currency, "CNY") == "CNY"
+    spend_where = [cny_filter, PurchaseRecord.purchase_date.is_not(None)]
+    if member_id is not None:
+        spend_where.append(PurchaseRecord.buyer_member_id == member_id)
     spend_rows = db.execute(
         select(
             func.substr(PurchaseRecord.purchase_date, 1, 4).label("yr"),
             func.coalesce(func.sum(PurchaseRecord.price), 0),
         )
-        .where(cny_filter, PurchaseRecord.purchase_date.is_not(None))
+        .where(*spend_where)
         .group_by("yr")
     ).all()
     for row in spend_rows:
@@ -72,11 +75,14 @@ def _compute_yearly_stats(db: Session) -> list[YearlyStat]:
 
     # 年度阅读页数：按 log_date 前 4 位分组
     pages_by_year: dict[str, int] = {}
+    pages_where = []
+    if member_id is not None:
+        pages_where.append(ReadingLog.member_id == member_id)
     page_rows = db.execute(
         select(
             func.substr(ReadingLog.log_date, 1, 4).label("yr"),
             func.coalesce(func.sum(ReadingLog.pages_read), 0),
-        ).group_by("yr")
+        ).where(*pages_where).group_by("yr")
     ).all()
     for row in page_rows:
         if row.yr:
@@ -94,14 +100,24 @@ def _compute_yearly_stats(db: Session) -> list[YearlyStat]:
     ]
 
 
-def get_stats(db: Session) -> StatsOut:
+def get_stats(db: Session, member_id: int | None = None) -> StatsOut:
+    """统计聚合。
+
+    BUG-191：member_id 提供时按该成员范围聚合（进度/购买/日志/成员列表/
+    年度趋势均收敛到本人；书目总数与分类保留家庭共享口径）——Member 默认
+    仅本人统计，全家庭口径仅 Web Owner 或持有 stats:household 的主体。
+    """
+    _member_progress = ReadingProgress.member_id == member_id if member_id is not None else True
+    _member_purchase = PurchaseRecord.buyer_member_id == member_id if member_id is not None else True
+    _member_logs = ReadingLog.member_id == member_id if member_id is not None else True
+
     total_books = db.scalar(select(func.count()).select_from(Book)) or 0
 
     # BUG-117/123：每本书聚合成单一全局状态，使 by_status 总和 <= total_books，
     # 且统计与 GET /books?status=X 列表筛选口径一致。
     # 优先级：finished > reading > abandoned/dropped > unread。
     progress_rows = db.execute(
-        select(ReadingProgress.book_id, ReadingProgress.status)
+        select(ReadingProgress.book_id, ReadingProgress.status).where(_member_progress)
     ).all()
     book_member_statuses: dict[int, list[str]] = {}
     for book_id, status in progress_rows:
@@ -112,7 +128,7 @@ def get_stats(db: Session) -> StatsOut:
         from app.utils.book_helpers import aggregate_book_status
 
         by_status[aggregate_book_status(statuses)] += 1
-    # 无任何进度记录的书一律计为 unread
+    # 无任何进度记录的书一律计为 unread（成员口径下同样以家庭藏书数为分母）
     books_with_progress = len(book_member_statuses)
     by_status["unread"] += max(total_books - books_with_progress, 0)
 
@@ -126,13 +142,25 @@ def get_stats(db: Session) -> StatsOut:
 
     cny_filter = func.coalesce(PurchaseRecord.currency, "CNY") == "CNY"
     total_spent = float(
-        db.scalar(select(func.coalesce(func.sum(PurchaseRecord.price), 0)).where(cny_filter)) or 0
+        db.scalar(
+            select(func.coalesce(func.sum(PurchaseRecord.price), 0))
+            .where(cny_filter, _member_purchase)
+        ) or 0
     )
     # 与 total_spent 同口径：仅统计 CNY（缺省视为 CNY）购买笔数
-    purchase_count = db.scalar(select(func.count()).select_from(PurchaseRecord).where(cny_filter)) or 0
-    pages_total = db.scalar(select(func.coalesce(func.sum(ReadingLog.pages_read), 0))) or 0
+    purchase_count = db.scalar(
+        select(func.count()).select_from(PurchaseRecord).where(cny_filter, _member_purchase)
+    ) or 0
+    pages_total = db.scalar(
+        select(func.coalesce(func.sum(ReadingLog.pages_read), 0)).where(_member_logs)
+    ) or 0
 
-    members = db.scalars(select(Member).order_by(Member.id)).all()
+    if member_id is not None:
+        members = db.scalars(
+            select(Member).where(Member.id == member_id).order_by(Member.id)
+        ).all()
+    else:
+        members = db.scalars(select(Member).order_by(Member.id)).all()
     member_stats: list[MemberStats] = []
     for member in members:
         reading = db.scalar(
@@ -165,5 +193,5 @@ def get_stats(db: Session) -> StatsOut:
         purchase_count=purchase_count,
         reading_logs_pages_total=int(pages_total),
         members=member_stats,
-        by_year=_compute_yearly_stats(db),
+        by_year=_compute_yearly_stats(db, member_id=member_id),
     )

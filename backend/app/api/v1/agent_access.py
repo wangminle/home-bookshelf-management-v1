@@ -83,6 +83,7 @@ def create_grant(
         scopes=body.scopes,
         expires_in_days=body.expires_in_days,
         approved_by_member_id=owner.id,
+        data_scope=body.data_scope,
     )
     return _grant_to_out(grant)
 
@@ -192,5 +193,7 @@ def _grant_to_out(grant) -> AgentGrantOut:
         approved_by_member_id=grant.approved_by_member_id,
         approved_at=grant.approved_at,
         revoked_at=grant.revoked_at,
+        data_scope=grant.data_scope_json,
+        version=grant.version or 1,
         created_at=grant.created_at,
     )

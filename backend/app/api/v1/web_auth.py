@@ -227,11 +227,35 @@ def login(
     response: Response,
     db: Session = Depends(get_db),
 ):
-    """Owner 密码登录。"""
+    """Owner 密码登录。
+
+    BUG-193：接入共享限流——每来源 IP 每分钟失败尝试上限（默认 10），
+    只计失败（成功登录不消耗配额），与账号级 5 次锁定互补。
+    """
+    from app.services import rate_limit
+
+    ip = request.client.host if request.client else "unknown"
+    rl_key = f"auth-login:{ip}"
+    if rate_limit.is_exceeded(
+        rl_key,
+        limit=settings.auth_login_rate_limit_per_minute,
+        window_seconds=60,
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="登录尝试过于频繁，请稍后再试",
+            headers={"Retry-After": "60", "X-Error-Code": "RATE_LIMITED"},
+        )
+
     if not agent_access.has_owner_password(db):
         raise HTTPException(status_code=400, detail="Owner 密码尚未设置，请先初始化")
     member = agent_access.verify_owner_password(db, body.password)
     if member is None:
+        rate_limit.check(
+            rl_key,
+            limit=settings.auth_login_rate_limit_per_minute,
+            window_seconds=60,
+        )
         raise HTTPException(status_code=401, detail="密码错误")
     token, _ = agent_access.create_web_session(
         db, member.id,

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "home_bookshelf MCP catalog tools v1 (core tier)",
+  "description": "权限阶段 1 并行轨冻结的核心档契约：仅两个只读工具；扩展工具必须新建独立版本（v2），不得原地放宽 v1。",
+  "type": "object",
+  "required": ["tools"],
+  "properties": {
+    "tools": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["name", "description", "inputSchema", "annotations"],
+        "properties": {
+          "name": { "enum": ["bookshelf_search_books", "bookshelf_get_book"] },
+          "description": { "type": "string", "minLength": 1 },
+          "inputSchema": { "type": "object" },
+          "annotations": {
+            "type": "object",
+            "required": ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"],
+            "properties": {
+              "readOnlyHint": { "const": true },
+              "destructiveHint": { "const": false },
+              "idempotentHint": { "const": true },
+              "openWorldHint": { "const": false }
+            }
+          }
+        }
+      }
+    },
+    "forbidden_tool_names": {
+      "type": "array",
+      "description": "首期契约禁止的能力面：全库枚举与一切 L3/L4/写能力",
+      "items": { "type": "string" },
+      "contains": { "enum": ["list_all_books", "get_notes", "get_purchases", "get_attachments"] }
+    },
+    "output_denylist": {
+      "type": "array",
+      "description": "任何工具输出不得包含的键（成员/位置/文件/阅读/笔记/购买/封面 URL/标签）",
+      "items": { "type": "string" }
+    },
+    "error_codes": {
+      "type": "array",
+      "description": "HTTP 层：AUTH_REQUIRED/TOKEN_INVALID/SCOPE_DENIED/RATE_LIMITED/PROTOCOL_VERSION_REJECTED；工具层：QUERY_REQUIRED/LIMIT_INVALID/INVALID_CURSOR/BOOK_ID_INVALID/BOOK_NOT_FOUND",
+      "items": { "type": "string" }
+    }
+  }
+}

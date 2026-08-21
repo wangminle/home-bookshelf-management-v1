@@ -12,7 +12,16 @@ router = APIRouter(prefix="/stats", tags=["stats"])
 @router.get("", response_model=ApiResponse)
 def stats(
     db: Session = Depends(get_db),
-    _ctx: AuthContext = Depends(require_scope("stats:read")),
+    ctx: AuthContext = Depends(require_scope("stats:read")),
 ) -> ApiResponse:
-    """BUG-167：统计（含 total_spent 等财务口径）接 stats:read 鉴权，匿名不再可读。"""
-    return ApiResponse(data=get_stats(db).model_dump())
+    """BUG-167：统计（含 total_spent 等财务口径）接 stats:read 鉴权，匿名不再可读。
+
+    BUG-191：全家庭口径仅 Web Owner 或持有 stats:household 的主体可得；
+    其余主体（member 渠道、普通 Agent）只返回本人范围的统计
+    （进度/购买/日志/年度趋势收敛到本人，成员列表仅自己）。
+    """
+    if (ctx.auth_type == "web" and ctx.is_owner) or "stats:household" in ctx.scopes:
+        data = get_stats(db)
+    else:
+        data = get_stats(db, member_id=ctx.member_id)
+    return ApiResponse(data=data.model_dump())

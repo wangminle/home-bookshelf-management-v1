@@ -177,3 +177,6 @@ class HealthOut(BaseModel):
     trusted_proxies_configured: bool = False
     public_base_url: str | None = None
     public_url_https: bool = False
+    # 权限阶段 1：匿名书架（C 模式）态势
+    anonymous_catalog_mode: str = "disabled"
+    trusted_lan_configured: bool = False

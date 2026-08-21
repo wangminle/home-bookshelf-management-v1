@@ -11,6 +11,7 @@
  */
 import { ref, onMounted } from 'vue'
 import ScopeSelector from '@/components/ScopeSelector.vue'
+import { probeSession, invalidateSession } from '@/stores/session'
 
 // ── 类型 ──
 interface AgentClient {
@@ -62,6 +63,8 @@ const grantClientId = ref<number | null>(null)
 const grantMemberId = ref<number | null>(null)
 const grantScopes = ref<string[]>([])
 const grantExpiryDays = ref(30)
+// CHK-073：显式数据范围标记（勾选=专用试点 Grant，MCP 可用）
+const grantDataScope = ref(false)
 const grantError = ref('')
 
 // 新签发 Token
@@ -133,6 +136,8 @@ async function doLogin() {
     loginPassword.value = ''
     showLogin.value = false
     await checkAuthStatus()
+    // CHK-071：登录成功后强制刷新会话缓存，路由守卫立即放行受保护页面
+    await probeSession(true)
   } catch (e: any) {
     loginError.value = e.message
   }
@@ -143,6 +148,8 @@ async function doLogout() {
     await apiCall('auth/logout', { method: 'POST' })
   } catch {}
   authStatus.value = { authenticated: false }
+  // CHK-071：登出后失效会话缓存，守卫下次重新探测
+  invalidateSession()
 }
 
 async function loadData() {
@@ -193,20 +200,27 @@ async function createGrant() {
     }
   }
   try {
+    // CHK-073/BUG-197：显式声明数据范围=专用试点 Grant（MCP 等真实数据门控
+    // 只接受 household_shared 标记；不勾选=历史语义 Grant）
+    const payload: Record<string, unknown> = {
+      agent_client_id: grantClientId.value,
+      member_id: grantMemberId.value,
+      scopes: grantScopes.value,
+      expires_in_days: grantExpiryDays.value,
+    }
+    if (grantDataScope.value) {
+      payload.data_scope = 'household_shared'
+    }
     await apiCall('agent-access/grants', {
       method: 'POST',
-      body: JSON.stringify({
-        agent_client_id: grantClientId.value,
-        member_id: grantMemberId.value,
-        scopes: grantScopes.value,
-        expires_in_days: grantExpiryDays.value,
-      }),
+      body: JSON.stringify(payload),
     })
     showCreateGrant.value = false
     grantScopes.value = []
     grantClientId.value = null
     grantMemberId.value = null
     grantExpiryDays.value = 30
+    grantDataScope.value = false
     await loadData()
   } catch (e: any) {
     grantError.value = e.message
@@ -390,6 +404,10 @@ onMounted(() => {
             <p class="form-label">权限范围</p>
             <ScopeSelector v-model="grantScopes" />
           </div>
+          <label class="checkbox-row">
+            <input v-model="grantDataScope" type="checkbox" />
+            <span>专用试点 Grant（数据范围：家庭共享书目 household_shared）——MCP 只读试点必须勾选</span>
+          </label>
           <p v-if="grantError" class="error">{{ grantError }}</p>
           <button @click="createGrant" class="btn-primary">创建授权</button>
         </div>

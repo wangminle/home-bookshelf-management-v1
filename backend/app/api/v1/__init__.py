@@ -11,6 +11,7 @@ from app.api.v1 import (
     members,
     notes,
     progress,
+    public_catalog,
     purchases,
     reading_logs,
     recognize,
@@ -32,3 +33,4 @@ api_router.include_router(stats.router)
 api_router.include_router(members.router)
 api_router.include_router(recognize.router)
 api_router.include_router(files.router)
+api_router.include_router(public_catalog.router)

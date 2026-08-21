@@ -110,6 +110,100 @@ export function coverUrl(coverPath: string | null): string | null {
   return `${BASE}/files/${dir}/${file}`
 }
 
+// ── 匿名共享书架（Public Catalog，权限阶段 1 C 模式） ──
+
+export interface PublicCatalogBook {
+  id: number
+  title: string
+  subtitle: string | null
+  authors: string[]
+  translators: string[]
+  publisher: string | null
+  publish_date: string | null
+  edition: string | null
+  language: string | null
+  page_count: number | null
+  category: string | null
+  summary: string | null
+  cover_thumbnail_url: string | null
+  public_tags: string[]
+  availability_status: string
+}
+
+export interface PublicCatalogPage {
+  items: PublicCatalogBook[]
+  total: number
+  page: number
+  page_size: number
+  has_more: boolean
+}
+
+export type PublicCatalogResult =
+  | { ok: true; data: PublicCatalogPage }
+  | { ok: false; code: string; message: string }
+
+/** 匿名书架封面 URL（走 Public Catalog 专用端点，非 /files） */
+export function publicCoverUrl(thumbnailUrl: string | null): string | null {
+  if (!thumbnailUrl) return null
+  // thumbnail_url 是后端绝对路径 /api/v1/public-catalog/covers/{id}，
+  // 别名部署时需带 BASE_URL 前缀（剥掉开头 / 重新拼）
+  if (thumbnailUrl.startsWith('/api/v1/')) {
+    return `${import.meta.env.BASE_URL}${thumbnailUrl.slice(1)}`
+  }
+  return thumbnailUrl
+}
+
+/**
+ * 匿名检索共享书目。失败是预期状态（LAN_REQUIRED / ANONYMOUS_CATALOG_DISABLED /
+ * RATE_LIMITED），不写入全局 lastError，由调用方按 code 渲染降级 UI。
+ */
+export async function publicCatalogSearch(params: {
+  query?: string
+  category?: string
+  availability?: string
+  page?: number
+  page_size?: number
+}): Promise<PublicCatalogResult> {
+  const qs = new URLSearchParams()
+  if (params.query) qs.set('query', params.query)
+  if (params.category) qs.set('category', params.category)
+  if (params.availability) qs.set('availability', params.availability)
+  qs.set('page', String(params.page ?? 1))
+  qs.set('page_size', String(params.page_size ?? 24))
+  let res: Response
+  try {
+    res = await fetch(`${BASE}/public-catalog/books?${qs.toString()}`)
+  } catch {
+    return { ok: false, code: 'NETWORK_ERROR', message: '无法连接到服务器' }
+  }
+  const body = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }))
+  if (!res.ok || !body.ok) {
+    return {
+      ok: false,
+      code: body.error || `HTTP ${res.status}`,
+      message: res.status === 429 ? '请求过于频繁，请稍后再试' : '',
+    }
+  }
+  return { ok: true, data: body.data as PublicCatalogPage }
+}
+
+/** 匿名读取单本书详情（同 publicCatalogSearch 的错误语义） */
+export async function publicCatalogBook(
+  bookId: number,
+): Promise<{ ok: true; data: PublicCatalogBook } | { ok: false; code: string; message: string }> {
+  let res: Response
+  try {
+    res = await fetch(`${BASE}/public-catalog/books/${bookId}`)
+  } catch {
+    return { ok: false, code: 'NETWORK_ERROR', message: '无法连接到服务器' }
+  }
+  const body = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }))
+  if (!res.ok || !body.ok) {
+    return { ok: false, code: body.error || `HTTP ${res.status}`, message: '' }
+  }
+  return { ok: true, data: body.data as PublicCatalogBook }
+}
+
 /** 构造附件文件 URL */
 export function attachmentUrl(filePath: string | null): string | null {
   if (!filePath) return null

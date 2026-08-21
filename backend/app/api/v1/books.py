@@ -163,17 +163,37 @@ def get_book(
     db: Session = Depends(get_db),
     ctx: AuthContext = Depends(require_scope("books:read")),
 ) -> ApiResponse:
-    """BUG-166：详情接 books:read 鉴权；敏感子资源再按各自 scope 过滤。"""
+    """BUG-166：详情接 books:read 鉴权；敏感子资源按各自 scope 过滤。
+
+    BUG-192：进度/日志/笔记/购买属 L3 成员私有——非 Web Owner 主体只能
+    看到自己 member_id 的记录（Web Owner 保持全量+代操作口径）。
+    """
     try:
         data = get_book_detail(db, book_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     # books:read 不隐含读进度/购买/笔记：缺对应 scope 的调用方不下发这些子资源
-    if "reading:read" not in ctx.scopes:
+    _owner_view = ctx.auth_type == "web" and ctx.is_owner
+    if "reading:read" in ctx.scopes:
+        if not _owner_view and ctx.member_id is not None:
+            data["reading_progress"] = [
+                p for p in data.get("reading_progress", []) if p.get("member_id") == ctx.member_id
+            ]
+    else:
         data.pop("reading_progress", None)
-    if "purchases:read" not in ctx.scopes:
+    if "purchases:read" in ctx.scopes:
+        if not _owner_view and ctx.member_id is not None:
+            data["purchase_records"] = [
+                p for p in data.get("purchase_records", []) if p.get("buyer_member_id") == ctx.member_id
+            ]
+    else:
         data.pop("purchase_records", None)
-    if "notes:read" not in ctx.scopes:
+    if "notes:read" in ctx.scopes:
+        if not _owner_view and ctx.member_id is not None:
+            data["reading_notes"] = [
+                n for n in data.get("reading_notes", []) if n.get("member_id") == ctx.member_id
+            ]
+    else:
         data.pop("reading_notes", None)
     return ApiResponse(data=data)
 

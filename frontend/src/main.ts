@@ -2,15 +2,15 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
-import { useMembersStore } from './stores/members'
+import { probeSession } from './stores/session'
 import './assets/main.css'
 
 const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 
-// 启动时加载成员列表；失败时 backendOffline 由 api.ts 设置，App.vue 会显示连接提示
-const members = useMembersStore()
-members.load().catch(() => {})
+// CHK-071：成员列表改为会话确认后再加载（App.vue 内）——匿名 /shared 不再触发
+// 受保护的 /members 请求（401 会污染全局错误横幅）。
+probeSession().catch(() => {})
 
 app.mount('#app')

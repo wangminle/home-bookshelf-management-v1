@@ -44,6 +44,9 @@ class AgentGrantCreate(BaseModel):
     member_id: int
     scopes: list[str] = Field(..., min_length=1)
     expires_in_days: int = Field(30, ge=1, le=365)
+    # CHK-073/BUG-197：显式数据范围（试点仅 household_shared）；
+    # 省略 = 历史语义 Grant，MCP 等真实数据门控拒绝
+    data_scope: Literal["household_shared"] | None = None
 
 
 class AgentGrantOut(BaseModel):
@@ -56,6 +59,8 @@ class AgentGrantOut(BaseModel):
     approved_by_member_id: int
     approved_at: datetime
     revoked_at: datetime | None = None
+    data_scope: str | None = None
+    version: int = 1
     created_at: datetime
 
     model_config = {"from_attributes": True}

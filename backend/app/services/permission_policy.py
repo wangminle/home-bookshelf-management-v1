@@ -33,10 +33,17 @@ MEMBER_ROLE_SCOPES: frozenset[str] = ALL_SCOPES - {"books:delete", "stats:househ
 
 
 def role_scopes(role: str | None) -> frozenset[str]:
-    """按角色返回服务器内置能力集。未知角色按最小能力集（member）处理。"""
+    """按角色返回服务器内置能力集。
+
+    BUG-190：未知/历史脏角色（如 guest）一律空集 fail-closed——
+    基线 §1.2 登录角色只有 owner/member，不存在"未知角色回退 member"
+    的放行语义。
+    """
     if role == "owner":
         return OWNER_ROLE_SCOPES
-    return MEMBER_ROLE_SCOPES
+    if role == "member":
+        return MEMBER_ROLE_SCOPES
+    return frozenset()
 
 
 # ── Agent 可授予集合与风险分级（基线 §6.4/§6.5） ──

@@ -226,7 +226,7 @@ def bind_member(
 @app.command("member")
 def add_member(
     name: str = typer.Option(..., "--name", help="成员名称"),
-    role: str = typer.Option("member", "--role", help="角色：owner / member / guest"),
+    role: str = typer.Option("member", "--role", help="角色：owner / member"),
     avatar: Optional[str] = typer.Option(None, "--avatar", help="头像路径（可选）"),
     json_output: bool = typer.Option(True, "--json/--no-json", help="JSON 输出"),
 ):

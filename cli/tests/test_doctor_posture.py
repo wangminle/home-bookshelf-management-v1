@@ -20,8 +20,8 @@ def _client(
     merged = {
         "status": "available",
         "service": "home-bookshelf",
-        "app_version": "0.3.6",
-        "frontend_version": "0.3.6",
+        "app_version": "0.3.8",
+        "frontend_version": "0.3.8",
         "database": "connected",
         **health_data,
     }
@@ -43,6 +43,8 @@ def _posture(**kw) -> dict:
         "trusted_proxies_configured": False,
         "public_base_url": None,
         "public_url_https": False,
+        "anonymous_catalog_mode": "disabled",
+        "trusted_lan_configured": False,
     }
     base.update(kw)
     return base
@@ -140,6 +142,30 @@ def test_doctor_no_narrowing_for_owner_only_bindings() -> None:
     assert not any("缩权" in w for w in report.warnings)
 
 
+# ── 匿名书架（C 模式）配置一致性 ──
+
+
+def test_doctor_warns_lan_shared_without_trusted_cidrs() -> None:
+    report = run_doctor(_client(_posture(
+        anonymous_catalog_mode="lan_shared", trusted_lan_configured=False,
+    )))
+    assert any("TRUSTED_LAN_CIDRS" in w for w in report.warnings)
+
+
+def test_doctor_silent_when_lan_shared_with_cidrs() -> None:
+    report = run_doctor(_client(_posture(
+        anonymous_catalog_mode="lan_shared", trusted_lan_configured=True,
+    )))
+    assert not any("TRUSTED_LAN_CIDRS" in w for w in report.warnings)
+
+
+def test_doctor_silent_when_catalog_disabled() -> None:
+    report = run_doctor(_client(_posture(
+        anonymous_catalog_mode="disabled", trusted_lan_configured=False,
+    )))
+    assert not any("TRUSTED_LAN_CIDRS" in w for w in report.warnings)
+
+
 # ── 态势不可得（无凭证探活）时跳过 ──
 
 
@@ -151,7 +177,7 @@ def test_doctor_skips_posture_when_auth_protected() -> None:
         "_http_status": 200,
         "data": {"auth_protected": True, "database": "unknown",
                  "status": "available", "service": "home-bookshelf",
-                 "app_version": "0.3.6"},
+                 "app_version": "0.3.8"},
     }
     client.members.side_effect = RuntimeError("[HTTP 401] unauthorized")
     report = run_doctor(client)

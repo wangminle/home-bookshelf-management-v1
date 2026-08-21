@@ -62,11 +62,15 @@ def health_check(
             barcode_scan_available=_barcode_scan_available(),
             channel_signing_configured=bool(settings.channel_signing_secret),
             channel_bindings_present=channel_bindings_present,
-            trusted_proxies_configured=bool(settings.trusted_proxies.strip()),
+            # CHK-071：按成功解析的网络数判断——无效 CIDR 被静默跳过时
+            # 不能继续报告"已配置"，否则 doctor 不告警但 LAN 请求全被拒
+            trusted_proxies_configured=len(settings.trusted_proxy_networks) > 0,
             public_base_url=settings.public_base_url,
             public_url_https=bool(
                 settings.public_base_url and settings.public_base_url.startswith("https://")
             ),
+            anonymous_catalog_mode=settings.anonymous_catalog_mode,
+            trusted_lan_configured=len(settings.trusted_lan_networks) > 0,
         ),
         error=None if ok else "database disconnected",
     )

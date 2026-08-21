@@ -1,15 +1,22 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useMembersStore } from '@/stores/members'
 import { lastError, backendOffline } from '@/stores/api'
+import { sessionAuthenticated } from '@/stores/session'
 
 const version = __APP_VERSION__
 
 const members = useMembersStore()
-// 成员列表在 main.ts 启动时已加载，此处不再重复请求（修复 P2：避免重复加载竞态）
+// CHK-071：成员列表仅在会话确认后加载；匿名壳层（/shared）只展示
+// 共享书架与登录入口，不触发受保护的 /members 请求。
 onMounted(() => {
-  if (members.members.length === 0) {
+  if (sessionAuthenticated.value === true && members.members.length === 0) {
+    members.load().catch(() => {})
+  }
+})
+watch(sessionAuthenticated, (authed) => {
+  if (authed === true && members.members.length === 0) {
     members.load().catch(() => {})
   }
 })
@@ -30,12 +37,15 @@ function onMemberChange(e: Event) {
       <RouterLink to="/" class="logo" aria-label="家庭书架首页">📚 家庭书架</RouterLink>
       <span class="version-badge" aria-label="版本号">v{{ version }}</span>
       <nav class="nav" aria-label="主导航">
-        <RouterLink to="/">书架</RouterLink>
-        <RouterLink to="/stats">统计</RouterLink>
-        <RouterLink to="/overview">概览图</RouterLink>
-        <RouterLink to="/agent">Agent</RouterLink>
+        <template v-if="sessionAuthenticated === true">
+          <RouterLink to="/">书架</RouterLink>
+          <RouterLink to="/stats">统计</RouterLink>
+          <RouterLink to="/overview">概览图</RouterLink>
+          <RouterLink to="/agent">Agent</RouterLink>
+        </template>
+        <RouterLink to="/shared">共享书架</RouterLink>
       </nav>
-      <div class="member-selector">
+      <div class="member-selector" v-if="sessionAuthenticated === true">
         <label for="member-select">成员</label>
         <select
           id="member-select"
@@ -50,6 +60,12 @@ function onMemberChange(e: Event) {
           </option>
         </select>
       </div>
+      <RouterLink
+        v-else
+        to="/agent-authorization"
+        class="login-entry"
+        aria-label="登录"
+      >登录</RouterLink>
     </header>
 
     <!-- BUG-126：错误横幅用 <button> 确保键盘可达（div 不可聚焦，无法 Tab/Enter 关闭） -->

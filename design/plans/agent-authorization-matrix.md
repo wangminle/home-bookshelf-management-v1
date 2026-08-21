@@ -56,7 +56,10 @@ Grant 风险分级：`HIGH_RISK_SCOPES = {books:delete, stats:household}`——�
 | `/agent/skills/download/{version}.zip` | GET | 无（公开） | 匿名 | L0 | 无 | 限流 |
 | `/agent/skills/SHA256SUMS` | GET | 无（公开） | 匿名 | L0 | 无 | 校验文件 |
 | `/api/v1/public-health` | GET | 无（公开） | 匿名 | L0 | 无 | 最小可用性；不含部署态势 |
-| `/api/v1/health` | GET | `members:read` | owner/member/agent | L4 | 全局诊断 | 权限阶段 0 起附部署信任态势字段 |
+| `/api/v1/public-catalog/books` | GET | 无（匿名，需模式+信任门控） | 匿名/已登录 | L1 | household_shared（仅白名单字段） | **权限阶段 1**：`anonymous_catalog_mode=lan_shared` 且来源可信（回环/TRUSTED_LAN_CIDRS/可信代理右值法）才开放；限流 429；`disabled`/不可信 → 403 机器码降级 |
+| `/api/v1/public-catalog/books/{id}` | GET | 无（匿名，同上门控） | 匿名/已登录 | L1 | household_shared | 404 不区分不存在与不可见（防枚举） |
+| `/api/v1/public-catalog/covers/{book_id}` | GET | 无（匿名，同上门控） | 匿名/已登录 | L1 | household_shared | 仅图片后缀；PIL 缩略图（缺失回退原图）；不暴露磁盘路径 |
+| `/api/v1/health` | GET | `members:read` | owner/member/agent | L4 | 全局诊断 | 权限阶段 0 起附部署信任态势字段（阶段 1 增加匿名书架模式/CIDR） |
 | `/api/v1/books` | GET | `books:read` | agent/channel/web | L1/L2 | household_shared | |
 | `/api/v1/books` | POST | `books:write` | agent/channel/web | L2 | household_shared | |
 | `/api/v1/books/{id}` | GET | `books:read` | agent/channel/web | L1/L2 | household_shared | 敏感子资源按各自 scope 过滤 |
@@ -92,6 +95,7 @@ Grant 风险分级：`HIGH_RISK_SCOPES = {books:delete, stats:household}`——�
 | `/agent-access/tokens` | POST | 无（owner 专用） | owner/web | L4 | 全局 | 签发 Token |
 | `/agent-access/tokens/{grant_id}` | GET | 无（owner 专用） | owner/web | L4 | 全局 | 授权管理 |
 | `/agent-access/tokens/{token_id}` | DELETE | 无（owner 专用） | owner/web | L4 | 全局 | 授权管理 |
+| `/mcp` | POST | 无（Agent Bearer；Grant 须恰 `books:read` 且显式 data_scope=household_shared） | agent | L1/L2 | household_shared | **CHK-073 硬化**：默认关闭 404；协议头必填（allowlist 2026-07-28）；Host 421/Origin 403 防护；server/discover+tools/list+tools/call（initialize 已移除）；Cookie/渠道头 401；限流（Client+Grant+Tool 三维）429；审计失败 503 fail-closed；工具输出无封面 URL/标签 |
 | `/auth/status` | GET | 无（公开） | 匿名 | L0 | 无 | 是否已初始化 Owner 密码 |
 | `/auth/init-password` | POST | 无（公开，限 loopback/`X-Setup-Token`） | 匿名 | L4 | 无 | Owner 密码初始化 |
 | `/auth/login` | POST | 无（公开） | 匿名 | L0 | 无 | owner 登录 |
@@ -127,3 +131,18 @@ Agent Grant 不支持 `*` 或 `admin:*` 通配符。授权管理和系统配置�
 
 回滚：渠道缩权与 merge Scope 修正不提供回退开关（基线 §13：不恢复已知越权语义）；
 如需临时关闭渠道身份能力，撤销对应渠道绑定即可。
+
+## 权限阶段 1 变更（2026-08-21：C 模式匿名书架）
+
+- 新增 Public Catalog 独立只读接口（见上表三条 `/public-catalog/*`）：只输出
+  Catalog Read Model（`backend/app/services/catalog_read.py`）的 L1 白名单字段，
+  完整业务 API `/api/v1/books*` 认证要求不变；
+- `ANONYMOUS_CATALOG_MODE`（默认 disabled，deploy 模板引导新部署为 lan_shared）与
+  `TRUSTED_LAN_CIDRS` 控制匿名 L1；不可信来源 403 `LAN_REQUIRED` 自动降级；
+- 新增共享限流服务 `backend/app/services/rate_limit.py`（Public Catalog 现用，
+  REST 高敏端点与后续 MCP 复用同一实现，仅 Profile 不同）；
+- 匿名浏览不写数据库审计（防 DoS）；拒绝与超限事件经应用日志留痕，
+  已认证高价值调用继续走 operation_log 共享审计入口；
+- 升级影响（基线 §13 匿名目录行）：代码默认 disabled，存量部署升级后匿名目录
+  保持关闭；Owner 确认可信 CIDR 后设置 `ANONYMOUS_CATALOG_MODE=lan_shared` 启用，
+  随时可改回 `disabled` 立即回到 L0/登录页，不改写任何书目数据。

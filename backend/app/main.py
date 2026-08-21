@@ -52,6 +52,14 @@ from app.api.v1.agent_skills import router as skills_router  # noqa: E402
 
 app.include_router(skills_router)
 
+# MCP 只读试点（并行轨）：路径精确 /mcp，必须在 SPA fallback 之前注册；
+# redirect_slashes=False 由 mcp router 自带——/mcp/ 404 不重定向；
+# MCP_ENABLED=false 时 /mcp 返回 404（handler 内判断，而非不注册，
+# 避免被 SPA fallback 吞成 index.html）。
+from app.mcp_server.server import router as mcp_router  # noqa: E402
+
+app.include_router(mcp_router, tags=["mcp"])
+
 
 # ---- 前端静态文件托管（SPA fallback）----
 # 当 backend/static/ 目录存在时（生产部署），由后端直接托管前端构建产物。

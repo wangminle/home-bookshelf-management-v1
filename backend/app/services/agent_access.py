@@ -135,6 +135,10 @@ def revoke_agent_client(db: Session, client_id: int) -> None:
 
 # ── Agent Grant ──
 
+# 试点期允许显式声明的数据范围（基线 §6.3 的最小落地；其余属阶段 3）
+PILOT_DATA_SCOPES = frozenset({"household_shared"})
+
+
 def create_grant(
     db: Session,
     *,
@@ -143,6 +147,7 @@ def create_grant(
     scopes: list[str],
     expires_in_days: int = 30,
     approved_by_member_id: int | None = None,
+    data_scope: str | None = None,
 ) -> AgentGrant:
     client = get_agent_client(db, agent_client_id)
     if client is None:
@@ -155,6 +160,14 @@ def create_grant(
         raise HTTPException(status_code=404, detail="家庭成员不存在")
 
     scopes_validated = validate_scopes(scopes)
+
+    # CHK-073/BUG-197：数据范围必须显式声明且在试点允许集内；
+    # 不传 = 历史语义（无数据范围标记，MCP 等真实数据门控拒绝）
+    if data_scope is not None and data_scope not in PILOT_DATA_SCOPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"未知 data_scope: {data_scope}。当前允许: {sorted(PILOT_DATA_SCOPES)}",
+        )
 
     # 权限阶段 0（任务 0.6）：Grant 只能由 Owner 批准（基线 §6.2/§7.1）。
     # 服务层强制校验，不再默认"绑定成员自批"；非 Owner 主体（渠道/未来 Member
@@ -179,6 +192,8 @@ def create_grant(
         status="active",
         expires_at=_now() + timedelta(days=expires_in_days),
         approved_by_member_id=approver_id,
+        data_scope_json=data_scope,
+        version=1,
     )
     db.add(grant)
     db.commit()
@@ -197,6 +212,15 @@ def list_grants(db: Session, *, agent_client_id: int | None = None, member_id: i
 
 def get_grant(db: Session, grant_id: int) -> AgentGrant | None:
     return db.get(AgentGrant, grant_id)
+
+
+def get_grant_data_scope(grant: AgentGrant) -> str | None:
+    """显式数据范围；历史 Grant 返回 None（调用方按未声明处理）。"""
+    return grant.data_scope_json
+
+
+def get_grant_version(grant: AgentGrant) -> int:
+    return grant.version or 1
 
 
 def get_grant_scopes(grant: AgentGrant) -> list[str]:

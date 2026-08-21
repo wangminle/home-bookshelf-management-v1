@@ -6,6 +6,7 @@
 */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { probeSession } from '@/stores/session'
 
 const router = useRouter()
 // CHK-039 P2: auth/* 和 agent-access/* 路由注册在根级，不在 /api/v1 下。
@@ -189,6 +190,8 @@ async function doLogin() {
     })
     authenticated.value = true
     password.value = ''
+    // CHK-073/BUG-199：登录成功后刷新全局会话缓存，主导航/路由守卫立即生效
+    await probeSession(true)
     await loadData()
   } catch (e) {
     error.value = (e as Error).message

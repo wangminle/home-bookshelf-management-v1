@@ -14,6 +14,9 @@ from app.db import init_db
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    from app.services.skill_catalog import ensure_skills_bundle
+
+    ensure_skills_bundle()
     yield
 
 

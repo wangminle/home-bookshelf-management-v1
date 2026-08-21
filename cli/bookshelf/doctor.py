@@ -151,10 +151,28 @@ def run_doctor(client: BookshelfClient | None = None) -> DoctorReport:
     else:
         report.hints.append("将项目 skills/ 目录加入 OpenClaw/Hermes 等 Agent 的技能路径")
 
+    _warn_frontend_drift(report, health_data)
+
     if shutil.which("bookshelf") is None:
         report.warnings.append("当前 shell 未找到 bookshelf 命令（可能未 pip install -e cli）")
 
     return report
+
+
+def _warn_frontend_drift(report: DoctorReport, health_data: dict[str, Any]) -> None:
+    app_version = health_data.get("app_version")
+    frontend_version = health_data.get("frontend_version")
+    if not frontend_version:
+        report.warnings.append(
+            "未发现前端 static/version.json（public-health 无 frontend_version），产物可能未同步"
+        )
+        report.hints.append("仓库根执行：bash scripts/deploy_frontend.sh   # 别名部署加 --base /alias/")
+        return
+    if isinstance(app_version, str) and frontend_version != app_version:
+        report.warnings.append(
+            f"static 落后于代码版本：frontend_version={frontend_version} app_version={app_version}"
+        )
+        report.hints.append("重新构建并同步前端：bash scripts/deploy_frontend.sh")
 
 
 def emit_doctor(payload: dict[str, Any], as_json: bool) -> None:

@@ -32,10 +32,10 @@ Agent 访问以下公开端点（无需认证）：
 
 | 端点 | 说明 |
 | --- | --- |
-| `GET /agent` | Bootstrap Markdown，人类和 Agent 可读的能力概览 |
+| `GET /agent/bootstrap.md` | Bootstrap Markdown，人类和 Agent 可读的能力概览（`/agent` 本身是前端 SPA 页面，返回 HTML） |
 | `GET /agent/manifest.json` | 机器可读的系统清单（版本、能力、认证方式） |
 | `GET /.well-known/api-catalog` | RFC 9727 API 目录（`application/linkset+json`） |
-| `GET /api/v1/openapi.json` | OpenAPI 规范（仅含业务端点，不含管理端点） |
+| `GET /agent/openapi.json` | Agent 专用 OpenAPI 规范（allowlist 过滤，仅含业务端点，不含管理端点） |
 | `GET /agent/skills/index.json` | Skills 索引（名称、版本、scope） |
 | `GET /agent/skills/download/{version}.zip` | Skills 包下载 |
 | `GET /agent/skills/SHA256SUMS` | Skills 包校验文件 |
@@ -48,15 +48,19 @@ Agent 访问以下公开端点（无需认证）：
 ## 3. 安装 Skills
 
 ```bash
-# Agent 可下载 Skills 包并安装
-curl -O http://<服务器>/agent/skills/download/latest.zip
+# 1. 读 Skills 索引，拿到当前 bundle 版本和下载地址
+curl http://<服务器>/agent/skills/index.json
+# 响应含 bundle_version（如 0.2.5）与 archive_url；下载没有 latest.zip，只有带版本号的包
+
+# 2. 按索引里的版本下载（以 0.2.5 为例）
+curl -O http://<服务器>/agent/skills/download/0.2.5.zip
 curl -O http://<服务器>/agent/skills/SHA256SUMS
 
-# 校验完整性
+# 3. 校验完整性（SHA256SUMS 里的文件名是 skills-0.2.5.zip，与下载文件对应）
 shasum -a 256 -c SHA256SUMS
 
-# 解压到 Agent 的 skills 路径
-unzip skills-latest.zip -d ~/.agent/skills/
+# 4. 解压：bundle 内含顶层 skills/ 目录，解到 Agent 根目录（避免 skills/skills 嵌套）
+unzip skills-0.2.5.zip -d ~/.agent/
 ```
 
 Skills 包含 9 个技能：
@@ -88,7 +92,7 @@ Skills 包含 9 个技能：
 
 ```bash
 # 1. Owner 登录获取 Cookie
-curl -c cookies.txt -X POST http://<服务器>/api/v1/auth/login \
+curl -c cookies.txt -X POST http://<服务器>/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"password": "your-password"}'
 

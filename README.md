@@ -27,8 +27,8 @@
 home-bookshelf-management-v1/
 ├── backend/              FastAPI 后端
 │   ├── app/
-│   │   ├── api/v1/       路由（books/copies/intake/progress/purchases/notes/reading-logs/attachments/custom-fields/stats/members/recognize/health）
-│   │   ├── auth.py       渠道白名单鉴权
+│   │   ├── api/v1/       路由（books/copies/intake/progress/purchases/notes/reading-logs/attachments/custom-fields/stats/members/recognize/files/health + web_auth/agent_access/agent_discovery/agent_skills）
+│   │   ├── auth.py       渠道白名单鉴权（统一鉴权权威实现为 auth_context.py）
 │   │   ├── services/     业务逻辑（intake/metadata/reading/cover_recognition/storage…）
 │   │   ├── models/       SQLAlchemy 2.0 模型
 │   │   ├── schemas/      Pydantic v2 schemas
@@ -40,7 +40,7 @@ home-bookshelf-management-v1/
 ├── frontend/             Vue 3 SPA（封面墙 / 详情 / 统计 / 概览图）
 ├── cli/                  Typer CLI（命令 bookshelf）
 ├── deploy/               docker-compose / systemd / backup.sh
-├── skills/               Agent 技能（8 个）
+├── skills/               Agent 技能（9 个）
 ├── design/               开发与需求文档（设计方案 / Schema / 调研 / 前端评估）
 ├── docs/                 用户说明（get-started / user-guide / web-ui / faq …）
 ├── AGENTS.md / CLAUDE.md
@@ -75,21 +75,15 @@ docker compose up -d
 
 ### Web UI 构建
 
-前端开发与构建详见 [Web UI 部署指南](docs/web-ui.md)。生产部署时，构建产物拷入 `backend/static/`，由后端 SPA fallback 同时服务 API 和前端：
+前端开发与构建详见 [Web UI 部署指南](docs/web-ui.md)。生产部署请用一键脚本（写入 `version.json`，`rsync --delete` 同步，排除 `skills/`）：
 
 ```bash
-cd frontend
-npm install && npm run build
-cp -r dist/* ../backend/static/
+bash scripts/deploy_frontend.sh
+# 路径别名（如 /home-bookshelf/）
+bash scripts/deploy_frontend.sh --base /home-bookshelf/
 ```
 
-路径别名部署（如 `/home-bookshelf/`）时，构建需指定 `VITE_BASE`：
-
-```bash
-VITE_BASE=/home-bookshelf/ npm run build
-```
-
-详见 [路径别名部署](docs/web-ui.md#路径别名部署path-alias)。
+详见 [路径别名部署](docs/web-ui.md#路径别名部署path-alias)。原生 `docker compose` 镜像已含前端构建阶段，无需再手工拷贝。
 
 ### CLI 命令（`bookshelf`）
 
@@ -106,10 +100,12 @@ VITE_BASE=/home-bookshelf/ npm run build
 | `doctor` | 初始化诊断（API/DB/Key/成员绑定） |
 | `bind` | 绑定 IM 渠道账号到成员（白名单；空库首次 `--member-id 1` 会自动创建默认 owner） |
 | `health` | 查看 API 状态 |
+| `bootstrap` | 发现系统契约（manifest / Skills 索引 / public-health，无需认证） |
+| `auth status` | 检查当前 Agent 授权状态（需 `BOOKSHELF_TOKEN`） |
 
 ### Skills（Agent 技能）
 
-`skills/` 目录提供 8 个技能：`book-intake` · `book-query` · `bookshelf-setup` · `cover-eval` · `note-taker` · `purchase-logger` · `reading-tracker` · `shelf-report`。把该目录加入 Agent（OpenClaw / Hermes）的技能路径即可调用。
+`skills/` 目录提供 9 个技能：`book-intake` · `book-query` · `bookshelf-bootstrap` · `bookshelf-setup` · `cover-eval` · `note-taker` · `purchase-logger` · `reading-tracker` · `shelf-report`。把该目录加入 Agent（OpenClaw / Hermes）的技能路径即可调用。
 
 ### Agent 使用指南
 
@@ -120,7 +116,7 @@ VITE_BASE=/home-bookshelf/ npm run build
 5. 绑定成员（白名单）：`bookshelf bind --member-id 1 --channel feishu --external-user-id <渠道用户ID>`（空库首次绑定 `member_id=1` 会自动创建默认 owner）
 6. 将 `skills/` 加入 Agent 技能路径，即可自然语言操作藏书
 
-> ⚠️ **安全**：全部业务端点（读+写）均已接入统一鉴权（AuthContext），无凭证一律 401。认证方式三选一：Agent Bearer Token（`Authorization: Bearer ...`，按 Grant 的 scope 校验，见授权矩阵 `design/plans/agent-authorization-matrix.md`）、Web 会话 Cookie（Owner 密码登录，前端「Agent 授权」页设置）、渠道头 `X-Channel`/`X-External-User-Id`（须已绑定成员；可选 `CHANNEL_SIGNING_SECRET` 开启 HMAC 签名校验，CLI 用 `BOOKSHELF_CHANNEL_SIGNING_SECRET` 透传）。`X-UI-Client` 头不再有任何授权含义。Web Owner 会话可代表家庭成员操作；Agent/渠道身份只能操作绑定成员本人的数据。探活用公开的 `GET /api/v1/public-health`（Docker healthcheck 已切换）；`GET /api/v1/health` 需 `members:read`。引导期（尚无任何渠道绑定）仅 `POST /members` 与 `bind` 允许匿名初始化。仍建议**只在可信家庭局域网内运行，请勿暴露到公网**。
+> ⚠️ **安全**：全部业务端点（读+写）均已接入统一鉴权（AuthContext），无凭证一律 401。认证方式三选一：Agent Bearer Token（`Authorization: Bearer ...`，按 Grant 的 scope 校验，见授权矩阵 `design/plans/agent-authorization-matrix.md`）、Web 会话 Cookie（Owner 密码登录，前端「Agent 授权」页设置）、渠道头 `X-Channel`/`X-External-User-Id`（须已绑定成员；可选 `CHANNEL_SIGNING_SECRET` 开启 HMAC 签名校验，CLI 用 `BOOKSHELF_CHANNEL_SIGNING_SECRET` 透传）。`X-UI-Client` 头不再有任何授权含义。Web Owner 会话可代表家庭成员操作；Agent/渠道身份只能操作绑定成员本人的数据。**v0.3.5 探活 breaking change**：`GET /api/v1/health` 需 `members:read`，无凭证返回 401。监控与 lwa 探活请改用 `curl -f http://<host>:<port>/api/v1/public-health`（Docker healthcheck 已切换）。引导期（尚无任何渠道绑定）仅 `POST /members` 与 `bind` 允许匿名初始化。仍建议**只在可信家庭局域网内运行，请勿暴露到公网**。
 
 ---
 
@@ -143,8 +139,8 @@ VITE_BASE=/home-bookshelf/ npm run build
 home-bookshelf-management-v1/
 ├── backend/              FastAPI backend
 │   ├── app/
-│   │   ├── api/v1/       routes (books/copies/intake/progress/purchases/notes/reading-logs/attachments/custom-fields/stats/members/recognize/health)
-│   │   ├── auth.py       channel whitelist auth
+│   │   ├── api/v1/       routes (books/copies/intake/progress/purchases/notes/reading-logs/attachments/custom-fields/stats/members/recognize/files/health + web_auth/agent_access/agent_discovery/agent_skills)
+│   │   ├── auth.py       channel whitelist auth (authoritative unified auth lives in auth_context.py)
 │   │   ├── services/     business logic (intake/metadata/reading/cover_recognition/storage…)
 │   │   ├── models/       SQLAlchemy 2.0 models
 │   │   ├── schemas/      Pydantic v2 schemas
@@ -156,7 +152,7 @@ home-bookshelf-management-v1/
 ├── frontend/             Vue 3 SPA (cover wall / details / stats / overview)
 ├── cli/                  Typer CLI (command: bookshelf)
 ├── deploy/               docker-compose / systemd / backup.sh
-├── skills/               Agent skills (8)
+├── skills/               Agent skills (9)
 ├── design/               design & requirements
 ├── docs/                 user guides (get-started / user-guide / web-ui / faq …)
 ├── AGENTS.md / CLAUDE.md
@@ -191,21 +187,14 @@ docker compose up -d
 
 ### Web UI Build
 
-See [Web UI deployment guide](docs/web-ui.md) for details. For production, build the frontend and copy it into `backend/static/` — the backend serves both API and SPA via a fallback route:
+See [Web UI deployment guide](docs/web-ui.md). For production use the one-shot script (`version.json` + `rsync --delete`, excludes `skills/`):
 
 ```bash
-cd frontend
-npm install && npm run build
-cp -r dist/* ../backend/static/
+bash scripts/deploy_frontend.sh
+bash scripts/deploy_frontend.sh --base /home-bookshelf/
 ```
 
-For path alias deployment (e.g. `/home-bookshelf/`), specify `VITE_BASE` at build time:
-
-```bash
-VITE_BASE=/home-bookshelf/ npm run build
-```
-
-See [Path Alias Deployment](docs/web-ui.md#路径别名部署path-alias).
+See [Path Alias Deployment](docs/web-ui.md#路径别名部署path-alias). The stock `docker compose` image now builds the frontend in Docker; no manual copy is required.
 
 ### CLI Commands (`bookshelf`)
 
@@ -222,10 +211,12 @@ See [Path Alias Deployment](docs/web-ui.md#路径别名部署path-alias).
 | `doctor` | Setup diagnostics (API/DB/Key/member binding) |
 | `bind` | Bind IM channel account to a member (whitelist; empty-library first `--member-id 1` auto-creates default owner) |
 | `health` | API status |
+| `bootstrap` | Discover the system contract (manifest / skills index / public-health, no auth) |
+| `auth status` | Check current Agent authorization status (needs `BOOKSHELF_TOKEN`) |
 
 ### Skills (Agent)
 
-The `skills/` directory ships 8 skills: `book-intake` · `book-query` · `bookshelf-setup` · `cover-eval` · `note-taker` · `purchase-logger` · `reading-tracker` · `shelf-report`. Add the directory to your Agent's (OpenClaw / Hermes) skill path to use them.
+The `skills/` directory ships 9 skills: `book-intake` · `book-query` · `bookshelf-bootstrap` · `bookshelf-setup` · `cover-eval` · `note-taker` · `purchase-logger` · `reading-tracker` · `shelf-report`. Add the directory to your Agent's (OpenClaw / Hermes) skill path to use them.
 
 ### Agent Guide
 
@@ -236,4 +227,4 @@ The `skills/` directory ships 8 skills: `book-intake` · `book-query` · `booksh
 5. Bind a member (whitelist): `bookshelf bind --member-id 1 --channel feishu --external-user-id <channel-user-id>` (empty-library first bind with `member_id=1` auto-creates a default owner)
 6. Add `skills/` to your Agent's skill path, then manage books via natural language
 
-> ⚠️ **Security**: all business endpoints (reads and writes) enforce unified auth (AuthContext); unauthenticated requests get 401. Pick one of: Agent Bearer Token (`Authorization: Bearer ...`, scope-checked per grant — see the matrix at `design/plans/agent-authorization-matrix.md`), Web session cookie (owner password login, set from the frontend "Agent" page), or channel headers `X-Channel` / `X-External-User-Id` (must be bound to a member; optionally enable HMAC signing via `CHANNEL_SIGNING_SECRET`, passed through by the CLI as `BOOKSHELF_CHANNEL_SIGNING_SECRET`). The `X-UI-Client` header no longer carries any authorization meaning. A web owner session may act for family members; agent/channel identities are limited to their bound member. Liveness probes use the public `GET /api/v1/public-health` (the Docker healthcheck has switched); `GET /api/v1/health` requires `members:read`. During bootstrap (no channel bindings yet) only `POST /members` and `bind` accept anonymous initialization. Still recommended to **run only on a trusted home LAN; do not expose to the public internet**.
+> ⚠️ **Security**: all business endpoints (reads and writes) enforce unified auth (AuthContext); unauthenticated requests get 401. Pick one of: Agent Bearer Token (`Authorization: Bearer ...`, scope-checked per grant — see the matrix at `design/plans/agent-authorization-matrix.md`), Web session cookie (owner password login, set from the frontend "Agent" page), or channel headers `X-Channel` / `X-External-User-Id` (must be bound to a member; optionally enable HMAC signing via `CHANNEL_SIGNING_SECRET`, passed through by the CLI as `BOOKSHELF_CHANNEL_SIGNING_SECRET`). The `X-UI-Client` header no longer carries any authorization meaning. A web owner session may act for family members; agent/channel identities are limited to their bound member. **v0.3.5 probe breaking change:** `GET /api/v1/health` requires `members:read` (401 without credentials). Use `curl -f http://<host>:<port>/api/v1/public-health` for monitors and lwa probes (the Docker healthcheck already switched). During bootstrap (no channel bindings yet) only `POST /members` and `bind` accept anonymous initialization. Still recommended to **run only on a trusted home LAN; do not expose to the public internet**.

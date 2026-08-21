@@ -5,7 +5,10 @@
 from __future__ import annotations
 
 import hashlib
-import json
+import logging
+import os
+import subprocess
+import sys
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -15,17 +18,49 @@ from fastapi.responses import FileResponse
 # Skills 目录路径
 # 开发环境：从 __file__ 向上查找仓库根（含 skills/ 目录）。
 # Docker 环境：skills/ 被 COPY 到 /app/skills/，从 __file__ 向上一级即可找到。
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_APP_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ROOT = _APP_ROOT
 if not (_PROJECT_ROOT / "skills").is_dir():
     # 开发环境：再上一级到仓库根
     _PROJECT_ROOT = _PROJECT_ROOT.parent
 if not (_PROJECT_ROOT / "skills").is_dir():
     # 回退：原始计算（四级向上）
-    _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+    _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SKILLS_DIR = _PROJECT_ROOT / "skills"
 
+_log = logging.getLogger(__name__)
+
+
+def _bundle_has_artifact(directory: Path) -> bool:
+    if not directory.is_dir():
+        return False
+    if (directory / "manifest.json").is_file():
+        return True
+    return any(directory.glob("skills-*.zip"))
+
+
+def resolve_bundle_dir(project_root: Path | None = None) -> Path:
+    """GitHub #5：优先 backend/static/skills（不被 lwa **/dist ignore），兼容 Docker /app/static 与旧 dist/skills。
+
+    默认根取 _APP_ROOT（仓库内 backend/、容器内 /app），不依赖 skills/ 源目录存在：
+    lwa 容器只有 backend/ 内容，按 skills/ 探测根会退化到 /，找不到随 static/ 携带的预构建 bundle。
+    """
+    env = os.environ.get("SKILLS_BUNDLE_DIR")
+    if env:
+        return Path(env)
+    root = project_root if project_root is not None else _APP_ROOT
+    if (root / "backend" / "app").is_dir():
+        preferred = root / "backend" / "static" / "skills"
+    else:
+        preferred = root / "static" / "skills"
+    legacy = root / "dist" / "skills"
+    if _bundle_has_artifact(legacy) and not _bundle_has_artifact(preferred):
+        return legacy
+    return preferred
+
+
 # 已发布的 bundle 目录
-BUNDLE_DIR = _PROJECT_ROOT / "dist" / "skills"
+BUNDLE_DIR = resolve_bundle_dir()
 
 # 版本号
 _SKILLS_VERSION = "0.2.5"
@@ -140,6 +175,34 @@ def get_bundle_sha256(version: str) -> str:
                 return parts[0].strip()
     # 回退：实时计算
     return hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+
+
+def ensure_skills_bundle() -> Path | None:
+    """启动兜底：BUNDLE_DIR 无 zip 且能找到构建脚本时现场生成（lwa rebuild 后 404）。"""
+    global BUNDLE_DIR
+    BUNDLE_DIR = resolve_bundle_dir()
+    if _bundle_has_artifact(BUNDLE_DIR):
+        return BUNDLE_DIR
+    script = None
+    for base in (_APP_ROOT, _APP_ROOT.parent, _PROJECT_ROOT):
+        candidate = base / "scripts" / "build_skills_bundle.py"
+        if candidate.is_file():
+            script = candidate
+            break
+    if script is None or not SKILLS_DIR.is_dir():
+        _log.warning("Skills bundle 缺失且无法自动构建（script=%s skills=%s）", script, SKILLS_DIR)
+        return None
+    BUNDLE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        subprocess.run(
+            [sys.executable, str(script), "--output", str(BUNDLE_DIR), "--version", _SKILLS_VERSION],
+            check=True,
+            cwd=str(script.parent.parent),
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        _log.exception("自动构建 Skills bundle 失败: %s", exc)
+        return None
+    return BUNDLE_DIR if _bundle_has_artifact(BUNDLE_DIR) else None
 
 
 def serve_bundle(version: str) -> FileResponse:

@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from app.config import settings
@@ -22,7 +23,7 @@ from app.schemas.agent_discovery import (
     SkillsRef,
 )
 
-_APP_VERSION = "0.3.5"
+_APP_VERSION = "0.3.6"
 
 # WBS-0：公开能力目录--只描述"系统能做什么"，不包含业务数据。
 _CAPABILITIES = [
@@ -156,11 +157,38 @@ def build_bootstrap_md() -> str:
 """
 
 
+_BACKEND_STATIC = Path(__file__).resolve().parent.parent.parent / "static"
+
+
+def read_frontend_build_info(static_root: Path | None = None) -> tuple[str | None, str | None]:
+    """读取 static/version.json（DEV-025）。缺文件或字段时返回 (None, None)。"""
+    root = static_root if static_root is not None else _BACKEND_STATIC
+    path = root / "version.json"
+    if not path.is_file():
+        return None, None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None, None
+    if not isinstance(payload, dict):
+        return None, None
+    version = payload.get("frontend_version")
+    built = payload.get("build_time")
+    return (
+        version if isinstance(version, str) and version else None,
+        built if isinstance(built, str) and built else None,
+    )
+
+
 def build_public_health() -> PublicHealthData:
+    frontend_version, build_time = read_frontend_build_info()
     return PublicHealthData(
         status="available",
         service="home-bookshelf",
         authorization_required=True,
+        app_version=_APP_VERSION,
+        frontend_version=frontend_version,
+        build_time=build_time,
     )
 
 

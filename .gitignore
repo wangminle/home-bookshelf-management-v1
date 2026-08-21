@@ -59,5 +59,6 @@ node_modules/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo
 
-# 前端构建产物（由 lwa 部署时自动生成，不入库）
+# 前端构建产物不入库；部署前需构建并同步（见 docs/web-ui.md、scripts/deploy_frontend.sh）。
+# lwa 不会自动构建前端。Skills bundle 位于 backend/static/skills/，同步脚本须排除该目录。
 backend/static/

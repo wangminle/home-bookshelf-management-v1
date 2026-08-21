@@ -34,6 +34,8 @@
 | `bind` | 绑定 IM 渠道 |
 | `doctor` | 初始化诊断 |
 | `health` | API 健康检查 |
+| `bootstrap` | 发现系统契约（manifest / Skills 索引 / public-health，无需认证） |
+| `auth status` | 检查当前 Agent 授权状态（需 `BOOKSHELF_TOKEN`） |
 
 ---
 
@@ -58,6 +60,7 @@ bookshelf show --id ID
 ```bash
 bookshelf progress --book-id ID [--member-id ID] [--status 状态]
                    [--page 页] [--percent 百分比] [--rating 1-5]
+                   [--to-read/--no-to-read]
 ```
 
 ## `purchase`
@@ -91,20 +94,24 @@ bookshelf member --name 名称 [--role owner|member|guest] [--avatar 路径]
 bookshelf bind --member-id ID --channel 渠道名 --external-user-id 外部ID
 ```
 
-## `doctor` / `health` / `recognize` / `stats`
+## `doctor` / `health` / `recognize` / `stats` / `bootstrap` / `auth status`
 
 ```bash
-bookshelf doctor
+bookshelf doctor [--authorized]
 bookshelf health
 bookshelf recognize --image 路径
 bookshelf stats
+bookshelf bootstrap http://<服务器>
+bookshelf auth status
 ```
 
 补充：
 
 - `bookshelf doctor` 在检查未通过时会以退出码 `1` 结束，便于 Agent / 脚本判断失败
+- `doctor --authorized`：授权后业务检查，需先设置 `BOOKSHELF_TOKEN`（会先跑 `auth status` 再做常规诊断）
 - `bookshelf health` / 其他命令若遇到 API 非 JSON、网络错误或 HTTP 4xx/5xx，会返回更明确的中文错误而不是裸 traceback
-- `GET /api/v1/health` 已要求认证（`members:read`）：无凭证时 `health`/`doctor` 自动回退 `GET /api/v1/public-health` 验证可达性，并以警告提示诊断细节不可用（数据库状态显示「未知」而非误报异常）
+- `GET /api/v1/health` 已要求认证（`members:read`）：无凭证时 `health`/`doctor` 自动回退 `GET /api/v1/public-health` 验证可达性，并以警告提示诊断细节不可用（数据库状态显示「未知」而非误报异常）。监控脚本请直接打 `public-health`，不要再对 `/health` 期望 200。
+- `doctor` 会读取 `public-health` 的 `frontend_version` / `build_time`，与 `app_version` 不一致时警告 static 漂移。
 
 ---
 

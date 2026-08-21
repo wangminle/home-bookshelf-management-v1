@@ -167,7 +167,11 @@ def write_manifest(output_dir: Path, version: str, zip_name: str, sha256: str, f
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="构建 Skills Bundle")
-    parser.add_argument("--output", default="dist/skills", help="输出目录")
+    parser.add_argument(
+        "--output",
+        default="backend/static/skills",
+        help="输出目录（默认 backend/static/skills，避开 lwa .dockerignore 的 **/dist）",
+    )
     parser.add_argument("--version", default=None, help="版本号（默认从 config 读取）")
     args = parser.parse_args()
 

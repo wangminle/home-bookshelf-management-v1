@@ -18,6 +18,8 @@ npm run dev
 
 开发服务器运行在 `http://localhost:3000`，API 请求自动代理到后端 `:8000`。
 
+> 注意：vite dev 只代理 `/api`（`vite.config.ts`），根级路由 `/auth`、`/agent-access`、`/agent` 等在开发模式下不可达——Owner 登录页与 Agent 授权页需走生产构建（后端托管或完整反代）验证。
+
 ## 生产构建
 
 ```bash
@@ -48,17 +50,34 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
+
+    # 根级后端路由：只代理 /api/ 会导致登录页与 Agent 授权页失效。
+    # /auth（Owner 登录/登出/初始化密码）、/agent-access（Agent 授权管理）、
+    # /agent（Agent 发现面 manifest/bootstrap/openapi/skills）、
+    # /.well-known（api-catalog）、/llms.txt 都挂在后端根路径下。
+    location ~ ^/(auth|agent-access|agent|\.well-known)/|^/llms\.txt$ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 }
 ```
 
+> 简化做法：也可以除 `/assets` 等静态资源外全部 `proxy_pass` 到后端，由后端 SPA fallback 托管前端（见部署方式二）。
+
 ### 部署方式二：后端直接托管（轻量，推荐）
 
-将构建产物拷入 `backend/static/`，后端 `main.py` 通过 SPA fallback 同时服务 API 和前端：
+仓库根目录执行一键脚本，构建产物进入 `backend/static/`（`rsync --delete`，排除 `skills/` bundle）：
 
 ```bash
-cd frontend
-npm install && npm run build
-cp -r dist/* ../backend/static/
+bash scripts/deploy_frontend.sh
+```
+
+路径别名：
+
+```bash
+bash scripts/deploy_frontend.sh --base /home-bookshelf/
 ```
 
 后端代码已内置此逻辑（无需手动修改 `main.py`）：
@@ -76,11 +95,11 @@ if _STATIC_DIR.is_dir():
 
 `/api/v1` 路由优先匹配，`/assets` 挂载静态资源，其余路径返回 `index.html` 让 vue-router 接管。单端口同时服务 API + SPA。
 
-> `backend/static/` 已在 `.gitignore` 中忽略，是构建产物不入库。
+> `backend/static/` 已在 `.gitignore` 中忽略：构建产物不入库，部署前需运行 `scripts/deploy_frontend.sh`（lwa 不会自动构建前端）。
 
 ### 部署方式三：lwa 本地部署
 
-详见 [部署](./deployment.md#lwa-本地部署家庭服务器推荐)。lwa 自动生成 Dockerfile 并管理容器，前端构建产物同样需拷入 `backend/static/`。
+详见 [部署](./deployment.md#lwa-本地部署家庭服务器推荐)。升级前先跑 `bash scripts/deploy_frontend.sh --base /<alias>/`，再 `lwa rebuild`。
 
 ### 路径别名部署（Path Alias）
 
@@ -89,9 +108,7 @@ if _STATIC_DIR.is_dir():
 **构建命令：**
 
 ```bash
-cd frontend
-VITE_BASE=/home-bookshelf/ npm run build
-cp -r dist/* ../backend/static/
+bash scripts/deploy_frontend.sh --base /home-bookshelf/
 ```
 
 `VITE_BASE` 会被 Vite 注入为 `import.meta.env.BASE_URL`，前端三处自动对齐：
@@ -134,6 +151,9 @@ cp -r dist/* ../backend/static/
 | 花费趋势条形图 | ✅ |
 | 书架概览图生成（封面拼图 + 统计摘要 + 分类 TOP3） | ✅ |
 | 概览图导出 PNG / 分享 | ✅ |
+| `/agent` Agent 连接信息页 | ✅ |
+| `/agent-authorization` Agent 授权管理（Owner 登录 / 密码初始化 / 签发 Token） | ✅ |
+| `/agent-access` 授权列表页 | ✅ |
 
 ### 概览图功能
 

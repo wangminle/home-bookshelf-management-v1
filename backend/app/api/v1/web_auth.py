@@ -90,11 +90,44 @@ def _is_secure_request(request: Request) -> bool:
 
 
 def _is_loopback_request(request: Request) -> bool:
-    """判断请求是否来自本机（loopback）。"""
+    """判断请求是否来自本机（loopback）。
+
+    GitHub #8：直接对端是可信代理（TRUSTED_PROXIES）时，以 X-Forwarded-For 判定--
+    lwa/nginx 反代场景下后端看到的对端是 Docker 网关 IP，真实客户端地址在 XFF 里。
+    未配置可信代理时 XFF 一律不可信（防伪造）。
+
+    BUG-181（GitHub #10）：XFF 从右往左解析，跳过可信代理网段后取第一个非可信地址。
+    不能取首跳（左值）--按 XFF 语义左值是客户端自报的地址，网关按 nginx 默认
+    $proxy_add_x_forwarded_for 追加而非覆盖时，攻击者自带 XFF: 127.0.0.1 即可伪造
+    首跳通过 loopback 判定，在 Owner 密码未初始化窗口经 init-password 接管系统。
+    右值法下，无论网关追加还是覆盖 XFF，取到的都是网关亲手追加的真实客户端地址。
+    """
     client = request.client
     if client is None:
         return False
-    return client.host in ("127.0.0.1", "::1", "localhost")
+    host = client.host
+    if _is_trusted_proxy(host):
+        host = _client_ip_behind_proxy(request) or host
+    return host in ("127.0.0.1", "::1", "localhost")
+
+
+def _client_ip_behind_proxy(request: Request) -> str | None:
+    """从 X-Forwarded-For 还原真实客户端 IP：右值法（见 _is_loopback_request 注释）。"""
+    xff = request.headers.get("x-forwarded-for", "")
+    for hop in reversed([h.strip() for h in xff.split(",") if h.strip()]):
+        if not _is_trusted_proxy(hop):
+            return hop
+    return None
+
+
+def _is_trusted_proxy(host: str) -> bool:
+    import ipaddress
+
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return any(addr in net for net in settings.trusted_proxy_networks)
 
 
 def _normalize_setup_token(value: str | None) -> str | None:

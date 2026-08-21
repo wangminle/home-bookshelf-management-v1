@@ -33,11 +33,11 @@ curl https://your-bookshelf.example/.well-known/api-catalog
 ### Step 2: 安装 Skills
 
 ```bash
-# 安装 CLI（如果尚未安装）
-pip install bookshelf-cli
+# 安装 CLI（如果尚未安装；项目以源码仓库分发，无 PyPI 包）
+pip install -e cli
 
-# 下载并安装 Skills Bundle
-bookshelf skills install --from-server https://your-bookshelf.example
+# 发现系统契约（无需认证）：读取 manifest、Skills 索引、public-health
+bookshelf bootstrap https://your-bookshelf.example
 ```
 
 ### Step 3: 申请授权

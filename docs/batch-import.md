@@ -18,7 +18,7 @@
 ## 前置条件
 
 1. **后端在跑**：`http://127.0.0.1:8000`（可用 `bookshelf health` 验证）；不在本机时 `export BOOKSHELF_API_URL=http://<服务器>`
-2. **Agent Token**：在前端「Agent 连接」页注册 client → 建 `books:write` 授权 → 签发 token，
+2. **Agent Token**：在前端「Agent 授权」页（`/agent-authorization`）注册 client → 建 `books:write` 授权 → 签发 token，
    然后 `export BOOKSHELF_TOKEN=hbs_at_...`（写接口必需，见 `docs/agent-setup.md`）
 3. **图片**：放进一个目录。支持 jpg / jpeg / png / webp / bmp / heic / tif / tiff；建议 jpg/png。
    文件名随意（Agent 靠看图识别，不依赖文件名）；若恰好在文件名里放了 ISBN，可在清单里手工填 `isbn` 字段。
@@ -123,7 +123,7 @@ python3 scripts/eval_cover_recognition.py compare
 
 ## 常见问题
 
-- **run 报 401/403**：`BOOKSHELF_TOKEN` 未设置或过期，去前端「Agent 连接」页重新签发。
+- **run 报 401/403**：`BOOKSHELF_TOKEN` 未设置或过期，去前端「Agent 授权」页（`/agent-authorization`）重新签发。
 - **后端不可用**：`run` 启动时会先做健康检查并直接退出，不会入库一半。
 - **某本识别不出来**：留空 + `note` 注明，人工补书名/ISBN 后再 `confirmed`；
   有 ISBN 时（如封底照）后端会自动拉元数据与封面。

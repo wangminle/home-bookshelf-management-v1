@@ -3,7 +3,8 @@ import { onMounted } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useMembersStore } from '@/stores/members'
 import { lastError, backendOffline } from '@/stores/api'
-import { version } from '../package.json'
+
+const version = __APP_VERSION__
 
 const members = useMembersStore()
 // 成员列表在 main.ts 启动时已加载，此处不再重复请求（修复 P2：避免重复加载竞态）

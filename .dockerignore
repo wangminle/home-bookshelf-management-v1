@@ -1,0 +1,23 @@
+# Docker 构建上下文忽略（GitHub #1 配套）
+# 关键：本地 node_modules 可能含本平台（如 darwin-arm64）的原生二进制，
+# 若进入构建上下文，COPY frontend/ ./ 会覆盖镜像内 npm ci 装好的 Linux 依赖导致构建失败。
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/*.pyc
+
+# 虚拟环境与本地产物
+backend/.venv
+frontend/dist
+frontend/tsconfig.tsbuildinfo
+
+# 运行时数据与构建产物（镜像内重新生成）
+data/
+backend/data
+backend/static
+dist/
+
+# VCS 与本机文件
+.git
+**/.DS_Store

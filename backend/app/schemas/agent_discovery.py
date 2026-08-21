@@ -72,6 +72,9 @@ class PublicHealthData(BaseModel):
     status: str = "available"
     service: str = "home-bookshelf"
     authorization_required: bool = True
+    app_version: str | None = None
+    frontend_version: str | None = None
+    build_time: str | None = None
 
 
 class SkillIndexEntry(BaseModel):

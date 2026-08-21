@@ -154,9 +154,9 @@ V0.2.5 起支持完整的 Owner 认证体系（Argon2id 密码 + HTTPS Cookie �
 cd frontend && npm run dev    # http://localhost:3000
 ```
 
-生产部署：构建前端拷入 `backend/static/`，后端自动托管：
+生产部署：仓库根执行一键脚本，后端自动托管：
 ```bash
-cd frontend && npm run build && cp -r dist/* ../backend/static/
+bash scripts/deploy_frontend.sh
 ```
 
 ---

@@ -351,16 +351,22 @@ onMounted(() => {
             </tr>
           </tbody>
         </table>
-        <p v-else class="empty">暂无 Agent 客户端</p>
+        <p v-else class="empty">暂无 Agent 客户端——请先点击上方「+ 注册新 Agent」注册</p>
       </section>
 
       <!-- 授权列表 -->
       <section class="card">
         <div class="card-header">
           <h2>授权列表</h2>
-          <button @click="showCreateGrant = !showCreateGrant" class="btn-primary" :disabled="clients.length === 0">
+          <button
+            @click="showCreateGrant = !showCreateGrant"
+            class="btn-primary"
+            :disabled="clients.length === 0"
+            :title="clients.length === 0 ? '请先注册 Agent 客户端，再创建授权' : ''"
+          >
             {{ showCreateGrant ? '取消' : '+ 创建授权' }}
           </button>
+          <span v-if="clients.length === 0" class="hint">需先在上方注册 Agent 客户端</span>
         </div>
         <div v-if="showCreateGrant" class="create-form grant-form">
           <label>Agent 客户端
@@ -572,6 +578,12 @@ onMounted(() => {
   color: var(--text-secondary, #666);
   text-align: center;
   padding: 2rem;
+}
+.hint {
+  color: var(--text-secondary, #666);
+  font-size: 0.85rem;
+  margin-left: 0.5rem;
+  align-self: center;
 }
 .btn-primary {
   background: var(--primary, #4a90d9);

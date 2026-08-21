@@ -33,14 +33,14 @@ bookshelf health
 2. 用户给了书名 → `bookshelf find --keyword "..."`，消歧后取 ID
 3. 多本同名 → 列出候选让用户选
 
-可选 `--member-id`；未指定时使用系统默认成员（首个成员或自动创建的「默认用户」）。
+可选 `--member-id`；未指定时回退到认证身份本人（Agent Token / 渠道头绑定的成员；`auth_context.py` 的 `resolve_body_member`）。
 
 > **渠道鉴权**（Agent 走后端时）：调用 `/progress` 端点时，后端读取 HTTP 头 `X-Channel` / `X-External-User-Id`：
 > - 无任何凭证 -> 401（业务端点不再有匿名回退；CLI 需设置 BOOKSHELF_TOKEN 或渠道头环境变量）
 > - 有渠道头但未绑定 -> 403
 > - 有渠道头且绑定，但与 body `member_id` 不一致 -> 403
 >
-> 内置 Web UI 发送 `X-UI-Client: web` 头在白名单建立后仍可写入（BUG-134），外部 Agent/CLI 不受此旁路影响。
+> 历史旁路 `X-UI-Client: web`（BUG-134）已被 WBS-6 移除：该头不再有任何授权含义，前端也不再发送。
 > 若 Agent 通过 CLI 执行命令，只需在运行环境设置 `BOOKSHELF_CHANNEL` / `BOOKSHELF_EXTERNAL_USER_ID`，CLI 会自动透传为请求头。
 
 ## 执行步骤

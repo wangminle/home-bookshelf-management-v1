@@ -41,13 +41,14 @@ GOOGLE_BOOKS_API_KEY=你的密钥
 ```bash
 cd frontend
 npm install
-npm run dev          # 开发模式，http://localhost:3000，API 自动代理到 :8000
+npm run dev          # 开发模式，http://localhost:3000，仅 /api 自动代理到 :8000
+                     # （/auth、/agent-access 等根级路由 dev 模式不可达，见 web-ui.md）
 ```
 
 生产部署时构建前端并拷入后端，由后端统一托管：
 
 ```bash
-cd frontend && npm run build && cp -r dist/* ../backend/static/
+bash scripts/deploy_frontend.sh
 # 重启后端后访问 http://127.0.0.1:8000/ 即为 Web UI
 ```
 

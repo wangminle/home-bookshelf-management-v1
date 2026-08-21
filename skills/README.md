@@ -9,6 +9,7 @@ Agent 能力层：每个 Skill 描述**何时触发、如何调用 CLI、如何�
 | Skill | 目录 | 触发示例 |
 |-------|------|----------|
 | **书架初始化** | [bookshelf-setup](./bookshelf-setup/SKILL.md) | 「第一次用 / 怎么配置 / setup / 连不上」 |
+| Agent 引导 | [bookshelf-bootstrap](./bookshelf-bootstrap/SKILL.md) | 「连接书架 / bootstrap / agent 接入 / 发现能力」 |
 | 藏书入库 | [book-intake](./book-intake/SKILL.md) | 发书封照片 / ISBN / 「买了本书」 |
 | 藏书查询 | [book-query](./book-query/SKILL.md) | 「有没有三体」/ 「查刘慈欣」 |
 | 阅读进度 | [reading-tracker](./reading-tracker/SKILL.md) | 「读到 100 页」/ 「读完了」 |
@@ -49,6 +50,7 @@ Agent：→ cover-eval → 看 tests/eval/covers → 填 predictions.json → py
 
 ```bash
 export BOOKSHELF_API_URL=http://127.0.0.1:8000   # 家庭服务器地址
+export BOOKSHELF_TOKEN=hbs_at_...                # 推荐首选：Agent Bearer Token（在「Agent 授权」页签发）
 export BOOKSHELF_CHANNEL=feishu                  # 可选：按绑定成员身份执行写操作
 export BOOKSHELF_EXTERNAL_USER_ID=ou_xxx         # 可选：与 bind 时一致
 export BOOKSHELF_SETUP_TOKEN=...                 # 可选：白名单建立后代绑成员

@@ -1,7 +1,7 @@
 # Agent 授权矩阵
 
 > WBS-0 交付物：全部 API 端点 × 方法 × Scope × 主体 × 资源范围的完整映射。
-> WBS-6 的参数化测试以本矩阵为唯一输入。
+> 端点清单以 `backend/app/main.py` 与 `backend/app/api/v1/` 实际路由为准（本文件已按实现核对）。
 
 ## Scope 定义
 
@@ -33,6 +33,7 @@
 | `/agent/openapi.json` | GET | 无（公开） | 匿名 | 无 | allowlist 过滤 |
 | `/agent/skills/index.json` | GET | 无（公开） | 匿名 | 无 | Skills 索引 |
 | `/agent/skills/download/{version}.zip` | GET | 无（公开） | 匿名 | 无 | 限流 |
+| `/agent/skills/SHA256SUMS` | GET | 无（公开） | 匿名 | 无 | 校验文件 |
 | `/api/v1/public-health` | GET | 无（公开） | 匿名 | 无 | 最小可用性 |
 | `/api/v1/health` | GET | `members:read` | owner | 全局 | 受保护诊断 |
 | `/api/v1/books` | GET | `books:read` | agent/channel/web | 家庭共享 | |
@@ -40,39 +41,44 @@
 | `/api/v1/books/{id}` | GET | `books:read` | agent/channel/web | 家庭共享 | |
 | `/api/v1/books/{id}` | PATCH | `books:write` | agent/channel/web | 家庭共享 | |
 | `/api/v1/books/{id}` | DELETE | `books:delete` | agent/channel/web | 家庭共享 | 高风险 |
-| `/api/v1/books/{id}/copies` | GET | `books:read` | agent/channel/web | 家庭共享 | |
+| `/api/v1/books/{id}/merge` | POST | `books:delete` | agent/channel/web | 家庭共享 | 合并去重，高风险 |
+| `/api/v1/books/{id}/cover` | POST | `books:write` | agent/channel/web | 家庭共享 | 设置封面 |
 | `/api/v1/books/{id}/copies` | POST | `books:write` | agent/channel/web | 家庭共享 | |
-| `/api/v1/books/{id}/progress` | GET | `reading:read` | agent/channel/web | 绑定成员 | |
 | `/api/v1/books/{id}/progress` | POST | `reading:write` | agent/channel/web | 绑定成员 | |
-| `/api/v1/books/{id}/purchases` | GET | `purchases:read` | agent/channel/web | 绑定成员 | |
 | `/api/v1/books/{id}/purchases` | POST | `purchases:write` | agent/channel/web | 绑定成员 | |
-| `/api/v1/books/{id}/notes` | GET | `notes:read` | agent/channel/web | 绑定成员 | |
 | `/api/v1/books/{id}/notes` | POST | `notes:write` | agent/channel/web | 绑定成员 | |
-| `/api/v1/books/{id}/reading-logs` | GET | `reading:read` | agent/channel/web | 绑定成员 | |
 | `/api/v1/books/{id}/reading-logs` | POST | `reading:write` | agent/channel/web | 绑定成员 | |
+| `/api/v1/books/intake` | POST | `books:write` | agent/channel/web | 家庭共享 | |
 | `/api/v1/books/intake/json` | POST | `books:write` | agent/channel/web | 家庭共享 | |
-| `/api/v1/books/intake/photo` | POST | `books:write` | agent/channel/web | 家庭共享 | |
 | `/api/v1/recognize/isbn` | POST | `books:write` | agent/channel/web | 无数据写入 | |
 | `/api/v1/recognize/cover` | POST | `books:write` | agent/channel/web | 无数据写入 | |
-| `/api/v1/copies/{id}` | PATCH | `books:write` | agent/channel/web | 家庭共享 | |
 | `/api/v1/attachments` | POST | `notes:write` | agent/channel/web | 绑定成员 | |
-| `/api/v1/attachments/{id}` | DELETE | `notes:write` | agent/channel/web | 绑定成员 | |
 | `/api/v1/custom-fields` | POST | `books:write` | agent/channel/web | 家庭共享 | |
-| `/api/v1/custom-fields/{id}` | DELETE | `books:write` | agent/channel/web | 家庭共享 | |
 | `/api/v1/stats` | GET | `stats:read` | agent/channel/web | 绑定成员 | |
-| `/api/v1/stats/household` | GET | `stats:household` | owner | 跨成员 | 仅 owner |
 | `/api/v1/members` | GET | `members:read` | agent/channel/web | 绑定成员 | |
 | `/api/v1/members` | POST | 无（owner 专用） | owner/web | 全局 | 授权管理 |
 | `/api/v1/members/bind` | POST | 无（owner 专用） | owner/web | 全局 | 授权管理 |
 | `/api/v1/files/covers/{filename}` | GET | `files:read` | agent/channel/web | 继承父资源 | |
-| `/api/v1/files/attachments/{entity_type}/{entity_id}/{filename}` | GET | `files:read` | agent/channel/web | 继承父资源 | |
-| `/api/v1/agent/grants` | GET | 无（owner 专用） | owner/web | 全局 | 授权管理 |
-| `/api/v1/agent/grants` | POST | 无（owner 专用） | owner/web | 全局 | 授权管理 |
-| `/api/v1/agent/grants/{id}` | DELETE | 无（owner 专用） | owner/web | 全局 | 授权管理 |
-| `/api/v1/agent/grants/{id}/regenerate` | POST | 无（owner 专用） | owner/web | 全局 | 授权管理 |
-| `/api/v1/auth/login` | POST | 无（公开） | 匿名 | 无 | owner 登录 |
-| `/api/v1/auth/logout` | POST | 无（已认证） | web | 无 | 登出 |
-| `/api/v1/auth/session` | GET | 无（已认证） | web | 无 | 会话状态 |
+| `/api/v1/files/attachments/{file_path}` | GET | `files:read` | agent/channel/web | 继承父资源 | |
+| `/agent-access/clients` | GET | 无（owner 专用） | owner/web | 全局 | 授权管理 |
+| `/agent-access/clients` | POST | 无（owner 专用） | owner/web | 全局 | 授权管理 |
+| `/agent-access/clients/{id}` | DELETE | 无（owner 专用） | owner/web | 全局 | 授权管理 |
+| `/agent-access/grants` | GET | 无（owner 专用） | owner/web | 全局 | 授权管理 |
+| `/agent-access/grants` | POST | 无（owner 专用） | owner/web | 全局 | 授权管理 |
+| `/agent-access/grants/{id}` | GET | 无（owner 专用） | owner/web | 全局 | 授权管理 |
+| `/agent-access/grants/{id}` | PATCH | 无（owner 专用） | owner/web | 全局 | 授权管理 |
+| `/agent-access/grants/{id}` | DELETE | 无（owner 专用） | owner/web | 全局 | 授权管理 |
+| `/agent-access/tokens` | POST | 无（owner 专用） | owner/web | 全局 | 签发 Token |
+| `/agent-access/tokens/{grant_id}` | GET | 无（owner 专用） | owner/web | 全局 | 授权管理 |
+| `/agent-access/tokens/{token_id}` | DELETE | 无（owner 专用） | owner/web | 全局 | 授权管理 |
+| `/auth/status` | GET | 无（公开） | 匿名 | 无 | 是否已初始化 Owner 密码 |
+| `/auth/init-password` | POST | 无（公开，限 loopback/`X-Setup-Token`） | 匿名 | 无 | Owner 密码初始化 |
+| `/auth/login` | POST | 无（公开） | 匿名 | 无 | owner 登录 |
+| `/auth/introspect` | GET | 无（需 Bearer Token） | agent | 无 | Token 自检 |
+| `/auth/logout` | POST | 无（已认证） | web | 无 | 登出 |
+| `/auth/session` | GET | 无（已认证） | web | 无 | 会话状态 |
+
+> 规划中但**未实现**的端点（勿依赖）：`GET /books/{id}/copies|progress|purchases|notes|reading-logs`（子资源读接口，数据经 `GET /books/{id}` 返回）、`PATCH /copies/{id}`、`DELETE /attachments/{id}`、`DELETE /custom-fields/{id}`、`GET /stats/household`、`POST /books/intake/photo`。
 
 ## 禁止通配
 

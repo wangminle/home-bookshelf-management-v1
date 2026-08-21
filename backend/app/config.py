@@ -21,6 +21,25 @@ class Settings(BaseSettings):
     # 的十六进制摘要，防止局域网内伪造明文渠道头冒充已绑定成员。
     # 不配置则维持"可信局域网/网关代填头"的既有信任边界。
     channel_signing_secret: str | None = None
+    # GitHub #8：可信反向代理列表（逗号分隔的 IP/CIDR，如 "172.18.0.0/16"）。
+    # 直接对端在列表内时，loopback 判定改用 X-Forwarded-For 首跳——用于 lwa/nginx
+    # 反代场景（后端看到的对端是网关 IP）。默认空：不信任任何代理，XFF 视为不可信。
+    trusted_proxies: str = ""
+
+    @property
+    def trusted_proxy_networks(self) -> list:
+        import ipaddress
+
+        networks = []
+        for item in self.trusted_proxies.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            try:
+                networks.append(ipaddress.ip_network(item, strict=False))
+            except ValueError:
+                continue
+        return networks
 
     # WBS-1：公开发现面的规范 Base URL。
     # 用于生成 manifest/openapi/skills 等绝对链接，不得无条件信任请求 Host 头。

@@ -131,6 +131,13 @@ def run_doctor(client: BookshelfClient | None = None) -> DoctorReport:
             report.hints.append("空库首次绑定：bookshelf bind --member-id 1 --channel feishu --external-user-id ou_xxx")
             report.hints.append("或先创建成员再绑：bookshelf member --name \"你\" --role owner；然后 bookshelf bind --member-id 1 ...（系统尚无绑定时允许首次初始化）")
             report.hints.append("白名单建立后新增绑定：使用已绑定 owner 的 BOOKSHELF_CHANNEL/BOOKSHELF_EXTERNAL_USER_ID，或设置 BOOKSHELF_SETUP_TOKEN")
+        # 权限阶段 0（任务 0.7）：非 Owner 渠道缩权预览（基线 §13——发布前列出受影响绑定）
+        for m in items:
+            if m.get("channel_bindings") and m.get("role") != "owner":
+                report.warnings.append(
+                    f"权限缩权预览：成员「{m.get('name')}」(role={m.get('role')}) 的渠道身份将降级为 member 能力集"
+                    "（失去 books:delete、stats:household）——请确认其自动化流程不依赖这些能力（权限基线 §13）"
+                )
     except RuntimeError as exc:
         msg = str(exc)
         if "[HTTP 404]" in msg or msg.strip().endswith("404"):
@@ -152,11 +159,68 @@ def run_doctor(client: BookshelfClient | None = None) -> DoctorReport:
         report.hints.append("将项目 skills/ 目录加入 OpenClaw/Hermes 等 Agent 的技能路径")
 
     _warn_frontend_drift(report, health_data)
+    _warn_deployment_posture(report, health_data, api_url)
 
     if shutil.which("bookshelf") is None:
         report.warnings.append("当前 shell 未找到 bookshelf 命令（可能未 pip install -e cli）")
 
     return report
+
+
+# ── 权限阶段 0（任务 0.7）：部署信任态势检查（基线 §11.3） ──
+
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
+
+
+def _url_host_is_loopback(url: str) -> bool:
+    from urllib.parse import urlparse
+    host = (urlparse(url).hostname or "").lower()
+    return host in _LOOPBACK_HOSTS
+
+
+def _warn_deployment_posture(report: DoctorReport, health_data: dict[str, Any], api_url: str) -> None:
+    """检查渠道签名、可信代理、HTTPS 与绑定地址的配置不一致。
+
+    服务端态势字段（channel_signing_configured 等）只在受保护 /health 下发；
+    无凭证探活（auth_protected）时跳过服务端检查，客户端侧地址检查始终执行。
+    """
+    # 客户端侧：非回环明文 HTTP（Loopback only 档允许本机 HTTP 开发）
+    if api_url.startswith("http://") and not _url_host_is_loopback(api_url):
+        report.warnings.append(
+            f"API 地址 {api_url} 使用明文 HTTP 且非回环——跨网段/公网暴露应使用 HTTPS（权限基线 §11.3）"
+        )
+        report.hints.append("家庭 LAN 档可在网关启用 HTTPS，或确认该地址仅可信内网可路由")
+
+    if "channel_signing_configured" not in health_data:
+        return  # 无凭证探活，服务端态势不可得
+
+    # 渠道启用但无签名
+    if health_data.get("channel_bindings_present") and not health_data.get("channel_signing_configured"):
+        report.warnings.append(
+            "渠道绑定已建立但未配置 CHANNEL_SIGNING_SECRET：局域网内可伪造明文渠道头冒充已绑定成员（权限基线 §8/§11.3）"
+        )
+        report.hints.append("在 deploy/.env 设置 CHANNEL_SIGNING_SECRET，并让网关/CLI 注入 X-Channel-Signature")
+
+    # 反代拓扑与 HTTPS
+    public_base = health_data.get("public_base_url")
+    if health_data.get("trusted_proxies_configured"):
+        if not public_base:
+            report.warnings.append(
+                "已配置 TRUSTED_PROXIES（反代拓扑）但未设置 PUBLIC_BASE_URL，无法判定部署档与对外地址（权限基线 §11.3）"
+            )
+            report.hints.append("设置 PUBLIC_BASE_URL=https://<对外域名> 后重启 API")
+        elif not health_data.get("public_url_https") and not _url_host_is_loopback(public_base):
+            report.warnings.append(
+                f"反向代理拓扑但 PUBLIC_BASE_URL={public_base} 非 HTTPS（权限基线 §11.3：反代/网关档必须 HTTPS）"
+            )
+    elif (
+        isinstance(public_base, str)
+        and public_base.startswith("http://")
+        and not _url_host_is_loopback(public_base)
+    ):
+        report.warnings.append(
+            f"PUBLIC_BASE_URL={public_base} 使用明文 HTTP 且非回环地址（权限基线 §11.3）"
+        )
 
 
 def _warn_frontend_drift(report: DoctorReport, health_data: dict[str, Any]) -> None:

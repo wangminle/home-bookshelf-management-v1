@@ -170,3 +170,10 @@ class HealthOut(BaseModel):
     database: str = "connected"
     google_books_configured: bool = False
     barcode_scan_available: bool = False
+    # 权限阶段 0（任务 0.7）：部署信任态势（基线 §11.3），供 doctor 检查；
+    # 只输出布尔/URL 事实，不含密钥值。仅在受保护 /health 下发。
+    channel_signing_configured: bool = False
+    channel_bindings_present: bool = False
+    trusted_proxies_configured: bool = False
+    public_base_url: str | None = None
+    public_url_https: bool = False

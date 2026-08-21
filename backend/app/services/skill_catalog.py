@@ -9,6 +9,7 @@ import logging
 import os
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -74,13 +75,8 @@ class SkillInfo:
     version: str
 
 
-def _parse_skill_md(md_path: Path) -> SkillInfo | None:
-    """解析 SKILL.md 的 frontmatter。"""
-    try:
-        content = md_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return None
-
+def _parse_frontmatter(content: str, name: str) -> SkillInfo | None:
+    """解析 SKILL.md frontmatter 文本（源码文件与 bundle 内条目共用）。"""
     # 解析 frontmatter
     if not content.startswith("---"):
         return None
@@ -90,7 +86,6 @@ def _parse_skill_md(md_path: Path) -> SkillInfo | None:
         return None
 
     frontmatter_text = parts[1].strip()
-    name = md_path.parent.name
     description = ""
     scopes: list[str] = []
     version = _SKILLS_VERSION
@@ -110,20 +105,65 @@ def _parse_skill_md(md_path: Path) -> SkillInfo | None:
     return SkillInfo(name=name, description=description, scopes=scopes, version=version)
 
 
-def list_skills() -> list[SkillInfo]:
-    """列出所有可用 Skills。"""
+def _parse_skill_md(md_path: Path) -> SkillInfo | None:
+    """解析 SKILL.md 的 frontmatter。"""
+    try:
+        content = md_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    return _parse_frontmatter(content, md_path.parent.name)
+
+
+def _skills_from_bundle() -> list[SkillInfo]:
+    """GitHub #11：从 BUNDLE_DIR 的 zip 解析技能清单（lwa 无 skills/ 源码时的兜底）。"""
+    preferred = BUNDLE_DIR / f"skills-{_SKILLS_VERSION}.zip"
+    if preferred.is_file():
+        zip_path = preferred
+    else:
+        candidates = sorted(BUNDLE_DIR.glob("skills-*.zip"))
+        if not candidates:
+            return []
+        zip_path = candidates[-1]
+
     skills: list[SkillInfo] = []
-    if not SKILLS_DIR.is_dir():
-        return skills
-    for child in sorted(SKILLS_DIR.iterdir()):
-        if not child.is_dir() or child.name.startswith("."):
-            continue
-        md = child / "SKILL.md"
-        if not md.is_file():
-            continue
-        info = _parse_skill_md(md)
-        if info is not None:
-            skills.append(info)
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            for entry in sorted(zf.namelist()):
+                parts = entry.strip("/").split("/")
+                if len(parts) < 2 or parts[-1] != "SKILL.md":
+                    continue
+                name = parts[-2]
+                # skills/README.md 这类顶层文件没有技能名目录，跳过
+                if not name or name.startswith(".") or name == "skills":
+                    continue
+                info = _parse_frontmatter(zf.read(entry).decode("utf-8"), name)
+                if info is not None:
+                    skills.append(info)
+    except (OSError, zipfile.BadZipFile, UnicodeDecodeError) as exc:
+        _log.warning("从 bundle 解析技能清单失败（%s）: %s", zip_path, exc)
+        return []
+    return skills
+
+
+def list_skills() -> list[SkillInfo]:
+    """列出所有可用 Skills。
+
+    优先扫描源码 SKILLS_DIR；为空时兜底解析 bundle ZIP——lwa 容器只导入
+    backend/，没有 skills/ 源目录，发现面 index.json 仍需可列出全部技能（#11）。
+    """
+    skills: list[SkillInfo] = []
+    if SKILLS_DIR.is_dir():
+        for child in sorted(SKILLS_DIR.iterdir()):
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            md = child / "SKILL.md"
+            if not md.is_file():
+                continue
+            info = _parse_skill_md(md)
+            if info is not None:
+                skills.append(info)
+    if not skills:
+        skills = _skills_from_bundle()
     return skills
 
 

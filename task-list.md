@@ -271,6 +271,9 @@
 | CHK-064 | 检查 | 未提交代码复查 + task-list bug 清零核查：task-list 全部 BUG-001~180 均已修复（仅余 PLN/CHK 待开发非 bug）；后端 328 过/CLI 47 过/前端 build+11 vitest 过/tests-scripts 28 过，此前 auth 残留失败已收敛；GitHub #1/#2/#3/#5/#8/#9 在途实现（Dockerfile 多阶段、version.json+doctor 漂移告警、deploy_frontend.sh、skills bundle 迁 static/skills、TRUSTED_PROXIES、授权页提示）整体质量良好；发现 1 个新缺陷：web_auth._is_loopback_request 取 XFF 首跳可被伪造（详见 BUG-181） | 2026-08-21 11:35 | 2026-08-21 11:35 | 已完成 | 另实测 backend/static/version.json(15:06) 落后 frontend/dist(15:37)，漂移告警机制必要性得证 |
 | CHK-065 | 检查 | 未提交工作区审查：BUG-001~180 台账均已关闭；工作区测试全绿；暂存区含鉴权回退与关键测试删除风险 | 2026-08-21 11:29 | 2026-08-21 11:36 | 已完成 | 工作区抽查 BUG-163/166-171/176-180 修复仍在；backend 328 + tests/scripts 28 + vitest 11 通过。高危：index 将多路由从 require_scope 回退到 channel_headers，且 staged 删除 test_bug163/166-168/169/171 等（磁盘上为 untracked 同名文件）。若只提交暂存区会回归 BUG-166/167/168 并丢失回归覆盖。另 .dockerignore 仍 untracked。非 bug 开放项：CHK-001/PLN-003/004/006 待开发。 |
 | CHK-066 | 检查 | 会话终检：未提交代码 bug 审查 + task-list/GitHub issue 修复完成度核查（替换 CHK-065 误写的重复行） | 2026-08-21 11:30 | 2026-08-21 11:43 | 已完成 | 实测全绿：后端+tests/scripts pytest 356 passed、前端 vitest 11 passed + build 通过、gh8 右值法 9 passed。GitHub #1~#10 修复逐条核实在工作区/fix 分支：Dockerfile 多阶段+静态产物(#1)、public-health frontend_version+doctor 漂移(#2)、deploy_frontend.sh(#3)、文档 rsync --delete 统一(#4)、skills bundle static/skills+启动兜底(#5)、探活文档(#6)、lwa 升级文档(#7)、TRUSTED_PROXIES(#8)、授权页 hint(#9)、XFF 右值法(#10/BUG-181)。台账 BUG-001~181 全部已修复（本次将 BUG-181 由待办改已修复）。GitHub 10 条 issue 均 OPEN 未关闭、改动未推送（main=origin=7f27c6b，工作区待提交）。发现低危残留 2 处过时注释：config.py:25 与 test_gh8_trusted_proxy.py:3 仍写「首跳」；CHK-065 所记暂存区风险已由并行会话 git reset 解除（暂存区现已干净）。 |
+| CHK-067 | 检查 | V0.3.6 提交后状态核查：25231d5 已推送 origin/main、工作区全净（此前暂存区半成品状态已随提交消解）、BUG-181 修复确认入库；版本号四处全为 0.3.6（frontend/package.json、vitest.config.ts __APP_VERSION__、agent_discovery._APP_VERSION、test_frontend_version_health 断言）；CLI 0.1.8 与 Skills 0.2.5 为独立版本线（ADJ-002/003、OPS-006 惯例）；docs 中 v0.3.5 为探活 breaking change 历史锚点刻意保留；backend/static 产物与最新 dist 哈希完全一致无漂移（含 BUG-180 文案） | 2026-08-21 11:57 | 2026-08-21 11:57 | 已完成 | 待办：GitHub issues #1~#10 修复均已入库可关闭；lwa 实例仍跑 0.3.5 旧构建，需 redeploy（bash scripts/deploy_frontend.sh --base /home-bookshelf/ 后 lwa 更新） |
+| CHK-068 | 检查 | main@25231d5 对照核查 GitHub #1–#10 修复是否均已入库 | 2026-08-21 12:00 | 2026-08-21 12:02 | 已完成 | gh token 失效无法拉远程 issue 开关状态；按代码+台账逐条核实 #1–#10 修复均在 main。关键回归 24 passed。远程 issue 若仍 OPEN 需人工关闭。config.py:25 仍有「首跳」过时注释（低危）。 |
+| CHK-069 | 检查 | 开发前核对权限设计基线（design/权限-数据分层与用户角色设计建议-20260820.md 第 1.4 节）与 v0.3.6 代码现状的一致性：设计文档引用的全部"当前代码事实"均仍成立——非 Owner Web 会话空 Scope（auth_context.py:298）、渠道身份两分支均 ALL_SCOPES 死分支（auth_context.py:322-325）、仅 Owner 密码登录、Grant 缺 data_scope_json/constraints_json/version/source_request_id（status 字段已存在，默认 30 天）、无 agent_access_requests/Public Catalog/catalog_read/限流服务、无 catalog_visibility 与 anonymous_catalog_mode。确认差距清单准确，权限迭代应按阶段 0（契约+渠道缩权+回归测试）起步；MCP 试点依赖阶段 0/1 共享基础 | 2026-08-21 13:00 | 2026-08-21 13:07 | 已完成 | 为权限迭代开发准备；用户已确认主线：owner/member 双角色+Agent 独立授权；先 C 模式局域网匿名书架，后 B 模式逐书公开。工作区另有 DEV-027/GitHub #11 未提交改动（skill_catalog.py+新测试），开发前建议先提交 |
 
 ## 测试数据
 
@@ -319,6 +322,9 @@
 | DOC-032 | 文档 | 新增家庭图书管理系统权限、数据分层与用户角色设计建议：明确 C 模式匿名书架、owner/member 角色、Agent 独立授权、数据范围、审批流、C→B 迁移及下一迭代实施路线 | 2026-08-20 23:45 | 2026-08-21 00:05 | 已完成 | 新增 design/权限-数据分层与用户角色设计建议-20260820.md；保留并标注与旧草稿的优先级，不修改业务代码 |
 | DOC-033 | 文档 | 新增家庭图书管理系统 MCP 只读接口独立设计方案与 WBS：明确 MCP 2026-07-28、只读工具、Agent 鉴权、字段白名单、限流审计、SDK Spike、TDD 工作包及 OAuth 后续路线 | 2026-08-21 09:50 | 2026-08-21 10:26 | 已完成 | 新增 design/plans/家庭图书管理系统-MCP只读接口设计方案-20260821.md 与 design/plans/家庭图书管理系统-MCP只读接口WBS-20260821.md；仅文档规划，未修改业务代码 |
 | DOC-034 | 文档 | 合并家庭图书管理系统 MCP 只读接口设计方案与 WBS 为单一文档，统一章节编号、内部引用和维护入口 | 2026-08-21 10:31 | 2026-08-21 10:31 | 已完成 | 最终文件 design/plans/家庭图书管理系统-MCP接口设计与WBS-20260821.md；删除原两份分拆文档，不修改业务代码 |
+| DOC-035 | 文档 | 合并权限设计基线：吸收旧草稿有效事实与交叉评审结论，补齐权限公式、隐私决策、Grant 期限、迁移兼容、部署信任分档和 MCP 阶段，并彻底删除旧稿 | 2026-08-21 12:30 | 2026-08-21 12:30 | 已完成 | 唯一基线 design/权限-数据分层与用户角色设计建议-20260820.md；更新 design/plans/README.md 与 MCP 设计引用；删除 design/plans/权限与数据分层设计建议-20260820.md；未修改业务代码 |
+| DOC-036 | 文档 | 依据最新权限设计基线修订 MCP 接口设计与 WBS：收敛试点定位、共享 Read Model/审计/限流依赖、Grant 与 Data Scope、核心/扩展发布档、传输安全、迁移兼容和发布门禁 | 2026-08-21 12:30 | 2026-08-21 12:56 | 已完成 | 更新 design/plans/家庭图书管理系统-MCP接口设计与WBS-20260821.md；补充威胁模型评审、依赖锁定与漏洞扫描、精确路径和 Origin/Host/CIDR 拒绝语义；首期仍仅两个只读工具，不修改业务代码 |
+| DOC-037 | 文档 | 吸收独立审查的六项意见并交叉修订权限与 MCP 正式稿：MCP 并行轨、共享审计限流归属、聚合 Grant 7 天、stdio bridge 备选、客户端 P0 预检及两阶段契约冻结 | 2026-08-21 13:00 | 2026-08-21 13:15 | 已完成 | 更新 design/权限-数据分层与用户角色设计建议-20260820.md 与 design/plans/家庭图书管理系统-MCP接口设计与WBS-20260821.md；补受限单客户端试点档、扩展子包依赖、统一测试矩阵和门禁签署；不修改业务代码 |
 
 ## 功能开发
 
@@ -350,6 +356,8 @@
 | DEV-024 | 开发 | 新增封面识书评测 Skill cover-eval：Agent 看图填 predictions + 脚本 compare，不入库 | 2026-08-19 23:32 | 2026-08-19 23:36 | 已完成 | 目录 skills/cover-eval/SKILL.md，命名与 book-intake 同构；scopes 空；catalog 自动发现；test_cover_eval_skill.py 3 项；同步 skills/README、agent-setup、README 技能计数 |
 | DEV-025 | 开发 | 前端产物版本可观测：构建时将 package.json 版本+时间戳写入 dist/version.json（vite define 同步注入徽标），/api/v1/public-health 返回 static/version.json 内容，CLI doctor 比对前后端版本并在漂移时告警--本次产物停在 8月10日纯靠人眼发现，需机读手段 | 2026-08-20 12:35 | 2026-08-20 13:15 | 已完成 | 提issue未开发：验收标准--public-health 含 frontend_version/build_time 字段；doctor 提示「static 落后于代码版本」；GitHub issue #2；vite closeBundle 写 dist/version.json；public-health 返回 frontend_version/build_time/app_version；doctor 漂移告警。GitHub #2。 |
 | DEV-026 | 开发 | 一键前端构建+同步脚本 scripts/deploy_frontend.sh：参数化 --base（别名部署自动 VITE_BASE=/别名/、直连强制无前缀，杜绝根路径产物配别名部署的错配）、内部 vite build + 写 version.json + rsync --delete 同步 backend/static（防旧 assets 残留） | 2026-08-20 12:35 | 2026-08-20 13:15 | 已完成 | 提issue未开发：本次部署的 VITE_BASE 错配与手工同步即缺此固化；依赖 DEV-025 的 version.json 约定；GitHub issue #3；scripts/deploy_frontend.sh --base/--dry-run；rsync --delete --exclude skills/。GitHub #3。 |
+| DEV-027 | 开发 | lwa 部署下 /agent/skills/index.json 的 skills 列表为空：skill_catalog.list_skills 扫描 SKILLS_DIR 源目录，lwa 容器只有 backend/ 无 skills/，列表恒空；bundle 内含全部 9 个 SKILL.md 却未被利用 | 2026-08-21 12:07 | 2026-08-21 20:45 | 已完成 | 提issue未开发：方案为 list_skills 增加 BUNDLE_DIR zip 兜底解析；GitHub issue #11；0.3.6 lwa 更新实测发现；已修复：skill_catalog 拆出 _parse_frontmatter（源码文件与 zip 条目共用），新增 _skills_from_bundle 兜底——SKILLS_DIR 扫描为空时按 skills/<name>/SKILL.md 结构解析 BUNDLE_DIR 当前版本 zip（manifest 版本优先、退化取任意 skills-*.zip，BadZipFile 等安全返回空）；存量 bundle 直接生效无需重建。回归 tests/test_issue11_skills_index_bundle_fallback.py 6 项（模拟 lwa 无源码布局：list_skills 兜底、元数据完整、源码优先不回归、坏 zip 容错、build_skills_index 非空、HTTP index.json 端到端）；相关子集 84 passed、全量 336 passed。GitHub #11。 |
+| DEV-028 | 开发 | 权限阶段 0（契约、兼容性清单与安全基线）落地，基线 design/权限-数据分层与用户角色设计建议-20260820.md §14：①新建 permission_policy.py（角色能力集 owner=全量/member=全量−books:delete/stats:household、AGENT_GRANTABLE_SCOPES、HIGH_RISK_SCOPES、SCOPE_COMPAT_MAP 兼容映射不启用重命名）；②修复渠道死分支（auth_context 322-325 两分支均 ALL_SCOPES）——非 Owner 渠道按 member 能力集缩权，Web 能力集同源角色表；③create_grant 服务层强制 Owner 批准者（废除绑定成员自批默认）、validate_scopes 改用可授予集合；④merge 端点 Scope 修正 books:write→books:delete（对齐矩阵契约，合并删源书属破坏性）；⑤/health 新增部署信任态势五字段（仅受保护诊断面）、doctor 新增明文HTTP非回环/渠道签名缺失/反代HTTPS不一致告警与非Owner渠道缩权预览；⑥新建主体×动作×数据层×数据归属参数化测试表 test_permission_baseline_matrix（ENDPOINT_REGISTRY 可执行矩阵）；⑦只读升级预览脚本 scripts/preview_permission_narrowing.py；⑧授权矩阵文档全量同步（每端点补资源层/数据范围+阶段0发布说明） | 2026-08-21 13:10 | 2026-08-21 13:55 | 已完成 | TDD：新增测试 6 文件（permission_policy 10 项/channel_role_narrowing 11 项/grant_owner_only 11 项/permission_baseline_matrix 79 项/health_deployment_posture 4 项/doctor_posture 12 项+preview 5 项）；全量回归 backend+tests/scripts 483 passed 24 skipped、CLI 59 passed、compileall 通过；无数据迁移（阶段 0 不批量改写业务数据）；缩权为有意安全收紧不提供回退开关，升级前用 preview 脚本/doctor 查看受影响绑定 |
 
 ## 配置运维
 
@@ -364,6 +372,8 @@
 | OPS-005 | 运维 | 版本号升级 0.3.5 + 全量文档时效性核查：应用版本 frontend/package.json 0.3.0→0.3.5（npm version 同步 lock、构建产物徽标已验证 v0.3.5）、agent_discovery._APP_VERSION 0.2.4→0.3.5（此前停在 0.2.4 与实际发布脱节）；Skills 版本 0.2.4→0.2.5（本周期新增 cover-eval 技能内容已变化）：9 个 SKILL.md frontmatter + skill_catalog + build_skills_bundle 默认值 + cli/tests 断言同步，dist 产物重构建（skills-0.2.5.zip，清除旧 0.2.4 zip）。文档同步本轮鉴权收紧：README 中英安全段重写（全端点统一鉴权/无匿名回退/X-UI-Client 失效/public-health 探活）、skills/README+reading-tracker/note-taker/book-intake/bookshelf-setup 鉴权表述、docs/web-ui.md 登录模型、deployment.md 探活命令、cli-reference.md 增 BOOKSHELF_TOKEN 与 health 回退说明、get-started.md 修正'走默认成员'旧流程、agent-setup.md 增读 scope 提示；链接检查器全量扫描零悬空 | 2026-08-20 01:18 | 2026-08-20 01:18 | 已完成 | 验证：cli/tests 44 passed、后端发现面/鉴权子集 50 passed、前端 build+vitest 11 passed；dist/skills 为构建产物不入库 |
 | OPS-006 | 运维 | 版本号提升 0.3.6：frontend/package.json、vitest.config.ts __APP_VERSION__、backend agent_discovery._APP_VERSION、test_frontend_version_health 断言四处同步；npm run build + deploy rsync 后 backend/static/version.json 为 0.3.6。CLI 0.1.8 与 Skills bundle 0.2.5 为独立版本线不动；README/deployment 中 v0.3.5 探活 breaking change 为历史锚点刻意保留 | 2026-08-20 23:48 | 2026-08-20 23:48 | 已完成 | 验证：后端版本健康 3 passed、cli doctor 漂移 3 passed、前端 vitest 11 passed、后端全量 328 passed；文档一致性修复见 DOC-031 |
 | OPS-007 | 运维 | 将 fix/github-issues-1-7 全部内容合并入 main（含未提交工作区先提交为 V0.3.6） | 2026-08-21 11:37 | 2026-08-21 11:49 | 已完成 | 本地无 github-issues 分支名，实际源分支为 fix/github-issues-1-7。先 git add -A 提交 4a5ff8f，再 --no-ff 合并为 c4714ee。main 相对 origin/main ahead 2，未推送。；终态（11:49）：中途 c4714ee/c140796 合并被重置撤销，最终由本会话将 fix/github-issues-1-7（4a5ff8f+ee839a1）快进合并入 main、补提 task-list 终版并删除该分支；main 领先 origin/main 3 个提交，未推送。 |
+| OPS-008 | 运维 | GitHub issue #1~#10 逐条评论修复摘要并关闭（补 CHK-068 待办：远程 issue 人工关闭已由本会话经 socks5://127.0.0.1:10808 代理用 gh 完成，CHK-068 时 token 失效为代理未配所致）；另删除远程 fix/github-issues-1-7 分支 | 2026-08-21 11:58 | 2026-08-21 12:03 | 已完成 | 10/10 评论+关闭成功，仓库 issue 清零；每条评论含修复要点、commit 25231d5 引用与回归测试；#8 附正确路径 /auth/init-password 说明；#10 确认采纳右值法。残留：lwa 实例仍跑 0.3.5 待 redeploy（CHK-067） |
+| OPS-009 | 运维 | lwa 实例 backend（家庭图书管理）更新 0.3.5->0.3.6：首次使用 scripts/deploy_frontend.sh --base /home-bookshelf/（VITE_BASE 别名构建 + version.json + skills bundle 入 static/skills + rsync --delete），lwa import --from-dir --update 原地重建；启动期 DEGRADED（可选探针）约 20 秒收敛 running；public-health 首次返回 app_version=0.3.6/frontend_version=0.3.6/build_time（DEV-025 实机生效）；别名与直连 200、引用新 bundle index-DvL4rGLU.js、skills zip 下载 200（#5 修复验证通过）、SQLite 数据完整（books=4/members=1 及全部 18 张表）；access review backend OK（总体 WARN 来自 patent-disclosure 既有问题） | 2026-08-21 12:07 | 2026-08-21 12:07 | 已完成 | 发现新局限提 DEV-027/GitHub #11：lwa 容器无 skills/ 源目录，/agent/skills/index.json skills 恒为空（bundle 可下载但发现面缺失），建议 list_skills 加 bundle 兜底 |
 
 ## 规划事项
 
@@ -406,12 +416,12 @@
 | --- | --- | --- | --- | --- |
 | 代码 Bug | 181 | 181 | 0 | 100% |
 | 调整事项 | 3 | 3 | 0 | 100% |
-| 检查事项 | 66 | 65 | 1 | 98.5% |
+| 检查事项 | 69 | 68 | 1 | 98.6% |
 | 测试数据 | 4 | 4 | 0 | 100% |
-| 文档维护 | 34 | 34 | 0 | 100% |
-| 功能开发 | 26 | 26 | 0 | 100% |
-| 配置运维 | 9 | 9 | 0 | 100% |
+| 文档维护 | 37 | 37 | 0 | 100% |
+| 功能开发 | 28 | 28 | 0 | 100% |
+| 配置运维 | 11 | 11 | 0 | 100% |
 | 规划事项 | 7 | 4 | 3 | 57.1% |
 | 优化事项 | 9 | 9 | 0 | 100% |
 | 调研事项 | 4 | 4 | 0 | 100% |
-| **总计** | 343 | 339 | 4 | 98.8% |
+| **总计** | 353 | 349 | 4 | 98.9% |

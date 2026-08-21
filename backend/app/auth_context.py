@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app import db as db_module
 from app.models import Member
-from app.services import agent_access
+from app.services import agent_access, permission_policy
 from app.utils.member_helpers import resolve_member_id
 
 # SessionLocal 经模块属性引用（而非 from-import 直接绑定名字）：
@@ -293,9 +293,10 @@ def _build_from_web_session(
         member_id=member.id,
         member_name=member.name,
         member_role=member.role,
-        # Web owner 拥有全部 scope（在 require_scope 中短路）
-        # 非 owner Web 成员也需要 scope 限定
-        scopes=frozenset(agent_access.ALL_SCOPES) if member.role == "owner" else frozenset(),
+        # 权限阶段 0：Web 能力集由服务器角色能力表生成（基线 §5.2/§5.3）。
+        # Owner 仍在 require_scope 短路；非 Owner 使用 member 能力集
+        # （Member 独立登录落地前无成员工据，此路径暂不可达）。
+        scopes=permission_policy.role_scopes(member.role),
     )
 
 
@@ -318,11 +319,11 @@ def _build_from_channel_headers(
             status_code=403,
             detail=f"渠道 {channel} 的外部用户 {external_user_id} 未绑定任何家庭成员",
         )
-    # 渠道身份根据 role 给 scope
-    if member.role == "owner":
-        scopes = frozenset(agent_access.ALL_SCOPES)
-    else:
-        scopes = frozenset(agent_access.ALL_SCOPES)
+    # 权限阶段 0（任务 0.5）：修复死分支——渠道能力按绑定 Member 角色映射
+    # （基线 §5.4/§8）。此前 owner/member 两分支均给 ALL_SCOPES，非 Owner 渠道
+    # 身份实际持有全量能力；现缩权为：member → member 能力集（失去
+    # books:delete、stats:household）。这是有意的兼容性缩权（基线 §1.4/§13）。
+    scopes = permission_policy.role_scopes(member.role)
     return AuthContext(
         auth_type="channel",
         member_id=member.id,

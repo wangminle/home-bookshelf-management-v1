@@ -23,17 +23,12 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import AgentClient, AgentGrant, AgentToken, Member, OwnerCredential, WebSession
+from app.services.permission_policy import (
+    AGENT_GRANTABLE_SCOPES,
+    ALL_SCOPES,  # noqa: F401 — 历史引用经 agent_access.ALL_SCOPES 继续可用
+)
 
 # ── 常量 ──
-
-ALL_SCOPES: frozenset[str] = frozenset({
-    "books:read", "books:write", "books:delete",
-    "reading:read", "reading:write",
-    "notes:read", "notes:write",
-    "purchases:read", "purchases:write",
-    "stats:read", "stats:household",
-    "files:read", "members:read",
-})
 
 TOKEN_PREFIX = "hbs_at_"
 TOKEN_SECRET_LEN = 32  # base62 字符
@@ -74,12 +69,16 @@ def _now() -> datetime:
 # ── Scope 验证 ──
 
 def validate_scopes(scopes: list[str]) -> list[str]:
-    """验证 scope 列表，返回去重后的有效列表。"""
-    invalid = [s for s in scopes if s not in ALL_SCOPES]
+    """验证 scope 列表，返回去重后的有效列表。
+
+    权限阶段 0（任务 0.6）：只接受 AGENT_GRANTABLE_SCOPES 内的能力名——
+    管理类能力（members:manage、agent_grants:manage 等）永不进入 Agent Grant。
+    """
+    invalid = [s for s in scopes if s not in AGENT_GRANTABLE_SCOPES]
     if invalid:
         raise HTTPException(
             status_code=400,
-            detail=f"未知的 scope: {', '.join(invalid)}。有效 scope: {sorted(ALL_SCOPES)}",
+            detail=f"未知的 scope: {', '.join(invalid)}。有效 scope: {sorted(AGENT_GRANTABLE_SCOPES)}",
         )
     # 去重保序
     seen: set[str] = set()
@@ -157,7 +156,21 @@ def create_grant(
 
     scopes_validated = validate_scopes(scopes)
 
-    approver_id = approved_by_member_id if approved_by_member_id is not None else member_id
+    # 权限阶段 0（任务 0.6）：Grant 只能由 Owner 批准（基线 §6.2/§7.1）。
+    # 服务层强制校验，不再默认"绑定成员自批"；非 Owner 主体（渠道/未来 Member
+    # Web 会话）最多提交申请，批准入口永远在 Owner。
+    if approved_by_member_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Agent Grant 必须显式指定批准者，且批准者必须是 owner",
+        )
+    approver = db.get(Member, approved_by_member_id)
+    if approver is None or approver.role != "owner":
+        raise HTTPException(
+            status_code=403,
+            detail="Agent Grant 只能由 owner 批准",
+        )
+    approver_id = approved_by_member_id
 
     grant = AgentGrant(
         agent_client_id=agent_client_id,

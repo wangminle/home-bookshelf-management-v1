@@ -221,10 +221,13 @@ def merge_book(
     book_id: int,
     source_id: int = Query(..., description="被合并进来的源书 ID（合并后删除）"),
     db: Session = Depends(get_db),
-    _ctx: AuthContext = Depends(require_scope("books:write")),
+    _ctx: AuthContext = Depends(require_scope("books:delete")),
     _csrf: None = Depends(verify_csrf),
 ) -> ApiResponse:
-    """BUG-148：把 source 书合并进 target（book_id），迁移副本/购买/进度/笔记/附件/标签后删 source。"""
+    """BUG-148：把 source 书合并进 target（book_id），迁移副本/购买/进度/笔记/附件/标签后删 source。
+
+    权限阶段 0：合并会删除源书记录（破坏性），按授权矩阵契约要求
+    books:delete——此前误用 books:write，与矩阵声明不一致。"""
     try:
         result = merge_books(db, target_id=book_id, source_id=source_id)
     except ValueError as exc:

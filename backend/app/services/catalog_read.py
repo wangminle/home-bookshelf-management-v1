@@ -20,6 +20,24 @@ from app.schemas.catalog import CatalogBookDetail, CatalogBookSummary, CatalogSe
 from app.utils.book_helpers import escape_like, like_pattern
 
 # 副本状态 → 脱敏库存状态（基线 §6.1 MCP 枚举：in_shelf/borrowed/unknown）
+# 权限阶段 4：逐书匿名可见级别与兼容读取（基线 §4.3/§13——NULL 解释为 lan_shared，
+# 永不批量改写存量数据）
+CATALOG_VISIBILITY_LEVELS = frozenset({"lan_shared", "public", "members_only", "private"})
+_COMPAT_DEFAULT = "lan_shared"
+
+
+def effective_visibility(raw: str | None) -> str:
+    """兼容读取规则：未标记的存量记录按 lan_shared 解释。"""
+    return raw or _COMPAT_DEFAULT
+
+
+def visibility_condition(allowed: frozenset[str]):
+    """匿名可见集过滤条件：coalesce(catalog_visibility,'lan_shared') IN allowed。"""
+    from sqlalchemy import func
+
+    return func.coalesce(Book.catalog_visibility, _COMPAT_DEFAULT).in_(tuple(sorted(allowed)))
+
+
 _IN_SHELF_STATUSES = frozenset({"in_shelf"})
 _BORROWED_STATUSES = frozenset({"borrowed", "lent_out", "lent"})
 
@@ -134,6 +152,7 @@ def search_catalog(
     availability: str | None = None,
     page: int = 1,
     page_size: int = 20,
+    anonymous_visibility_set: frozenset[str] | None = None,
 ) -> CatalogSearchPage:
     """搜索家庭共享书目（L1 白名单输出）。
 
@@ -162,6 +181,10 @@ def search_catalog(
         conditions.append(Book.language.ilike(like_pattern(language), escape="\\"))
     if availability:
         conditions.append(_availability_condition(availability))
+
+    # 权限阶段 4：匿名路径传入可见集（members_only/private 永不匿名可见）
+    if anonymous_visibility_set is not None:
+        conditions.append(visibility_condition(anonymous_visibility_set))
 
     stmt = select(*_CATALOG_COLUMNS)
     count_stmt = select(func.count()).select_from(Book)
@@ -192,10 +215,19 @@ def search_catalog(
     )
 
 
-def get_catalog_book(db: Session, book_id: int) -> CatalogBookDetail | None:
-    """读取单本书的脱敏详情；不存在返回 None（调用方统一 404，防枚举区分）。"""
+def get_catalog_book(
+    db: Session, book_id: int, *, anonymous_visibility_set: frozenset[str] | None = None
+) -> CatalogBookDetail | None:
+    """读取单本书的脱敏详情；不存在返回 None（调用方统一 404，防枚举区分）。
+
+    anonymous_visibility_set：匿名路径传入时按逐书可见级别过滤（不可见与
+    不存在同返回 None，防枚举）。
+    """
+    _where = [Book.id == book_id]
+    if anonymous_visibility_set is not None:
+        _where.append(visibility_condition(anonymous_visibility_set))
     row = db.execute(
-        select(*_CATALOG_COLUMNS).where(Book.id == book_id)
+        select(*_CATALOG_COLUMNS).where(*_where)
     ).mappings().first()
     if row is None:
         return None

@@ -189,4 +189,4 @@ export BOOKSHELF_CHANNEL_SIGNING_SECRET=<与后端相同的密钥>
 - Agent 连接信息页面：`/agent`
 
 > 提示：业务端点读+写均需认证。给 Agent 的 Grant 除写 scope 外记得包含读 scope（如 `books:read`），否则 `find`/`show`/`stats` 等读命令会 403。
-- 设计文档：[`design/plans/Agent引导入口与能力授权体系规划-20260812.md`](../design/plans/Agent引导入口与能力授权体系规划-20260812.md)
+- 历史实施方案：[`design/achievements/Agent引导入口与能力授权体系规划-20260812.md`](../design/achievements/Agent引导入口与能力授权体系规划-20260812.md)

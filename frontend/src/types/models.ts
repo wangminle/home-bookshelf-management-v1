@@ -104,6 +104,7 @@ export interface CustomField {
 }
 
 export interface BookDetail extends BookOut {
+  catalog_visibility?: string | null
   tags: string[]
   copies: BookCopy[]
   reading_progress: ReadingProgress[]

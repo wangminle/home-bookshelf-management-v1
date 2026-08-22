@@ -1,5 +1,6 @@
 # 前端技术审计报告 · 2026-08-09
 
+> Checkpoint：2026-08-09 两轮前端审计与修复追踪快照；问题表中的完成状态保留为历史验收证据。  
 > 审计工具：impeccable audit
 > 审计范围：frontend/src/ 全部视图、组件、样式、路由
 > 审计基准：WCAG AA、product register（家庭图书管理工具）

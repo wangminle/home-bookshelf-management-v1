@@ -71,8 +71,18 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # BUG-220：先处理 members 列（含表达式索引），再动凭据表——确保任何步骤
+    # 失败时 member_credentials 仍然完好，不会出现"version 已走、表已删"的损坏态。
     # 不可完整回平：member_credentials 可能已含非 owner 成员凭据。
     # 回滚仅恢复表结构，业务凭据需 Owner 重新初始化。
+    conn = op.get_bind()
+    # 表达式索引在 SQLite 无法经 batch 反射删除（ValueError: No such index），
+    # 必须用原生 SQL
+    conn.execute(sa.text("DROP INDEX IF EXISTS ix_members_username"))
+    with op.batch_alter_table("members") as batch:
+        batch.drop_column("disabled_at")
+        batch.drop_column("username")
+    # 恢复 owner_credentials 后再删 member_credentials
     op.create_table(
         "owner_credentials",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
@@ -84,8 +94,21 @@ def downgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("(CURRENT_TIMESTAMP)"), nullable=False),
     )
     op.create_index("ix_owner_credentials_member_id", "owner_credentials", ["member_id"], unique=True)
+    # 尝试平移 owner 的凭据（回退数据）
+    try:
+        owner = conn.execute(sa.text(
+            "SELECT m.id FROM members m WHERE m.role = 'owner' LIMIT 1"
+        )).fetchone()
+        cred = conn.execute(sa.text(
+            "SELECT password_hash, failed_attempts, locked_until "
+            "FROM member_credentials WHERE member_id = :mid"
+        ), {"mid": owner.id}).fetchone() if owner else None
+        if cred:
+            conn.execute(sa.text(
+                "INSERT INTO owner_credentials (member_id, password_hash, failed_attempts, locked_until) "
+                "VALUES (:mid, :ph, :fa, :lu)"
+            ), {"mid": owner.id, "ph": cred.password_hash,
+                "fa": cred.failed_attempts, "lu": cred.locked_until})
+    except Exception:
+        pass  # 平移失败不影响结构恢复
     op.drop_table("member_credentials")
-    with op.batch_alter_table("members") as batch:
-        batch.drop_index("ix_members_username")
-        batch.drop_column("disabled_at")
-        batch.drop_column("username")

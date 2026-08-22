@@ -30,6 +30,13 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      // 访问策略页（权限阶段 4）：Owner 管理逐书可见级别与 C→B 预览
+      path: '/catalog-policy',
+      name: 'catalog-policy',
+      component: () => import('@/views/CatalogPolicyView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       // 统一登录页（权限阶段 2）：Owner/Member 共用，不内嵌于授权页
       path: '/login',
       name: 'login',

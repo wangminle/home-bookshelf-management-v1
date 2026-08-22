@@ -198,14 +198,11 @@ def test_no_write_scope_token_cannot_write(client: TestClient):
 
 def test_wrong_member_rejected(client: TestClient):
     """Agent Token 不能操作其他成员的数据。"""
-    # 先创建第二个成员（在绑定渠道之前）
+    # BUG-221：conftest client 已有 owner 会话，直接用（跳过 _login 避免域差异）
     member_id = _ensure_owner(client)
-    _init_owner_password(client)
-    _login(client)
     r = client.post("/api/v1/members", json={"name": "other", "role": "member"})
     assert r.status_code == 201, f"创建成员失败: {r.text}"
     other_id = r.json()["data"]["id"]
-    _logout(client)
 
     # 再设置 Agent（会建立渠道绑定）
     member_id, token = _setup_agent(client, ["books:write", "notes:write"])

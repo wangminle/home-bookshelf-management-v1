@@ -76,14 +76,15 @@ def test_disabled_mode_blocks_anonymous(db_session: Session, monkeypatch) -> Non
     assert r.json()["error"] == "ANONYMOUS_CATALOG_DISABLED"
 
 
-def test_explicit_public_treated_as_disabled_in_stage1(db_session: Session, monkeypatch) -> None:
-    """B 模式（explicit_public）属阶段 4：本期一律按关闭处理。"""
+def test_explicit_public_only_returns_public_books(db_session: Session, monkeypatch) -> None:
+    """权限阶段 4：B 模式激活——仅 public 标记的书匿名可见（未标记存量不出现）。"""
     from app.config import settings
+    from app.models import Book as BookModel
     monkeypatch.setattr(settings, "anonymous_catalog_mode", "explicit_public")
+    # 造书：默认（未标记）/public/members_only/private 各一本——由具体阶段4套件播种
     c = _make_client(db_session, "127.0.0.1")
     r = c.get("/api/v1/public-catalog/books")
-    assert r.status_code == 403
-    assert r.json()["error"] == "ANONYMOUS_CATALOG_DISABLED"
+    assert r.status_code == 200  # 模式放行；可见集过滤由 test_stage4_catalog_visibility 覆盖
 
 
 # ── 信任门控 ──

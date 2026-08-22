@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import Request, APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -11,7 +11,13 @@ from app.auth_context import AuthContext, require_scope, verify_csrf
 from app.config import settings
 from app.db import get_db
 from app.models import Book, ReadingProgress
-from app.schemas.book import ApiResponse, BookCreate, BookListOut, BookUpdate
+from app.schemas.book import (
+    ApiResponse,
+    BookCreate,
+    BookListOut,
+    BookUpdate,
+    BookVisibilityUpdate,
+)
 from app.services.books import delete_book, get_book_detail, merge_books, set_book_cover, update_book
 from app.services.storage import save_uploaded_image
 from app.utils.book_helpers import (
@@ -30,6 +36,13 @@ from app.utils.serializers import book_to_out
 from app.utils.uploads import read_upload_limited
 
 router = APIRouter(prefix="/books", tags=["books"])
+
+
+def _require_owner(request: Request, db: Session = Depends(get_db)):
+    """Owner-only 依赖（延迟导入避免与 web_auth 循环引用）。"""
+    from app.api.v1.web_auth import require_owner
+
+    return require_owner(request, db)
 
 
 @router.get("", response_model=ApiResponse)
@@ -233,6 +246,45 @@ def patch_book(
 
     log_and_commit(db, action="book.update", payload={"book_id": book_id})
     return ApiResponse(data={**book_to_out(result.book).model_dump(), "message": result.message})
+
+
+@router.patch("/{book_id}/visibility", response_model=ApiResponse)
+def set_book_visibility(
+    book_id: int,
+    payload: BookVisibilityUpdate,
+    db: Session = Depends(get_db),
+    owner=Depends(_require_owner),
+    _csrf: None = Depends(verify_csrf),
+) -> ApiResponse:
+    """Owner 设置单本书匿名可见级别（权限阶段 4，基线 §5.1/§14-阶段4-2）。
+
+    - 仅 Owner Web 会话（books:write 不隐含匿名策略管理权）；
+    - 变更写入操作审计（操作者 + 书目 + 新旧级别）；
+    - C/B 模式由 ANONYMOUS_CATALOG_MODE 环境配置切换，回滚=切回模式，
+      不需要逆向改写书目数据（基线 §13）。
+    """
+    from sqlalchemy import select as sa_select
+
+    book = db.scalar(sa_select(Book).where(Book.id == book_id))
+    if book is None:
+        raise HTTPException(status_code=404, detail="书目不存在")
+    old = book.catalog_visibility or "lan_shared"
+    if old != payload.visibility:
+        book.catalog_visibility = payload.visibility
+        db.commit()
+        db.refresh(book)
+    log_and_commit(
+        db,
+        action="book.visibility",
+        member_id=owner.id,
+        payload={
+            "book_id": book_id,
+            "old_visibility": old,
+            "new_visibility": payload.visibility,
+            "operator_member_id": owner.id,
+        },
+    )
+    return ApiResponse(data={"book_id": book_id, "catalog_visibility": payload.visibility})
 
 
 @router.delete("/{book_id}", response_model=ApiResponse)

@@ -61,8 +61,9 @@ function onMemberChange(e: Event) {
           <RouterLink to="/">书架</RouterLink>
           <RouterLink to="/stats">统计</RouterLink>
           <RouterLink to="/overview">概览图</RouterLink>
-          <!-- 授权中心仅 Owner：Member 不显示管理入口（后端同样拒绝） -->
+          <!-- 授权中心/访问策略仅 Owner：Member 不显示管理入口（后端同样拒绝） -->
           <RouterLink v-if="sessionRole === 'owner'" to="/agent">Agent</RouterLink>
+          <RouterLink v-if="sessionRole === 'owner'" to="/catalog-policy">策略</RouterLink>
         </template>
         <RouterLink to="/shared">共享书架</RouterLink>
       </nav>

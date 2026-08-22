@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useApiStore, coverUrl, safeUrl, attachmentUrl } from '@/stores/api'
+import { useApiStore, coverUrl, safeUrl, attachmentUrl, lastError } from '@/stores/api'
+import { sessionRole } from '@/stores/session'
 import { useMembersStore } from '@/stores/members'
 import { READING_STATUSES, statusLabel } from '@/types/models'
 import type { BookDetail, Attachment } from '@/types/models'
@@ -78,6 +79,30 @@ const noteForm = reactive({
   page: null as number | null,
 })
 const noteSaving = ref(false)
+
+// 权限阶段 4：Owner 逐书匿名可见级别（Member 不显示选择器，后端同样拒绝）
+const VIS_OPTIONS = [
+  { value: 'lan_shared', label: '局域网共享' },
+  { value: 'public', label: '明确公开' },
+  { value: 'members_only', label: '仅家庭成员' },
+  { value: 'private', label: '私有' },
+]
+const visibility = ref<string>('lan_shared')
+const visSaving = ref(false)
+watch(() => book.value?.catalog_visibility, (v) => { visibility.value = v || 'lan_shared' }, { immediate: true })
+
+async function saveVisibility() {
+  if (!book.value || visSaving.value) return
+  visSaving.value = true
+  try {
+    await api.patch(`/books/${props.id}/visibility`, { visibility: visibility.value })
+    book.value = { ...book.value, catalog_visibility: visibility.value }
+  } catch (e) {
+    if (e instanceof Error) lastError.value = e.message
+  } finally {
+    visSaving.value = false
+  }
+}
 
 async function loadDetail() {
   const gen = ++requestGen  // BUG-120：递增代际，过期响应将被丢弃
@@ -236,6 +261,13 @@ watch(() => members.selectedId, loadDetail)
           <span v-if="book.authors?.length">{{ book.authors.join(', ') }}</span>
           <span v-if="book.publisher"> · {{ book.publisher }}</span>
           <span v-if="book.publish_date"> · {{ book.publish_date }}</span>
+        </div>
+        <!-- 权限阶段 4：Owner 逐书匿名可见级别（Member 不渲染，后端同样拒绝） -->
+        <div v-if="sessionRole === 'owner'" class="visibility-row">
+          <label for="catalog-visibility">匿名可见级别</label>
+          <select id="catalog-visibility" v-model="visibility" :disabled="visSaving" @change="saveVisibility">
+            <option v-for="o in VIS_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
         </div>
         <div class="detail-meta">
           <span v-if="book.isbn13">ISBN: {{ book.isbn13 }}</span>
@@ -513,4 +545,9 @@ watch(() => members.selectedId, loadDetail)
   color: var(--error-text);
   margin-bottom: 16px;
 }
+
+.visibility-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 0.9rem; }
+.visibility-row label { color: var(--text-muted, #5a6878); }
+.visibility-row select { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border, #d7dee8);
+  background: var(--card-bg, #fff); color: inherit; }
 </style>

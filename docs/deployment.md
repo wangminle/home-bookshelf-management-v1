@@ -141,6 +141,21 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir .
   前端显示登录入口；随时可把 `ANONYMOUS_CATALOG_MODE` 改回 `disabled` 立即关闭，
   不改写任何书目数据。
 
+## 逐书可见级别与 B 模式（权限阶段 4）
+
+每本书有匿名可见级别：`lan_shared`（默认，兼容存量未标记）/ `public` /
+`members_only` / `private`。匿名书架按系统模式过滤：
+
+- `ANONYMOUS_CATALOG_MODE=lan_shared`（C 模式）：可见 lan_shared + public；
+- `ANONYMOUS_CATALOG_MODE=explicit_public`（B 模式）：仅 public——切换前
+  建议在 Web「策略」页用 C→B 预览确认哪些书会从匿名书架消失；
+- `disabled`：全关。
+
+Owner 在书籍详情页可单书设置可见级别，在「策略」页（`/catalog-policy`）可
+批量设置并查看切换预览。切换模式 = 修改环境配置并重启；回滚 = 切回原值，
+任何情况下私有记录不会意外公开。
+
+---
 ## MCP 只读试点（并行轨，默认关闭）
 
 `/mcp` 提供两个只读工具（`bookshelf_search_books` / `bookshelf_get_book`），
@@ -181,6 +196,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir .
   `MCP_MAX_RESPONSE_BODY_BYTES`），请求超限 413、响应超限拒绝下发；
 - 全部调用进入共享安全审计（拒绝必记、工具调用放行逐次记录；审计写库
   失败时返回 503 拒绝服务，绝不放行数据）；
+- 可选封面 Resource（`resources/read`，URI `bookshelf://covers/{id}`）默认关闭：
+  `MCP_COVER_RESOURCE_ENABLED=true` 启用，同样受试点 Grant/限流/审计门禁，
+  返回 base64 blob（上限 `MCP_COVER_MAX_BYTES`，默认 512 KiB），不复用匿名
+  封面 URL；实机验证前建议保持关闭；
 - 关闭：`MCP_ENABLED=false` 重启即可，不影响 REST/Web/CLI。
 
 ---

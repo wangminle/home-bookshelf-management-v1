@@ -181,7 +181,7 @@ Web UI 通过统一登录页 `/login` 登录（权限阶段 2：Owner 与家庭�
 
 ### 设计系统
 
-前端使用 CSS 变量（design token）体系，所有颜色/间距/圆角均通过 `var(--...)` 引用，详见 [`design/plans/frontend-audit-2026-08-09.md`](../design/plans/frontend-audit-2026-08-09.md)。
+前端使用 CSS 变量（design token）体系，所有颜色/间距/圆角均通过 `var(--...)` 引用；2026-08-09 的修复复盘见 [`design/checkpoints/frontend-audit-2026-08-09.md`](../design/checkpoints/frontend-audit-2026-08-09.md)。
 
 - **暗色模式**：完整 `@media (prefers-color-scheme: dark)` token 覆盖，跟随系统主题，晚间阅读不刺眼
 - **可访问性（A11y）**：对比度全部 ≥ WCAG AA（4.5:1）；ARIA tablist + 键盘导航；表单 `label`/`id` 关联；`role="alert"` 错误播报；`role="img"` 占位符；页面 `<h1>` 标题层级

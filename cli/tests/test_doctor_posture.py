@@ -20,8 +20,8 @@ def _client(
     merged = {
         "status": "available",
         "service": "home-bookshelf",
-        "app_version": "0.3.10",
-        "frontend_version": "0.3.10",
+        "app_version": "0.3.11",
+        "frontend_version": "0.3.11",
         "database": "connected",
         **health_data,
     }
@@ -152,6 +152,14 @@ def test_doctor_warns_lan_shared_without_trusted_cidrs() -> None:
     assert any("TRUSTED_LAN_CIDRS" in w for w in report.warnings)
 
 
+def test_doctor_warns_explicit_public_without_trusted_cidrs() -> None:
+    report = run_doctor(_client(_posture(
+        anonymous_catalog_mode="explicit_public", trusted_lan_configured=False,
+    )))
+    # B 模式信任门控与 C 模式相同：无可信 CIDR 同样降级，必须告警
+    assert any("TRUSTED_LAN_CIDRS" in w and "explicit_public" in w for w in report.warnings)
+
+
 def test_doctor_silent_when_lan_shared_with_cidrs() -> None:
     report = run_doctor(_client(_posture(
         anonymous_catalog_mode="lan_shared", trusted_lan_configured=True,
@@ -177,7 +185,7 @@ def test_doctor_skips_posture_when_auth_protected() -> None:
         "_http_status": 200,
         "data": {"auth_protected": True, "database": "unknown",
                  "status": "available", "service": "home-bookshelf",
-                 "app_version": "0.3.10"},
+                 "app_version": "0.3.11"},
     }
     client.members.side_effect = RuntimeError("[HTTP 401] unauthorized")
     report = run_doctor(client)

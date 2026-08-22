@@ -23,7 +23,7 @@ from app.schemas.agent_discovery import (
     SkillsRef,
 )
 
-_APP_VERSION = "0.3.10"
+_APP_VERSION = "0.3.11"
 
 # WBS-0：公开能力目录--只描述"系统能做什么"，不包含业务数据。
 _CAPABILITIES = [

@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     attachments,
+    catalog_visibility,
     books,
     copies,
     custom_fields,
@@ -34,3 +35,4 @@ api_router.include_router(members.router)
 api_router.include_router(recognize.router)
 api_router.include_router(files.router)
 api_router.include_router(public_catalog.router)
+api_router.include_router(catalog_visibility.router)

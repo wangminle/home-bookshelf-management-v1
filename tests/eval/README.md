@@ -2,7 +2,7 @@
 
 用来回答：**某个视觉大模型能不能达到本项目入库所需的书名/作者识别质量。**
 
-方案见 `design/plans/批量导入图书封面并建档方案.md` §4，操作手册见 `docs/batch-import.md`。
+已实施方案见 `design/achievements/批量导入图书封面并建档方案.md` §4，操作手册见 `docs/batch-import.md`。
 
 仓库默认带一套 **合成封面**（程序绘制，不含扫描件版权问题）。真实家藏书封可另放到 `covers/` 并改 `golden.json`。
 

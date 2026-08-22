@@ -444,13 +444,22 @@ async def mcp_post(
                         "resultType": "discover",
                         "_meta": {
                             "serverInfo": {"name": _SERVER_NAME, "version": _server_version()},
-                            "capabilities": {"tools": {}},
+                            "capabilities": (
+                                {"tools": {}, "resources": {}}
+                                if settings.mcp_cover_resource_enabled
+                                else {"tools": {}}
+                            ),
                         },
                     },
                 })
 
             # 11. 方法分发（initialize 等已移除/未知方法 -> -32601；通知静默丢弃）
-            if method not in ("tools/list", "tools/call"):
+            # 封面 Resource（默认关闭）：与工具共用试点门禁/限流/审计链
+            _cover_resource_on = settings.mcp_cover_resource_enabled
+            _allowed_methods = ("tools/list", "tools/call") + (
+                ("resources/read",) if _cover_resource_on else ()
+            )
+            if method not in _allowed_methods:
                 if rpc_id is None:
                     return Response(status_code=202)
                 return _jsonrpc_error(rpc_id, -32601, f"Method not found: {method[:64]}")
@@ -470,6 +479,63 @@ async def mcp_post(
                        protocol_version=protocol_version, client_ip=trust.client_ip,
                        trust_reason=trust.reason)
                 return _http_error(403, "PILOT_GRANT_REQUIRED")
+
+            # 11b. resources/read：封面 Resource（bookshelf://covers/{id}）
+            if method == "resources/read":
+                uri = params.get("uri")
+                if not isinstance(uri, str) or not uri.strip():
+                    return _jsonrpc_error(rpc_id, -32602, "params.uri must be a resource URI string")
+                tool_rl = rate_limit.check(
+                    f"mcp:tool:resources/read:{principal.agent_client_id}:{principal.grant_id}",
+                    limit=settings.mcp_rate_limit_per_minute,
+                    window_seconds=60,
+                )
+                if not tool_rl.allowed:
+                    _audit(principal, "deny", "RATE_LIMITED", method, request_id=request_id,
+                           protocol_version=protocol_version, tool_name="resources/read",
+                           args_digest=_args_digest({"uri": uri}), client_ip=trust.client_ip,
+                           trust_reason=trust.reason)
+                    return _http_error(429, "RATE_LIMITED", retry_after=tool_rl.retry_after_seconds)
+                try:
+                    book_id = tools.catalog.parse_cover_uri(uri)
+                    resource = tools.catalog.read_cover_resource(db, book_id)
+                except tools.catalog.ToolError as exc:
+                    _audit(principal, "deny", exc.code, method, request_id=request_id,
+                           protocol_version=protocol_version, tool_name="resources/read",
+                           args_digest=_args_digest({"uri": uri}), client_ip=trust.client_ip,
+                           trust_reason=trust.reason)
+                    return JSONResponse({
+                        "jsonrpc": _JSONRPC_VERSION, "id": rpc_id,
+                        "result": {
+                            "isError": True,
+                            "content": [{"type": "text", "text": exc.message}],
+                            "structuredError": {"code": exc.code, "message": exc.message,
+                                                "retryable": exc.retryable, "request_id": request_id},
+                        },
+                    })
+                # BUG-222：resources/read 也接响应体上限检查（与 tools/call 同口径）
+                _resp = JSONResponse({
+                    "jsonrpc": _JSONRPC_VERSION, "id": rpc_id,
+                    "result": {"contents": [resource]},
+                })
+                if len(_resp.body) > settings.mcp_max_response_body_bytes:
+                    _audit(principal, "deny", "RESPONSE_TOO_LARGE", method,
+                           request_id=request_id, protocol_version=protocol_version,
+                           tool_name="resources/read",
+                           args_digest=_args_digest({"uri": uri}),
+                           client_ip=trust.client_ip, trust_reason=trust.reason)
+                    return _http_error(500, "RESPONSE_TOO_LARGE")
+                audit_state = _audit(
+                    principal, "allow", "ok", method, request_id=request_id,
+                    protocol_version=protocol_version, tool_name="resources/read",
+                    args_digest=_args_digest({"uri": uri}),
+                    result_count=1, status=200,
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                    client_ip=trust.client_ip, trust_reason=trust.reason,
+                )
+                if audit_state == security_audit.AUDIT_FAILED:
+                    return _http_error(503, "AUDIT_UNAVAILABLE")
+                return _resp
 
             # 12. tools/list
             if method == "tools/list":

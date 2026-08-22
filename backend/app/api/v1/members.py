@@ -68,31 +68,43 @@ def add_member(
     _csrf: None = Depends(verify_csrf),
     db: Session = Depends(get_db),
 ) -> ApiResponse:
-    """创建成员（BUG-168：改走 AuthContext）。
+    """创建成员（BUG-168：改走 AuthContext；BUG-221：修复引导期判定）。
 
-    引导期（尚无任何渠道绑定）：允许匿名创建成员，与 README 先 member 后 bind 流程兼容；
-    白名单建立后：要求 owner 身份（Web 会话/Agent Token/已绑定 owner 渠道）。
+    BUG-221：此前用 system_has_channel_bindings 作"白名单已建立"代理——纯密码
+    登录部署（无渠道绑定）下，任何已登录 member 可 POST /members role=owner
+    获得 201，违反 BUG-112 意图。现改为：
+    - 匿名：仅"系统无任何成员"的真正引导期放行；
+    - 已认证非 owner：一律 403（无论渠道绑定状态）；
+    - 创建 owner：仅已有 owner 可为，或"系统尚无 owner"的首个 owner 引导。
     """
+    from sqlalchemy import func, select as sa_select
+
+    member_total = db.scalar(sa_select(func.count()).select_from(Member)) or 0
+    owner_exists = db.scalar(
+        sa_select(func.count()).select_from(Member).where(Member.role == "owner")
+    ) > 0
+
     caller_role: str | None = None
     if ctx.is_authenticated:
-        if ctx.member_role != "owner" and system_has_channel_bindings(db):
+        # BUG-221：已认证非 owner 一律拒绝（不再依赖渠道绑定状态）
+        if ctx.member_role != "owner":
             raise HTTPException(
                 status_code=403,
-                detail="只有 owner 角色的成员可以创建成员（白名单已建立）",
+                detail="只有 owner 角色的成员可以创建成员",
             )
         caller_role = ctx.member_role
     else:
-        # 匿名：仅引导期放行
-        if system_has_channel_bindings(db):
+        # 匿名：仅系统完全无成员时放行（真正引导期）
+        if member_total > 0:
             raise HTTPException(
                 status_code=403,
-                detail="白名单已建立，请使用已绑定渠道身份创建成员",
+                detail="系统已有成员，请登录后操作",
             )
 
-    # BUG-112：只有 owner 可创建 owner，防止 guest/member 自行提权
+    # BUG-112：只有 owner 可创建 owner，防止 member 自行提权
     if payload.role == "owner" and caller_role != "owner":
-        # 引导期（无任何绑定）仍允许创建首个 owner
-        if system_has_channel_bindings(db):
+        # 引导期（系统尚无 owner）仍允许创建首个 owner
+        if owner_exists:
             raise HTTPException(
                 status_code=403,
                 detail="只有 owner 角色的成员可以创建新的 owner",
@@ -196,6 +208,9 @@ def update_member(
         agent_access.revoke_member_sessions(db, member.id)
     if payload.disabled is not None:
         if payload.disabled:
+            # BUG-222：owner 不能停用自己（自锁保护）
+            if member.id == owner.id:
+                raise HTTPException(status_code=400, detail="不能停用自己")
             if member.role == "owner":
                 _guard_last_active_owner(db, member)
             member.disabled_at = member.disabled_at or datetime.now(timezone.utc).replace(tzinfo=None)
@@ -254,6 +269,19 @@ def reset_member_password(
         raise HTTPException(status_code=400, detail="成员已停用，请先恢复再设置密码")
     agent_access.set_member_password(db, member, payload.password)  # 用户名兜底在服务层统一处理
     revoked = agent_access.revoke_member_sessions(db, member.id)
+    # BUG-222：密码重置同时撤销该成员所有 Agent Grant 的 Token
+    from sqlalchemy import select as sa_select
+    from app.models import AgentGrant
+    from datetime import datetime as dt, timezone as tz
+    _now = dt.now(tz.utc).replace(tzinfo=None)
+    grants = db.scalars(sa_select(AgentGrant).where(
+        AgentGrant.member_id == member.id, AgentGrant.status == "active"
+    )).all()
+    for g in grants:
+        for t in g.tokens:
+            if t.revoked_at is None:
+                t.revoked_at = _now
+    db.commit()
     log_and_commit(
         db,
         action="member.password_reset",

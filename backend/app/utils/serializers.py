@@ -17,6 +17,8 @@ def book_to_out(book) -> BookOut:
         subtitle=book.subtitle,
         isbn13=book.isbn13,
         isbn10=book.isbn10,
+        # BUG-222：catalog_visibility 是策略字段，仅 owner 需要看到；
+        # 其他主体（member/Agent）不下发——避免泄露匿名策略信息
         authors=deserialize_json_list(book.authors),
         publisher=book.publisher,
         publish_date=book.publish_date,

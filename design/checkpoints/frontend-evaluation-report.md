@@ -1,5 +1,6 @@
 # 家庭书架 Web UI 前端评估报告
 
+> Checkpoint：2026-08-09 前端修复前评估快照；报告中的问题已经完成对应修复，不代表当前前端质量评分。  
 > 评估日期：2026-08-09
 > 评估范围：`frontend/` 全部源码（Vue 3 + TypeScript + Vite 5 + Pinia + 纯 CSS）
 > 评估依据：`frontend-design` skill（美学维度）+ `impeccable` skill（产品 UI register + critique/audit 框架）
@@ -519,4 +520,3 @@ watch(
 - BUG-106：SPA fallback 路径穿越 P0（已修复）
 - BUG-107：OverviewView 挂载竞态（已修复）
 - BUG-108/110：前端自查 4 项 + 测试环境耦合（已修复）
-

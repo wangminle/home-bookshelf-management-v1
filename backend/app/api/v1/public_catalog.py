@@ -4,8 +4,8 @@
 始终要求认证）分离，避免"为了匿名首页而放开完整业务 API"。
 
 每请求三重门控（顺序固定）：
-1. 模式门控：anonymous_catalog_mode 必须为 lan_shared（explicit_public 属
-   阶段 4 B 模式，本期按关闭处理）；
+1. 模式门控：anonymous_catalog_mode 为 lan_shared（C）或 explicit_public（B，
+   权限阶段 4）；disabled 时全关；
 2. 信任门控：来源必须可验证位于可信网络（回环 / TRUSTED_LAN_CIDRS /
    可信代理右值法还原），否则自动降级（403 LAN_REQUIRED，前端显示登录入口）；
 3. 限流门控：每客户端 IP 固定窗口计数（共享 rate_limit 服务），超限 429。
@@ -27,6 +27,7 @@ from app.db import get_db
 from app.models import Book
 from app.schemas.book import ApiResponse
 from app.services import catalog_read, rate_limit, security_audit, trusted_network
+from app.services.catalog_read import effective_visibility
 
 router = APIRouter(prefix="/public-catalog", tags=["public-catalog"])
 
@@ -53,13 +54,23 @@ def _audit(
     )
 
 
+def _anonymous_visibility_set() -> frozenset[str]:
+    """当前系统模式下匿名可读的逐书可见级别集合（基线 §4.3）。"""
+    if settings.anonymous_catalog_mode == "explicit_public":
+        return frozenset({"public"})
+    return frozenset({"lan_shared", "public"})
+
+
 def _gate(request: Request, *, bucket: str) -> JSONResponse | None:
     """模式 + 可信网络 + 限流三重门控；全部通过返回 None，否则返回拒绝响应。
 
     CHK-071：所有门控结果进入共享安全审计（拒绝/超限必记并按主体抑制聚合，
     放行采样留痕），写入失败不阻断业务。
     """
-    if settings.anonymous_catalog_mode != "lan_shared":
+    # 权限阶段 4：三种匿名模式（基线 §4.3）——lan_shared 可读 {lan_shared, public}，
+    # explicit_public 仅 {public}（B 模式），disabled 关闭；信任/限流门控不变。
+    mode = settings.anonymous_catalog_mode
+    if mode not in ("lan_shared", "explicit_public"):
         _audit(request, "deny", "ANONYMOUS_CATALOG_DISABLED", None)
         return _denied(403, "ANONYMOUS_CATALOG_DISABLED")
     decision = trusted_network.evaluate_request_trust(request)
@@ -99,6 +110,7 @@ def list_public_books(
         query=query, author=author, category=category,
         language=language, availability=availability,
         page=page, page_size=page_size,
+        anonymous_visibility_set=_anonymous_visibility_set(),
     )
     # CHK-071：可访问性取决于来源 IP，禁止共享缓存（public 会让共享反代把
     # LAN 用户取得的响应直接给公网用户，绕过信任门控）——仅允许私有缓存
@@ -118,7 +130,9 @@ def get_public_book(
     denied = _gate(request, bucket="public-catalog:books")
     if denied is not None:
         return denied
-    detail = catalog_read.get_catalog_book(db, book_id)
+    detail = catalog_read.get_catalog_book(
+        db, book_id, anonymous_visibility_set=_anonymous_visibility_set()
+    )
     if detail is None:
         # 不区分"不存在"与"不可见"，防枚举（基线 §9.4）
         return _denied(404, "BOOK_NOT_FOUND")
@@ -168,7 +182,10 @@ def get_public_cover(
     if denied is not None:
         return denied
     book = db.get(Book, book_id)
-    if book is None or not book.cover_path:
+    # 权限阶段 4：封面与书目同可见集（不可见=不存在，防枚举）
+    if book is None or not book.cover_path or effective_visibility(
+        book.catalog_visibility
+    ) not in _anonymous_visibility_set():
         return _denied(404, "COVER_NOT_FOUND")
     src = _resolve_cover(book.cover_path)
     if src is None:

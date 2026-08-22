@@ -380,3 +380,61 @@ def get_book(db: Session, arguments: dict[str, Any]) -> dict[str, Any]:
     # BUG-216：structuredContent 必须通过 outputSchema 才下发
     validate_tool_output(payload, _BOOK_OUTPUT_SCHEMA)
     return payload
+
+# ── 封面 Resource（第三项分析中唯一可独立评估扩展；默认关闭） ──
+# 受 Agent Grant 保护：走与工具完全相同的 Bearer/试点门禁/限流/审计，
+# 绝不复用匿名封面 URL（/api/v1/public-catalog/covers/*）。
+
+_COVER_URI_PREFIX = "bookshelf://covers/"
+# 封面后缀 -> blob MIME（PIL 不可用时缩略图回退原图，须按真实后缀声明）
+_COVER_MIME_BY_SUFFIX = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".webp": "image/webp", ".gif": "image/gif",
+}
+
+
+def parse_cover_uri(uri: str) -> int:
+    """解析 bookshelf://covers/{book_id}；格式不符抛 ToolError。"""
+    if not isinstance(uri, str) or not uri.startswith(_COVER_URI_PREFIX):
+        raise ToolError("RESOURCE_URI_INVALID", f"不支持的资源 URI（当前仅 {_COVER_URI_PREFIX}{{book_id}}）")
+    raw = uri[len(_COVER_URI_PREFIX):]
+    if isinstance(raw, bool) or not raw.isdigit() or int(raw) < 1:
+        raise ToolError("RESOURCE_URI_INVALID", "资源 URI 的 book_id 必须是正整数")
+    return int(raw)
+
+
+def read_cover_resource(db: Session, book_id: int) -> dict:
+    """读取封面缩略图为 MCP Resource blob（base64）。
+
+    - 复用 public_catalog 的缩略图管线（PIL 缩放 + 缓存），但鉴权完全独立；
+    - 超过 MCP_COVER_MAX_BYTES 拒绝（防大图撑爆 JSON-RPC 响应）；
+    - 不存在/无封面/解码失败统一 COVER_NOT_FOUND（防枚举）。
+    """
+    import base64
+    from pathlib import Path
+
+    from app.config import settings
+    from app.models import Book
+
+    book = db.get(Book, book_id)
+    if book is None or not book.cover_path:
+        raise ToolError("COVER_NOT_FOUND", "未找到可访问的封面")
+    # 路径解析与缩略图复用 Public Catalog 私有实现（同一安全管线，不同鉴权）
+    from app.api.v1.public_catalog import _ensure_thumbnail, _resolve_cover
+
+    src = _resolve_cover(book.cover_path)
+    if src is None:
+        raise ToolError("COVER_NOT_FOUND", "未找到可访问的封面")
+    thumb = _ensure_thumbnail(src)
+    try:
+        blob_bytes = Path(thumb).read_bytes()
+    except OSError:
+        raise ToolError("COVER_NOT_FOUND", "未找到可访问的封面")
+    if len(blob_bytes) > settings.mcp_cover_max_bytes:
+        raise ToolError("COVER_TOO_LARGE", "封面过大，拒绝经 MCP 下发")
+    mime = _COVER_MIME_BY_SUFFIX.get(thumb.suffix.lower(), "application/octet-stream")
+    return {
+        "uri": f"{_COVER_URI_PREFIX}{book_id}",
+        "blob": base64.b64encode(blob_bytes).decode("ascii"),
+        "mimeType": mime,
+    }

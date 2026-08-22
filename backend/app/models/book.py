@@ -51,6 +51,9 @@ class Book(Base, TimestampUpdateMixin):
     goodreads_id: Mapped[str | None] = mapped_column(String(50))
     source: Mapped[str | None] = mapped_column(String(50))
     extra: Mapped[str | None] = mapped_column(Text)  # JSON
+    # 权限阶段 4（B 模式）：逐书匿名可见级别（基线 §4.3）。
+    # NULL = 兼容读取为 lan_shared（存量记录不批量改写）。
+    catalog_visibility: Mapped[str | None] = mapped_column(String(20), index=True)
 
     copies: Mapped[list[BookCopy]] = relationship(back_populates="book", cascade="all, delete-orphan")
     reading_progress: Mapped[list[ReadingProgress]] = relationship(

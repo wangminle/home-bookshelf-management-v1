@@ -222,10 +222,12 @@ def _warn_deployment_posture(report: DoctorReport, health_data: dict[str, Any], 
             f"PUBLIC_BASE_URL={public_base} 使用明文 HTTP 且非回环地址（权限基线 §11.3）"
         )
 
-    # 权限阶段 1：匿名书架（C 模式）配置一致性——LAN 暴露但无可信 CIDR
-    if health_data.get("anonymous_catalog_mode") == "lan_shared" and not health_data.get("trusted_lan_configured"):
+    # 权限阶段 1/4：匿名书架（C=lan_shared / B=explicit_public）配置一致性——
+    # 两种模式的信任门控相同，无可信 CIDR 时除回环/可信代理外一律降级为登录页
+    _anon_mode = health_data.get("anonymous_catalog_mode")
+    if _anon_mode in ("lan_shared", "explicit_public") and not health_data.get("trusted_lan_configured"):
         report.warnings.append(
-            "匿名书架 lan_shared 已开启但未配置 TRUSTED_LAN_CIDRS：除回环与可信代理链外，"
+            f"匿名书架 {_anon_mode} 已开启但未配置 TRUSTED_LAN_CIDRS：除回环与可信代理链外，"
             "家庭局域网客户端将被降级为登录页（权限基线 §11.3/§13）"
         )
         report.hints.append("确认家庭网段后设置 TRUSTED_LAN_CIDRS=192.168.1.0/24 等并重启 API")

@@ -1,5 +1,6 @@
 # 数据库 Schema 对照与一期细化
 
+> 归档说明：2026-08-22 移入 `design/achievements/`，作为一期数据模型设计和实现对照；当前 Schema 以 SQLAlchemy Model 与 Alembic 迁移为准，本文的二期预留不自动构成现行计划。  
 > 对照来源：mybibliotheca（v1 SQLite + v2 KuzuDB）、jelu（SQLite + Exposed ORM）
 > 日期：2026-07-11（与主设计方案 v1.3 / 代码对齐修订）
 > 目的：逐字段对照参考项目，细化家庭图书管理系统一期表设计；并与当前实现保持一致

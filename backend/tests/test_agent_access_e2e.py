@@ -13,7 +13,11 @@ from fastapi.testclient import TestClient
 
 def _ensure_owner(client: TestClient) -> int:
     """确保有 owner 成员，返回 member_id。"""
-    # 先检查是否已有成员
+    # 优先检查已有会话（conftest client fixture 注入了 owner 会话）
+    r = client.get("/auth/session")
+    if r.status_code == 200 and r.json().get("authenticated") and r.json().get("member_id"):
+        return r.json()["member_id"]
+    # 检查是否已有成员（需要 members:read 权限）
     r = client.get("/api/v1/members")
     if r.status_code == 200:
         items = r.json().get("data", {}).get("items", [])
@@ -21,9 +25,9 @@ def _ensure_owner(client: TestClient) -> int:
             owner = next((m for m in items if m.get("role") == "owner"), None)
             if owner:
                 return owner["id"]
-    # 创建 owner
+    # 创建 owner（BUG-221 后仅匿名空库或 owner 会话可创建）
     r = client.post("/api/v1/members", json={"name": "owner", "role": "owner"})
-    assert r.status_code == 201
+    assert r.status_code == 201, f"创建 owner 失败: {r.text}"
     return r.json()["data"]["id"]
 
 

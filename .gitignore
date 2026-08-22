@@ -19,8 +19,11 @@ backups/
 *.db
 *.db-wal
 *.db-shm
+*.db-journal
 *.sqlite
 *.sqlite3
+*.sqlite-wal
+*.sqlite-shm
 
 # 测试 / 静态检查
 .pytest_cache/
@@ -30,6 +33,7 @@ backups/
 .coverage.*
 *.cover
 htmlcov/
+coverage/
 backend/tests/_tmp/
 
 # 识书评测运行产物（金标准与合成封面入库，预测与结果不入库）
@@ -42,6 +46,8 @@ tests/eval/results-*.json
 *.bak
 *.swp
 *.swo
+*.orig
+*.rej
 *~
 Thumbs.db
 
@@ -51,13 +57,16 @@ Thumbs.db
 .vscode/
 .zcode/
 
-# AI 工具工作区
-.claude/
+# AI 工具工作区：会话级任务同步的 Stop hook 为项目机制（见 CLAUDE.md），
+# settings.json 与 hooks/ 入库；本地个人配置（settings.local.json 等）仍忽略。
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
 
 # Node / 前端
 node_modules/
 frontend/dist/
-frontend/tsconfig.tsbuildinfo
+*.tsbuildinfo
 
 # 前端构建产物不入库；部署前需构建并同步（见 docs/web-ui.md、scripts/deploy_frontend.sh）。
 # lwa 不会自动构建前端。Skills bundle 位于 backend/static/skills/，同步脚本须排除该目录。

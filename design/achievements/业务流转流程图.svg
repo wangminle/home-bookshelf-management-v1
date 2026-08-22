@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 960" role="img" aria-labelledby="svg-title svg-desc">
   <title id="svg-title">家庭图书管理系统 · 内部业务流转</title>
-  <desc id="svg-desc">从 IM 经 Agent、Skills、CLI 到 FastAPI 与 SQLite 的内部业务流转图</desc>
+  <desc id="svg-desc">历史架构：从 IM 经 Agent、Skills、CLI 到 FastAPI 与 SQLite 的内部业务流转图</desc>
 
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">

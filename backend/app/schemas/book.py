@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Literal, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -151,12 +151,25 @@ class BookOut(BookBase):
 
     id: int
     cover_path: str | None = None
+    # 权限阶段 4：逐书匿名可见级别（未标记=兼容读取 lan_shared）
+    catalog_visibility: str | None = None
     source: str | None = None
     openlibrary_id: str | None = None
     google_books_id: str | None = None
     extra: dict[str, Any] | list[Any] | str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class BookVisibilityUpdate(BaseModel):
+    """Owner 设置单本书匿名可见级别（权限阶段 4）。"""
+    visibility: Literal["lan_shared", "public", "members_only", "private"]
+
+
+class BookVisibilityBatchUpdate(BaseModel):
+    """Owner 批量设置可见级别（基线 §14-阶段4-2；单批上限防误操作）。"""
+    book_ids: list[int] = Field(min_length=1, max_length=500)
+    visibility: Literal["lan_shared", "public", "members_only", "private"]
 
 
 class BookListOut(BaseModel):

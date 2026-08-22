@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """批量导入图书封面并建档。
 
-方案：design/plans/批量导入图书封面并建档方案.md（路径① Agent + CLI）
+已实施方案：design/achievements/批量导入图书封面并建档方案.md（路径① Agent + CLI）
 
 流程：
     1. scan    扫描封面目录，生成/合并 batch_manifest.json 骨架（status=pending）

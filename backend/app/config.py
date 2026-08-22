@@ -28,8 +28,8 @@ class Settings(BaseSettings):
     trusted_proxies: str = ""
 
     # ── 权限阶段 1：C 模式匿名书架（基线 §4.3/§11.3/§13） ──
-    # 匿名目录系统策略：lan_shared（C 模式）/ explicit_public（B 模式，未实现，
-    # 阶段 1 按 disabled 处理）/ disabled（只保留 L0 与登录入口）。
+    # 匿名目录系统策略：lan_shared（C 模式）/ explicit_public（B 模式，权限
+    # 阶段 4 已激活，仅 public 标记的书匿名可见）/ disabled（只保留 L0 与登录入口）。
     # 代码默认 disabled：已有部署升级后不改变现状；新部署在 deploy/.env.example
     # 引导下配置 lan_shared（基线 §13：升级需 Owner 确认可信 CIDR 后再启用）。
     anonymous_catalog_mode: str = "disabled"
@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     # 游标完整性签名的独立高熵密钥——不得复用 Agent Token、Owner 密码或渠道签名密钥；
     # MCP_ENABLED=true 时必须配置，否则 /mcp 一律 500 拒绝服务
     mcp_cursor_signing_secret: str | None = None
+    # MCP 封面 Resource（bookshelf://covers/{id}）——第三项分析中唯一可独立评估的
+    # 扩展：受 Agent Grant 保护、不复用匿名封面 URL；默认关闭，实机验证后再启用
+    mcp_cover_resource_enabled: bool = False
+    # 封面 blob 上限（字节；超出拒绝，防大图撑爆 JSON-RPC 响应体）
+    mcp_cover_max_bytes: int = 512 * 1024
     # MCP Host allowlist（逗号分隔；默认仅内置回环精确值，非回环部署必须显式配置）
     mcp_allowed_hosts: str = ""
     # MCP 可信 Origin（逗号分隔，含 scheme://host[:port]；非浏览器客户端可不带 Origin，

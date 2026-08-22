@@ -2,7 +2,7 @@
 
 > 全部 API 端点 × 方法 × Scope × 主体 × 资源层 × 数据范围的完整映射。
 > 端点清单以 `backend/app/main.py` 与 `backend/app/api/v1/` 实际路由为准（本文件已按实现核对）。
-> 权限阶段 0（2026-08-21）起以 [`../权限-数据分层与用户角色设计建议-20260820.md`](../权限-数据分层与用户角色设计建议-20260820.md) 为唯一基线：
+> 权限阶段 0（2026-08-21）起以 [`权限-数据分层与用户角色设计建议-20260820.md`](./权限-数据分层与用户角色设计建议-20260820.md) 为唯一基线：
 > 本矩阵每行补齐"主体、动作、资源层、数据范围"定义（阶段 0 验收项），可执行对照见
 > `backend/tests/test_permission_baseline_matrix.py::ENDPOINT_REGISTRY`。
 
@@ -56,7 +56,7 @@ Grant 风险分级：`HIGH_RISK_SCOPES = {books:delete, stats:household}`——�
 | `/agent/skills/download/{version}.zip` | GET | 无（公开） | 匿名 | L0 | 无 | 限流 |
 | `/agent/skills/SHA256SUMS` | GET | 无（公开） | 匿名 | L0 | 无 | 校验文件 |
 | `/api/v1/public-health` | GET | 无（公开） | 匿名 | L0 | 无 | 最小可用性；不含部署态势 |
-| `/api/v1/public-catalog/books` | GET | 无（匿名，需模式+信任门控） | 匿名/已登录 | L1 | household_shared（仅白名单字段） | **权限阶段 1**：`anonymous_catalog_mode=lan_shared` 且来源可信（回环/TRUSTED_LAN_CIDRS/可信代理右值法）才开放；限流 429；`disabled`/不可信 → 403 机器码降级 |
+| `/api/v1/public-catalog/books` | GET | 无（匿名，需模式+信任门控） | 匿名/已登录 | L1 | household_shared（仅白名单字段） | **阶段 4 更新**：三模式可切换——lan_shared 可见 {lan_shared, public}；explicit_public 仅 {public}（B 模式）；disabled 关闭；逐书 catalog_visibility 兼容读取（NULL=lan_shared）；限流 429 |
 | `/api/v1/public-catalog/books/{id}` | GET | 无（匿名，同上门控） | 匿名/已登录 | L1 | household_shared | 404 不区分不存在与不可见（防枚举） |
 | `/api/v1/public-catalog/covers/{book_id}` | GET | 无（匿名，同上门控） | 匿名/已登录 | L1 | household_shared | 仅图片后缀；PIL 缩略图（缺失回退原图）；不暴露磁盘路径 |
 | `/api/v1/health` | GET | `members:read` | owner/member/agent | L4 | 全局诊断 | 权限阶段 0 起附部署信任态势字段（阶段 1 增加匿名书架模式/CIDR） |
@@ -96,6 +96,9 @@ Grant 风险分级：`HIGH_RISK_SCOPES = {books:delete, stats:household}`——�
 | `/agent-access/tokens/{grant_id}` | GET | 无（owner 专用） | owner/web | L4 | 全局 | 授权管理 |
 | `/agent-access/tokens/{token_id}` | DELETE | 无（owner 专用） | owner/web | L4 | 全局 | 授权管理 |
 | `/mcp` | POST | 无（Agent Bearer；Grant 须恰 `books:read` 且显式 data_scope=household_shared） | agent | L1/L2 | household_shared | **CHK-073 硬化**：默认关闭 404；协议头必填（allowlist 2026-07-28）；Host 421/Origin 403 防护；server/discover+tools/list+tools/call（initialize 已移除）；Cookie/渠道头 401；限流（Client+Grant+Tool 三维）429；审计失败 503 fail-closed；工具输出无封面 URL/标签 |
+| `/api/v1/books/{id}/visibility` | PATCH | 无（owner web 专用） | owner/web | L4（匿名策略） | 全局 | **权限阶段 4**：Owner 设置单书匿名可见级别（books:write 不隐含策略权）；操作审计记录新旧级别 |
+| `/api/v1/catalog-visibility/batch` | POST | 无（owner web 专用） | owner/web | L4 | 全局 | **权限阶段 4**：批量设置（≤500/批）；审计含 changed/missing |
+| `/api/v1/catalog-visibility/preview` | GET | 无（owner web 专用） | owner/web | L4 | 全局 | **权限阶段 4**：C→B 切换预览（继续公开/消失/永不可见 + 计数） |
 | `/api/v1/members/{id}` | PATCH | 无（owner web 专用） | owner/web | L4 | 全局 | **权限阶段 2**：角色调整/停用恢复；末位活跃 owner 保护；变更即撤销该成员会话 |
 | `/api/v1/members/{id}/password` | POST | 无（owner web 专用） | owner/web | L4 | 全局 | **权限阶段 2**：Owner 重置成员密码并撤销其全部会话 |
 | `/auth/change-password` | POST | 无（已认证） | owner/member(web) | L4 | 无 | **权限阶段 2**：自助改密；保留当前会话、撤销其它会话 |
@@ -169,3 +172,23 @@ Agent Grant 不支持 `*` 或 `admin:*` 通配符。授权管理和系统配置�
 - 验收测试：`backend/tests/test_stage2_member_isolation.py`（16 项：篡改 member_id、
   嵌套泄露、统计/附件越权、锁定/改密/重置/停用/角色变化的会话失效、末位 owner 保护、
   代操作审计）。
+
+## 权限阶段 4 变更（2026-08-22：B 模式逐书可见性）
+
+- **数据模型**：`books.catalog_visibility`（lan_shared/public/members_only/private；
+  迁移 i0b1c2d3e4f5 只加可空列+索引，零数据改写——基线 §13）；兼容读取规则：
+  NULL = lan_shared（存量 C 模式行为不变）；
+- **三模式门控**：lan_shared 可见 {lan_shared, public}；explicit_public 仅
+  {public}；disabled 全关；members_only/private 任何模式不可匿名见；详情/封面
+  不可见=404（防枚举）；
+- **Owner 管理**：PATCH /books/{id}/visibility（单书）+ /catalog-visibility/batch
+  （批量 ≤500）+ /catalog-visibility/preview（C→B 切换预览）；操作审计记录
+  新旧级别与操作者；books:write 不隐含策略管理权；
+- **回滚**：模式由 ANONYMOUS_CATALOG_MODE 环境配置切换（重启生效），
+  回滚=切回原值，不依赖逆向批量更新；私有记录任何模式不意外公开（测试锁定）；
+- **前端**：/catalog-policy 访问策略页（预览+批量，Owner 专属导航）；
+  详情页 Owner 可见性选择器（Member 不渲染）；
+- **MCP 封面 Resource**（第三项分析唯一可独立评估扩展）：`resources/read`
+  `bookshelf://covers/{id}` 返回 base64 缩略图 blob；默认关闭
+  （MCP_COVER_RESOURCE_ENABLED=false）；与工具共用试点门禁/限流/审计链，
+  绝不复用匿名封面 URL；实机验证后再启用。

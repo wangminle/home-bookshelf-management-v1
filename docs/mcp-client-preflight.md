@@ -75,6 +75,12 @@
   maxLength 与页宽夹取、游标密钥熵与复用拒绝、Grant 版本绑定与 Token 撤销、
   可信网络/HTTPS 门禁、DB 异常稳定映射、输出 Schema 校验与审计字段冻结。
 
+## 封面 Resource（默认关闭，2026-08-22 新增）
+
+- URI：`bookshelf://covers/{book_id}`（`resources/read`，返回 base64 blob）；
+- 前置：`MCP_COVER_RESOURCE_ENABLED=true`（默认 false）+ 试点 Grant；
+- 不复用匿名封面 URL；实机验证前保持关闭。
+
 ## 结论记录
 
 | 日期 | 客户端 | 结论 | 备注 |

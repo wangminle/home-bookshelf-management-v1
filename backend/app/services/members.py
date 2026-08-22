@@ -35,8 +35,19 @@ def member_count(db: Session) -> int:
 
 
 def create_member(db: Session, payload: MemberCreate) -> MemberCreateResult:
+    from sqlalchemy import func
+
     from app.services.agent_access import ensure_unique_username
 
+    # BUG-204：显式指定用户名时按大小写不敏感预检（CI 唯一索引口径，友好 409）
+    if payload.username:
+        exists = db.scalar(
+            select(func.lower(Member.username)).where(
+                func.lower(Member.username) == payload.username.strip().lower()
+            )
+        )
+        if exists:
+            raise ConflictError(f"用户名已被使用：{payload.username.strip()}")
     member = Member(
         name=payload.name,
         role=payload.role,

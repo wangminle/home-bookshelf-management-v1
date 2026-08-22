@@ -20,8 +20,8 @@ def _client(
     merged = {
         "status": "available",
         "service": "home-bookshelf",
-        "app_version": "0.3.8",
-        "frontend_version": "0.3.8",
+        "app_version": "0.3.10",
+        "frontend_version": "0.3.10",
         "database": "connected",
         **health_data,
     }
@@ -177,7 +177,7 @@ def test_doctor_skips_posture_when_auth_protected() -> None:
         "_http_status": 200,
         "data": {"auth_protected": True, "database": "unknown",
                  "status": "available", "service": "home-bookshelf",
-                 "app_version": "0.3.8"},
+                 "app_version": "0.3.10"},
     }
     client.members.side_effect = RuntimeError("[HTTP 401] unauthorized")
     report = run_doctor(client)

@@ -147,7 +147,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir .
 面向支持 MCP 的 Agent 客户端。启用步骤：
 
 1. 生成独立高熵游标密钥：`openssl rand -hex 32` → `MCP_CURSOR_SIGNING_SECRET`
-   （不得复用 Agent Token、Owner 密码或渠道签名密钥）；
+   （长度至少 32 字符，不得复用 Agent Token、Owner 密码或渠道签名密钥；过短或复用会在启动时报错拒绝服务）；
 2. 在前端「Agent 授权」页注册客户端并创建**专用只读 Grant**：Scope 仅
    `books:read` **且显式声明数据范围 `household_shared`**，建议 30 天，签发
    Token 交由 Agent 客户端保管——旧语义 Grant（未声明数据范围）会被 403
@@ -155,18 +155,32 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir .
 3. 非回环部署配置 `MCP_ALLOWED_HOSTS`（Host 校验，默认仅内置回环精确值，
    不匹配 421）；浏览器跨域客户端另配 `MCP_TRUSTED_ORIGINS`（Origin 精确
    匹配，不可信 403）；
-4. 设置 `MCP_ENABLED=true` 重启后端；`/mcp` 只接受
+4. 配置源地址信任边界 `MCP_TRUSTED_CIDRS`（如 `192.168.1.0/24`）：仅信任
+   网段内的直连客户端、或经 `TRUSTED_PROXIES` 可信代理（按右值法解析
+   `X-Forwarded-For`）还原后仍位于信任网段的请求可进入鉴权，其余来源
+   403 `NETWORK_DENIED`；默认同时要求 HTTPS（`MCP_REQUIRE_HTTPS=true`，
+   回环豁免；可信代理链路读取 `X-Forwarded-Proto`，缺失按明文拒绝），
+   家庭内网明文试点需显式设 `MCP_REQUIRE_HTTPS=false`；
+5. 设置 `MCP_ENABLED=true` 重启后端；`/mcp` 只接受
    `Authorization: Bearer <token>` + 必填的 `MCP-Protocol-Version` 头
-   （allowlist 仅 `2026-07-28`），Cookie/渠道头/匿名一律 401。
+   （allowlist 仅 `2026-07-28`），Cookie/渠道头/匿名一律 401；每个请求的
+   `params._meta` 必须为对象，网关路由头 `Mcp-Method`/`Mcp-Name`（如携带）
+   必须与请求体方法/工具名一致，否则 400。
 
 行为要点：
 
 - 握手用 `server/discover`（该协议版本已移除 `initialize`）；数据范围由 Grant
   显式声明且服务端固定为家庭共享书目（L1/L2 白名单字段），不含成员、阅读、
   笔记、购买、封面 URL 或文件路径；
-- 搜索必须至少带一个筛选条件；单页最多 20 条；游标经 HMAC 签名防篡改；
-- 每个 Agent Client + 工具按分钟限流；Grant 撤销/过期后下一请求立即 401；
-- 全部调用进入共享安全审计（拒绝必记、放行采样）；
+- 搜索必须至少带一个筛选条件（纯空白不计）；单页最多 20 条（配置超限自动
+  夹取到 20）；游标经 HMAC 签名防篡改且限长；
+- 限流两层：每个 Agent Client + Grant 共享全局每分钟额度（未知方法同样
+  计入，无法借换方法名绕过），单个工具另有子额度；Grant 撤销/过期后下一
+  请求立即 401，Scope 变更会递增 Grant 版本并撤销全部旧 Token（需重签）；
+- 请求/响应体各限 1 MiB（`MCP_MAX_REQUEST_BODY_BYTES` /
+  `MCP_MAX_RESPONSE_BODY_BYTES`），请求超限 413、响应超限拒绝下发；
+- 全部调用进入共享安全审计（拒绝必记、工具调用放行逐次记录；审计写库
+  失败时返回 503 拒绝服务，绝不放行数据）；
 - 关闭：`MCP_ENABLED=false` 重启即可，不影响 REST/Web/CLI。
 
 ---

@@ -23,7 +23,7 @@ watch(sessionAuthenticated, (authed) => {
 // 权限阶段 2（基线 §3.3）：Member 固定显示本人身份，不出现成员切换器；
 // 切换器仅 Owner 可见（Owner 代操作须显式选择归属人，后端仍校验代操作权限）。
 function fixMemberIdentity() {
-  if (sessionRole.value === 'member' && sessionMemberName.value != null) {
+  if (sessionRole.value === 'member' && sessionMemberId.value != null) {
     // 按 ID 匹配（显示名可重复；重名时按名字匹配会选错成员）
     const self = members.members.find((m) => m.id === sessionMemberId.value)
     if (self) members.select(self.id)

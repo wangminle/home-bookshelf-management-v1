@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import DateTime, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampUpdateMixin
@@ -15,11 +15,16 @@ if TYPE_CHECKING:
 
 class Member(Base, TimestampUpdateMixin):
     __tablename__ = "members"
+    # BUG-204：登录用户名大小写不敏感唯一（lower(username) 表达式唯一索引）——
+    # 普通唯一索引下 Zhang/zhang 可并存，登录解析产生歧义
+    __table_args__ = (
+        Index("ix_members_username", text("lower(username)"), unique=True),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     # 权限阶段 2：登录用户名（大小写不敏感比对；显示名 name 独立保留）
-    username: Mapped[str | None] = mapped_column(String(50), index=True)
+    username: Mapped[str | None] = mapped_column(String(50))
     role: Mapped[str] = mapped_column(String(20), default="member", server_default="member", nullable=False)
     avatar_path: Mapped[str | None] = mapped_column(String(500))
     channel_bindings: Mapped[str | None] = mapped_column(Text)  # JSON: {"feishu":"ou_xxx"}

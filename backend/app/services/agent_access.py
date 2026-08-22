@@ -243,12 +243,28 @@ def revoke_grant(db: Session, grant_id: int) -> None:
 
 
 def update_grant_scopes(db: Session, grant_id: int, scopes: list[str]) -> AgentGrant:
+    """更新授权范围（BUG-213：立即收窄口径）。
+
+    范围集合实际变更时：grant.version 递增，并吊销该授权下所有未吊销令牌
+    （旧令牌绑定旧版本，即使侥幸存活也会被 verify_token 的版本一致性
+    校验拒绝）。范围未变时不做版本递增/吊销（避免无意义地打断正常使用）。
+    无论是否变更，新签发令牌都绑定递增后的当前版本。
+    """
     grant = get_grant(db, grant_id)
     if grant is None:
         raise HTTPException(status_code=404, detail="授权不存在")
     if grant.status != "active":
         raise HTTPException(status_code=400, detail="只能修改活跃状态的授权")
     scopes_validated = validate_scopes(scopes)
+
+    old_scopes = get_grant_scopes(grant)
+    changed = set(old_scopes) != set(scopes_validated)
+    if changed:
+        grant.version = get_grant_version(grant) + 1
+        now = _now()
+        for token_row in grant.tokens:
+            if token_row.revoked_at is None:
+                token_row.revoked_at = now
     grant.scopes_json = json.dumps(scopes_validated)
     db.commit()
     db.refresh(grant)
@@ -281,6 +297,8 @@ def issue_token(db: Session, grant_id: int) -> tuple[str, AgentToken]:
         token_hash=_hash_token(plaintext),
         issued_at=now,
         expires_at=grant.expires_at,
+        # BUG-213：绑定签发时的授权版本（范围变更后旧令牌全部失效）
+        grant_version=get_grant_version(grant),
     )
     db.add(token_row)
     # 更新 client last_seen
@@ -310,6 +328,10 @@ def verify_token(db: Session, plaintext: str) -> tuple[AgentToken, AgentGrant, A
 
     grant = token_row.grant
     if grant is None or grant.status != "active":
+        return None
+    # BUG-213：令牌绑定的授权版本必须与当前一致。范围变更（版本递增）后
+    # 旧令牌即使未被吊销也立即失效，防止旧范围令牌继承新范围（或反向复活）
+    if (token_row.grant_version or 1) != get_grant_version(grant):
         return None
     if grant.expires_at <= now:
         grant.status = "expired"
@@ -396,20 +418,24 @@ def set_owner_password(db: Session, password: str) -> None:
     owner = get_owner_member(db)
     if owner is None:
         raise HTTPException(status_code=400, detail="系统中尚无 owner 成员，请先完成初始化")
-    set_member_password(db, owner, password)
-    if not owner.username:
-        owner.username = ensure_unique_username(db, owner.name or "owner", exclude_id=owner.id)
-        db.commit()
+    set_member_password(db, owner, password)  # 用户名兜底由 set_member_password 统一处理
 
 
 def ensure_unique_username(db: Session, base: str, *, exclude_id: int | None = None) -> str:
-    """以显示名（或指定基名）生成唯一用户名，冲突追加 _2/_3…。"""
+    """以显示名（或指定基名）生成唯一用户名，冲突追加 _2/_3…。
+
+    BUG-203：exclude_id 生效（改名场景排除自身现有用户名）；
+    BUG-204：与 lower(username) 唯一索引同口径，按小写比较冲突。
+    """
     base = (base or "user").strip() or "user"
-    candidates = {row[0] for row in db.execute(
-        select(Member.username).where(Member.username.is_not(None))
-    ).all() if row[0]}
+    from sqlalchemy import func
+
+    stmt = select(func.lower(Member.username)).where(Member.username.is_not(None))
+    if exclude_id is not None:
+        stmt = stmt.where(Member.id != exclude_id)
+    candidates = {(row[0] or "") for row in db.execute(stmt).all()}
     username, seq = base, 2
-    while username in candidates:
+    while username.lower() in candidates:
         username, seq = f"{base}_{seq}", seq + 1
     return username
 
@@ -421,16 +447,12 @@ def resolve_login_member(db: Session, username: str | None) -> Member | None:
     既有仅密码登录流程），多于一条则返回 None（调用方要求提供用户名）。
     """
     if username:
-        member = db.scalar(
-            select(Member).where(Member.username == username.strip())
+        # BUG-204：lower(username) 唯一索引保证至多一行，单次 CI 查询无歧义
+        from sqlalchemy import func
+
+        return db.scalar(
+            select(Member).where(func.lower(Member.username) == username.strip().lower())
         )
-        if member is None:
-            # 大小写不敏感兜底
-            rows = db.scalars(select(Member).where(Member.username.is_not(None))).all()
-            member = next(
-                (m for m in rows if (m.username or "").lower() == username.strip().lower()), None
-            )
-        return member
     rows = db.scalars(select(MemberCredential.member_id)).all()
     if len(rows) == 1:
         return db.get(Member, rows[0])

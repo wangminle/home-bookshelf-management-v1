@@ -58,6 +58,18 @@ class Settings(BaseSettings):
     # MCP 可信 Origin（逗号分隔，含 scheme://host[:port]；非浏览器客户端可不带 Origin，
     # 带则必须精确匹配，不接受通配符）
     mcp_trusted_origins: str = ""
+    # 部署网络门禁（MCP 设计 §13；BUG-214）：MCP 专用可信 CIDR（逗号分隔，
+    # 如 "192.168.1.0/24,fd00::/8"）。默认空 = 仅回环；非回环部署必须显式配置；
+    # 对端为可信代理（TRUSTED_PROXIES）时按 XFF 右值法还原真实客户端再判定。
+    # 与匿名书架的 TRUSTED_LAN_CIDRS 相互独立（MCP 持 Bearer，边界更严）
+    mcp_trusted_cidrs: str = ""
+    # HTTPS 档（MCP 设计 §13）：默认 true--HTTP 仅限回环；家庭局域网 HTTP 试点
+    # 须 Owner 显式设为 false 且同时配置 MCP_TRUSTED_CIDRS；反代/网关档必须 HTTPS
+    mcp_require_https: bool = True
+    # 请求/响应体硬上限（字节，MCP 设计 Task 3.3；BUG-212）：请求超限 413；
+    # 响应超限防御性拒绝（分页上限保证正常响应远小于该值）
+    mcp_max_request_body_bytes: int = 1_048_576
+    mcp_max_response_body_bytes: int = 1_048_576
 
     @property
     def mcp_allowed_host_set(self) -> set[str]:
@@ -67,6 +79,26 @@ class Settings(BaseSettings):
     def mcp_trusted_origin_set(self) -> set[str]:
         return {o.strip().lower() for o in self.mcp_trusted_origins.split(",") if o.strip()}
 
+    @property
+    def mcp_trusted_cidr_networks(self) -> list:
+        import ipaddress
+
+        networks = []
+        for item in self.mcp_trusted_cidrs.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            try:
+                networks.append(ipaddress.ip_network(item, strict=False))
+            except ValueError:
+                continue
+        return networks
+
+    @property
+    def mcp_effective_max_page_size(self) -> int:
+        """核心档冻结契约：单页 1-20；配置越界（含运行时改写）一律收敛（BUG-212）。"""
+        return min(max(self.mcp_max_page_size, 1), 20)
+
     # ── 登录防爆破（BUG-193）──
     # /auth/login 每来源 IP 每分钟失败尝试上限；只计失败，成功登录不消耗配额
     # （与账号级 5 次锁定互补：这里挡跨密码的分布式爆破与高频试错）
@@ -75,6 +107,12 @@ class Settings(BaseSettings):
     @property
     def mcp_allowed_protocol_version_list(self) -> list[str]:
         return [v.strip() for v in self.mcp_allowed_protocol_versions.split(",") if v.strip()]
+
+    @field_validator("mcp_max_page_size")
+    @classmethod
+    def _clamp_mcp_max_page_size(cls, v: int) -> int:
+        # BUG-212：单页上限是冻结契约（1-20），配置越界时收敛而不是放大服务端上限
+        return min(max(int(v), 1), 20)
 
     @field_validator("anonymous_catalog_mode")
     @classmethod

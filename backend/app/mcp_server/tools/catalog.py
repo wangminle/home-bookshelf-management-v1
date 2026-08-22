@@ -6,6 +6,15 @@
 - 不返回 public_tags（CHK-071：标签无公开分级前不下发）；
 - search 至少一个筛选条件（禁止空条件遍历全库，MCP 设计 §6.1）；
 - 游标由服务端 HMAC 签发/校验（独立密钥），绑定页码防篡改。
+
+CHK-077 补丁：
+- BUG-210：字符串入参先 strip 再做空/条件判定，纯空白搜索条件一律
+  QUERY_REQUIRED，不得以 LIKE '%%' 遍历全库；
+- BUG-212：inputSchema 的 maxLength 在运行时强制校验；页长统一走
+  mcp_effective_max_page_size（配置越界收敛）；游标长度设硬上限；
+- BUG-216：两个工具在 tools/list 中声明 outputSchema（JSON Schema
+  2020-12 子集），成功结果经内置轻量校验器验证后才返回（不新增
+  jsonschema 依赖）。
 """
 from __future__ import annotations
 
@@ -32,6 +41,13 @@ _MCP_OUTPUT_FIELDS = (
     "summary", "availability",
 )
 
+# 入参运行时硬上限（BUG-212：Schema 声明必须在边界强制，而非仅文档）
+_QUERY_MAX_LENGTH = 200
+_FILTER_MAX_LENGTH = 100
+_LANGUAGE_MAX_LENGTH = 20
+# 游标格式为 v1.<page>.<digest12>.<sig16>，正常长度 ~40；超过即拒绝
+_CURSOR_MAX_LENGTH = 128
+
 SEARCH_DESCRIPTION = (
     "按关键词或结构化条件搜索家庭共享书目（L1 脱敏数据）。"
     "至少提供 query/author/category/language/availability 之一；"
@@ -49,9 +65,127 @@ _ANNOTATIONS = {
     "openWorldHint": False,
 }
 
+# ── 输出 Schema（BUG-216/WBS Task 5.2：structuredContent 的冻结形状） ──
+
+_BOOK_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "title": {"type": "string"},
+        "subtitle": {"type": ["string", "null"]},
+        "authors": {"type": "array", "items": {"type": "string"}},
+        "translators": {"type": "array", "items": {"type": "string"}},
+        "publisher": {"type": ["string", "null"]},
+        "publish_date": {"type": ["string", "null"]},
+        "edition": {"type": ["string", "null"]},
+        "language": {"type": ["string", "null"]},
+        "page_count": {"type": ["integer", "null"]},
+        "category": {"type": ["string", "null"]},
+        "summary": {"type": ["string", "null"]},
+        "availability": {"type": "string", "enum": ["in_shelf", "borrowed", "unknown"]},
+    },
+    "required": list(_MCP_OUTPUT_FIELDS),
+    "additionalProperties": False,
+}
+
+_SEARCH_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "items": {"type": "array", "items": _BOOK_OUTPUT_SCHEMA},
+        "count": {"type": "integer", "minimum": 0},
+        "has_more": {"type": "boolean"},
+        "next_cursor": {"type": ["string", "null"]},
+    },
+    "required": ["items", "count", "has_more", "next_cursor"],
+    "additionalProperties": False,
+}
+
+
+class ToolError(Exception):
+    """业务错误：以 isError=true 的稳定结构返回（MCP 设计 §11.2）。"""
+
+    def __init__(self, code: str, message: str, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+
+
+def _validate_against_schema(value: Any, schema: dict[str, Any], path: str) -> None:
+    """轻量 JSON Schema 2020-12 子集校验（不引入 jsonschema 依赖）。
+
+    支持：type（字符串或数组）/enum/const/properties/required/
+    additionalProperties/items/minimum/maximum/minLength/maxLength。
+    校验失败抛 ValueError（带路径），由调用方转换为稳定错误。
+    """
+    expected = schema.get("type")
+    if expected is not None:
+        types = [expected] if isinstance(expected, str) else list(expected)
+        type_ok = False
+        for t in types:
+            if t == "string":
+                type_ok = type_ok or isinstance(value, str)
+            elif t == "integer":
+                type_ok = type_ok or (isinstance(value, int) and not isinstance(value, bool))
+            elif t == "number":
+                type_ok = type_ok or (isinstance(value, (int, float)) and not isinstance(value, bool))
+            elif t == "boolean":
+                type_ok = type_ok or isinstance(value, bool)
+            elif t == "array":
+                type_ok = type_ok or isinstance(value, list)
+            elif t == "object":
+                type_ok = type_ok or isinstance(value, dict)
+            elif t == "null":
+                type_ok = type_ok or value is None
+        if not type_ok:
+            raise ValueError(f"{path}: 期望类型 {expected}，实际 {type(value).__name__}")
+
+    if "enum" in schema and value not in schema["enum"]:
+        raise ValueError(f"{path}: 值不在枚举范围内")
+    if "const" in schema and value != schema["const"]:
+        raise ValueError(f"{path}: 值与常量不符")
+
+    if isinstance(value, str):
+        if "minLength" in schema and len(value) < schema["minLength"]:
+            raise ValueError(f"{path}: 长度小于 minLength")
+        if "maxLength" in schema and len(value) > schema["maxLength"]:
+            raise ValueError(f"{path}: 长度超过 maxLength")
+    if isinstance(value, int) and not isinstance(value, bool):
+        if "minimum" in schema and value < schema["minimum"]:
+            raise ValueError(f"{path}: 小于 minimum")
+        if "maximum" in schema and value > schema["maximum"]:
+            raise ValueError(f"{path}: 大于 maximum")
+
+    if isinstance(value, dict):
+        for key in schema.get("required", []):
+            if key not in value:
+                raise ValueError(f"{path}: 缺少必填字段 {key}")
+        properties = schema.get("properties", {})
+        for key, item in value.items():
+            if key in properties:
+                _validate_against_schema(item, properties[key], f"{path}.{key}")
+            elif schema.get("additionalProperties") is False:
+                raise ValueError(f"{path}: 不允许的额外字段 {key}")
+
+    if isinstance(value, list) and "items" in schema:
+        for i, item in enumerate(value):
+            _validate_against_schema(item, schema["items"], f"{path}[{i}]")
+
+
+def validate_tool_output(payload: Any, schema: dict[str, Any]) -> None:
+    """成功结果必须通过 outputSchema（BUG-216/WBS Task 5.2 红灯）。"""
+    try:
+        _validate_against_schema(payload, schema, "$")
+    except ValueError as exc:
+        raise ToolError(
+            "OUTPUT_SCHEMA_MISMATCH",
+            "工具输出与服务端冻结契约不一致，已拒绝下发",
+            retryable=False,
+        ) from exc
+
 
 def tool_descriptors() -> list[dict[str, Any]]:
-    """tools/list 描述符（顺序固定：search → get；Schema 不含真实家庭数据）。"""
+    """tools/list 描述符（顺序固定：search -> get；Schema 不含真实家庭数据）。"""
     return [
         {
             "name": "bookshelf_search_books",
@@ -59,16 +193,17 @@ def tool_descriptors() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "maxLength": 200},
-                    "author": {"type": "string", "maxLength": 100},
-                    "category": {"type": "string", "maxLength": 100},
-                    "language": {"type": "string", "maxLength": 20},
+                    "query": {"type": "string", "maxLength": _QUERY_MAX_LENGTH},
+                    "author": {"type": "string", "maxLength": _FILTER_MAX_LENGTH},
+                    "category": {"type": "string", "maxLength": _FILTER_MAX_LENGTH},
+                    "language": {"type": "string", "maxLength": _LANGUAGE_MAX_LENGTH},
                     "availability": {"type": "string", "enum": ["in_shelf", "borrowed", "unknown"]},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 20},
                     "cursor": {"type": "string"},
                 },
                 "required": [],
             },
+            "outputSchema": _SEARCH_OUTPUT_SCHEMA,
             "annotations": dict(_ANNOTATIONS),
         },
         {
@@ -81,6 +216,7 @@ def tool_descriptors() -> list[dict[str, Any]]:
                 },
                 "required": ["book_id"],
             },
+            "outputSchema": _BOOK_OUTPUT_SCHEMA,
             "annotations": dict(_ANNOTATIONS),
         },
     ]
@@ -115,6 +251,8 @@ def encode_cursor(page: int, digest: str) -> str:
 
 def decode_cursor(cursor: str, digest: str) -> int:
     """校验并解析游标为页码；格式/签名/条件摘要不符抛 ToolError(INVALID_CURSOR)。"""
+    if len(cursor) > _CURSOR_MAX_LENGTH:
+        raise ToolError("INVALID_CURSOR", "游标长度超限")
     parts = cursor.split(".")
     if len(parts) != 4 or parts[0] != "v1":
         raise ToolError("INVALID_CURSOR", "游标格式无效")
@@ -134,38 +272,55 @@ def decode_cursor(cursor: str, digest: str) -> int:
 # ── 工具实现 ──
 
 
-class ToolError(Exception):
-    """业务错误：以 isError=true 的稳定结构返回（MCP 设计 §11.2）。"""
-
-    def __init__(self, code: str, message: str, retryable: bool = False) -> None:
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.retryable = retryable
-
-
 def _mcp_item(summary: dict[str, Any]) -> dict[str, Any]:
     out = {k: summary[k] for k in _MCP_OUTPUT_FIELDS if k != "availability"}
     out["availability"] = summary.get("availability_status", "unknown")
     return out
 
 
-def search_books(db: Session, arguments: dict[str, Any]) -> dict[str, Any]:
-    # BUG-204：入参类型/枚举校验前移到工具边界--畸形 JSON 类型不得引发 500
-    # （非字符串 query/author 等在 search_catalog 内 .strip() 崩溃；非字符串
-    # cursor 在 decode_cursor .split() 崩溃），无效 availability 也不得被
-    # 静默当作"不过滤"处理。
-    for key in ("query", "author", "category", "language"):
+# 字符串入参的运行时长度上限（与 inputSchema 声明一致，BUG-212）
+_STRING_LIMITS = {
+    "query": _QUERY_MAX_LENGTH,
+    "author": _FILTER_MAX_LENGTH,
+    "category": _FILTER_MAX_LENGTH,
+    "language": _LANGUAGE_MAX_LENGTH,
+}
+
+
+def _clean_string_arguments(arguments: dict[str, Any]) -> dict[str, str | None]:
+    """类型校验 + strip + 长度校验（BUG-204/210/212）。
+
+    - 非字符串（含 bool）-> PARAM_INVALID；
+    - strip 后超长 -> PARAM_INVALID（Schema 声明在边界强制）；
+    - 返回 strip 后的值（空白条件不会进入 LIKE '%%' 全库遍历）。
+    """
+    cleaned: dict[str, str | None] = {}
+    for key, limit in _STRING_LIMITS.items():
         value = arguments.get(key)
-        if value is not None and (isinstance(value, bool) or not isinstance(value, str)):
+        if value is None:
+            cleaned[key] = None
+            continue
+        if isinstance(value, bool) or not isinstance(value, str):
             raise ToolError("PARAM_INVALID", f"{key} 必须是字符串")
+        value = value.strip()
+        if len(value) > limit:
+            raise ToolError("PARAM_INVALID", f"{key} 长度超过上限 {limit}")
+        cleaned[key] = value or None
+    return cleaned
+
+
+def search_books(db: Session, arguments: dict[str, Any]) -> dict[str, Any]:
+    # BUG-204/210/212：入参类型/空白/长度校验前移到工具边界
+    cleaned = _clean_string_arguments(arguments)
+    query = cleaned["query"]
+    author = cleaned["author"]
+    category = cleaned["category"]
+    language = cleaned["language"]
+
     availability = arguments.get("availability")
     if availability is not None and availability not in ("in_shelf", "borrowed", "unknown"):
         raise ToolError("PARAM_INVALID", "availability 必须是 in_shelf/borrowed/unknown 之一")
-    query = arguments.get("query")
-    author = arguments.get("author")
-    category = arguments.get("category")
-    language = arguments.get("language")
+    # BUG-210：strip 后判定--纯空白条件视同未提供，禁止空条件遍历全库
     if not any((query, author, category, language, availability)):
         raise ToolError(
             "QUERY_REQUIRED",
@@ -175,11 +330,15 @@ def search_books(db: Session, arguments: dict[str, Any]) -> dict[str, Any]:
     limit = arguments.get("limit", 10)
     if isinstance(limit, bool) or not isinstance(limit, int):
         raise ToolError("LIMIT_INVALID", "limit 必须是整数")
-    if limit < 1 or limit > settings.mcp_max_page_size:
-        raise ToolError("LIMIT_INVALID", f"limit 必须在 1-{settings.mcp_max_page_size} 之间")
+    # BUG-212：页长上限走收敛后的冻结契约（配置越界/运行时改写不放大上限）
+    max_page = settings.mcp_effective_max_page_size
+    if limit < 1 or limit > max_page:
+        raise ToolError("LIMIT_INVALID", f"limit 必须在 1-{max_page} 之间")
     cursor = arguments.get("cursor")
     if cursor is not None and not isinstance(cursor, str):
         raise ToolError("INVALID_CURSOR", "cursor 必须是字符串")
+    if cursor is not None and len(cursor.strip()) != len(cursor):
+        raise ToolError("INVALID_CURSOR", "游标格式无效")
     filters = {
         "query": query, "author": author, "category": category,
         "language": language, "availability": availability,
@@ -194,12 +353,15 @@ def search_books(db: Session, arguments: dict[str, Any]) -> dict[str, Any]:
         page=page, page_size=limit,
     )
     items = [_mcp_item(i.model_dump()) for i in result.items]
-    return {
+    payload = {
         "items": items,
         "count": len(items),
         "has_more": result.has_more,
         "next_cursor": encode_cursor(page + 1, digest) if result.has_more else None,
     }
+    # BUG-216：structuredContent 必须通过 outputSchema 才下发
+    validate_tool_output(payload, _SEARCH_OUTPUT_SCHEMA)
+    return payload
 
 
 def get_book(db: Session, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -214,4 +376,7 @@ def get_book(db: Session, arguments: dict[str, Any]) -> dict[str, Any]:
             "BOOK_NOT_FOUND",
             "未找到可访问的书目，请先用 bookshelf_search_books 确认 ID",
         )
-    return _mcp_item(detail.model_dump())
+    payload = _mcp_item(detail.model_dump())
+    # BUG-216：structuredContent 必须通过 outputSchema 才下发
+    validate_tool_output(payload, _BOOK_OUTPUT_SCHEMA)
+    return payload

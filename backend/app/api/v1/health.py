@@ -71,6 +71,7 @@ def health_check(
             ),
             anonymous_catalog_mode=settings.anonymous_catalog_mode,
             trusted_lan_configured=len(settings.trusted_lan_networks) > 0,
+            mcp_enabled=settings.mcp_enabled,
         ),
         error=None if ok else "database disconnected",
     )

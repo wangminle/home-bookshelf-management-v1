@@ -180,3 +180,5 @@ class HealthOut(BaseModel):
     # 权限阶段 1：匿名书架（C 模式）态势
     anonymous_catalog_mode: str = "disabled"
     trusted_lan_configured: bool = False
+    # MCP 试点开关态势（默认关闭；doctor/运维探查用）
+    mcp_enabled: bool = False

@@ -173,7 +173,7 @@ export BOOKSHELF_CHANNEL_SIGNING_SECRET=<与后端相同的密钥>
 | --- | --- |
 | Agent 找不到 bookshelf | 检查 PATH / 虚拟环境；在 Agent 机器 `pip install -e cli` |
 | Token 无效或已过期 | 在 Web 授权中心重新签发；检查 Grant 是否已过期或撤销 |
-| 403 缺少 scope | 在 Web 授权中心修改 Grant 的 scope 列表 |
+| 403 缺少 scope | 在 Web 授权中心修改 Grant 的 scope 列表（修改会撤销该 Grant 全部旧 Token，需重新签发） |
 | 401 未认证 | 确保 Bearer Token 正确传入 `Authorization` 头 |
 | Skills 下载失败 | 检查 `/agent/skills/index.json` 是否可访问 |
 | doctor 报未授权 | 运行 `bookshelf auth status` 检查 Token 有效性 |

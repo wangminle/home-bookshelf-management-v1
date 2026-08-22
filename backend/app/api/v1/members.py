@@ -252,11 +252,8 @@ def reset_member_password(
         raise HTTPException(status_code=404, detail="成员不存在")
     if member.disabled_at is not None:
         raise HTTPException(status_code=400, detail="成员已停用，请先恢复再设置密码")
-    agent_access.set_member_password(db, member, payload.password)
+    agent_access.set_member_password(db, member, payload.password)  # 用户名兜底在服务层统一处理
     revoked = agent_access.revoke_member_sessions(db, member.id)
-    if not member.username:
-        member.username = agent_access.ensure_unique_username(db, member.name or "user", exclude_id=member.id)
-        db.commit()
     log_and_commit(
         db,
         action="member.password_reset",

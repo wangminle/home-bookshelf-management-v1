@@ -64,7 +64,8 @@ def _make_client(db_session: Session) -> TestClient:
         yield db_session
 
     app.dependency_overrides[get_db] = _override
-    return TestClient(app)
+    # CHK-077/BUG-214：网络门禁要求 IP 来源（默认仅回环可信）
+    return TestClient(app, client=("127.0.0.1", 50000))
 
 
 # ── BUG-190：guest ──
@@ -253,7 +254,8 @@ def test_thumbnail_cache_key_includes_extension_and_invalidates(client: TestClie
 def mcp_on(monkeypatch):
     from app.config import settings
     monkeypatch.setattr(settings, "mcp_enabled", True)
-    monkeypatch.setattr(settings, "mcp_cursor_signing_secret", "chk072-cursor-secret")
+    # BUG-212：游标密钥须 >= 32 字符（低熵配置拒绝服务）
+    monkeypatch.setattr(settings, "mcp_cursor_signing_secret", "chk072-cursor-secret-high-entropy-0123456789")
     monkeypatch.setattr(settings, "mcp_allowed_hosts", "testserver")
     rate_limit.reset()
     security_audit.reset()
@@ -283,7 +285,9 @@ def mcp_tokens(client: TestClient, world: dict) -> dict:
 
 def _mcp(db_session: Session, method: str, token: str, params: dict | None = None):
     c = _make_client(db_session)
-    return c.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}},
+    # BUG-208：params 必须携带 _meta 对象（每请求自描述元数据）
+    return c.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": method,
+                                "params": {**(params or {}), "_meta": {}}},
                   headers={"Authorization": f"Bearer {token}",
                            "MCP-Protocol-Version": "2026-07-28"})
 

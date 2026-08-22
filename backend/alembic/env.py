@@ -14,6 +14,19 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+# BUG-204：members.username 的大小写不敏感唯一索引是 lower(username) 表达式索引。
+# SQLAlchemy 的 SQLite 方言不支持反射表达式索引（Skipped unsupported reflection），
+# autogen/check 会因"看不见数据库侧索引"而持续报差异——这里按名称显式豁免比较，
+# 索引本身由迁移 g7c4d5e6f8b0 创建、由模型声明，真实约束在数据库层生效。
+_EXPRESSION_INDEXES_EXCLUDED_FROM_COMPARE = {"ix_members_username"}
+
+
+def _include_object(object_, name, type_, reflected, compare_to):
+    if type_ == "index" and name in _EXPRESSION_INDEXES_EXCLUDED_FROM_COMPARE:
+        return False
+    return True
+
+
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
@@ -23,6 +36,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         render_as_batch=True,
+        include_object=_include_object,
     )
 
     with context.begin_transaction():
@@ -37,7 +51,12 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata, render_as_batch=True)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            render_as_batch=True,
+            include_object=_include_object,
+        )
 
         with context.begin_transaction():
             context.run_migrations()

@@ -82,5 +82,9 @@ class AgentToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # BUG-213：签发时绑定的 grant 版本快照。授权范围（scopes/data_scope）变更时
+    # grant.version 递增并吊销旧令牌；verify_token 校验二者一致，防止旧令牌
+    # 继承变更后的新范围（或范围回收后"复活"）
+    grant_version: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"), nullable=False)
 
     grant: Mapped[AgentGrant] = relationship(back_populates="tokens")

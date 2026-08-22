@@ -1,9 +1,12 @@
 """MCP /mcp 端到端测试（WBS-MCP-3/4/5/7 核心，合成数据）。
 
 覆盖：开关/精确路径/协议版本、认证拒绝矩阵（无 Token/坏 Token/Cookie/渠道头/
-缺 Scope）、initialize/tools/list/tools/call、搜索约束（必带条件、limit 边界、
+缺 Scope）、server/discover/tools/list/tools/call、搜索约束（必带条件、limit 边界、
 游标签发与篡改）、详情防枚举、限流、撤销下一请求生效、隐私哨兵零命中、
 共享审计事件。
+
+CHK-077 契约更新：请求必须携带 params._meta（2026-07-28 无状态契约）；
+_test 客户端对端固定为回环 IP（网络门禁：默认仅回环可信）。
 """
 from __future__ import annotations
 
@@ -95,6 +98,7 @@ def seeded(client: TestClient, db_session: Session) -> dict:
     return {
         "owner_id": owner_id, "books": books, "token": token,
         "other_token": other_token, "grant_id": grant_id,
+        "agent_client_id": agent_client_id,
     }
 
 
@@ -103,7 +107,8 @@ def _mcp_client(db_session: Session, cookies: dict | None = None) -> TestClient:
         yield db_session
 
     app.dependency_overrides[get_db] = _override
-    c = TestClient(app)
+    # CHK-077/BUG-214：网络门禁要求来源为 IP；默认仅回环可信
+    c = TestClient(app, client=("127.0.0.1", 50000))
     if cookies:
         for k, v in cookies.items():
             c.cookies.set(k, v, domain="testserver.local")
@@ -116,7 +121,12 @@ def _rpc(c: TestClient, method: str, params: dict | None = None, token: str | No
     if token:
         h["Authorization"] = f"Bearer {token}"
     h.update(headers or {})
-    body = raw_body if raw_body is not None else {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
+    if raw_body is not None:
+        body = raw_body
+    else:
+        # BUG-208：params 必须携带 _meta 对象（每请求自描述元数据）
+        body = {"jsonrpc": "2.0", "id": 1, "method": method,
+                "params": {**(params or {}), "_meta": {}}}
     return c.post(path, json=body, headers=h)
 
 
@@ -213,13 +223,24 @@ def test_token_without_scope_403(mcp_on, seeded: dict, db_session: Session) -> N
 
 
 def test_discover_allowed_with_any_valid_token(mcp_on, seeded: dict, db_session: Session) -> None:
-    """server/discover：自描述发现（该版本已移除 initialize），任何有效 Token 可用。"""
+    """server/discover：自描述发现（该版本已移除 initialize），任何有效 Token 可用。
+
+    BUG-208：DiscoverResult = supportedVersions + resultType，
+    serverInfo/capabilities 在 result._meta（不再自定义顶层 protocolVersion）。
+    """
     c = _mcp_client(db_session)
     r = _rpc(c, "server/discover", token=seeded["other_token"])
     assert r.status_code == 200
     result = r.json()["result"]
-    assert result["serverInfo"]["name"] == "home_bookshelf_mcp"
-    assert result["protocolVersion"] == "2026-07-28"
+    assert result["supportedVersions"] == ["2026-07-28"]
+    assert result["resultType"] == "discover"
+    meta = result["_meta"]
+    assert meta["serverInfo"]["name"] == "home_bookshelf_mcp"
+    assert "version" in meta["serverInfo"]
+    assert meta["capabilities"] == {"tools": {}}
+    # 顶层不再有自定义 protocolVersion/serverInfo
+    assert "protocolVersion" not in result
+    assert "serverInfo" not in result
 
 
 def test_initialize_removed_by_protocol(mcp_on, seeded: dict, db_session: Session) -> None:
@@ -239,7 +260,7 @@ def test_malformed_frame_rejected_not_500(mcp_on, seeded: dict, db_session: Sess
     r = _rpc(c, "tools/list", token=seeded["token"],
              raw_body={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": ["not", "dict"]})
     assert r.status_code == 400
-    assert r.headers.get("X-Error-Code") == "INVALID_REQUEST"
+    assert r.headers.get("X-Error-Code") == "PARAMS_META_REQUIRED"
     r = _rpc(c, "tools/call", token=seeded["token"],
              params={"name": "bookshelf_search_books", "arguments": ["not", "dict"]})
     assert r.status_code == 200
@@ -285,9 +306,15 @@ def test_audit_event_carries_contract_fields(mcp_on, seeded: dict, db_session: S
     assert allow, "缺少带 tool_name 的 allow 审计"
     payload = json.loads(allow[0].payload)
     for key in ("request_id", "protocol_version", "grant_id", "grant_version",
-                "tool_name", "args_digest", "result_count", "duration_ms", "data_scope"):
+                "tool_name", "args_digest", "result_count", "duration_ms", "data_scope",
+                "client_info", "agent_client_id", "token_prefix",
+                "source_ip", "trusted_proxy_result"):
         assert key in payload["details"], key
     assert payload["details"]["data_scope"] == "household_shared"
+    assert payload["details"]["agent_client_id"] == seeded["agent_client_id"]
+    assert payload["details"]["token_prefix"].startswith("hbs_at_")
+    assert payload["details"]["source_ip"] == "127.0.0.1"
+    assert payload["details"]["client_info"]["name"] == "MCP 试点 Agent"
 
 
 def test_audit_failure_fails_closed(mcp_on, seeded: dict, db_session: Session, monkeypatch) -> None:

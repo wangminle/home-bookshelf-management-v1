@@ -22,7 +22,10 @@ def upgrade() -> None:
     with op.batch_alter_table("members") as batch:
         batch.add_column(sa.Column("username", sa.String(50), nullable=True))
         batch.add_column(sa.Column("disabled_at", sa.DateTime(timezone=True), nullable=True))
-        batch.create_index("ix_members_username", ["username"])
+    # BUG-204：大小写不敏感唯一索引（普通唯一索引无法阻止 Zhang/zhang 并存）
+    op.create_index(
+        "ix_members_username", "members", [sa.text("lower(username)")], unique=True
+    )
 
     # 成员凭据表（唯一约束 + 命名唯一索引同口径）
     op.create_table(
@@ -45,7 +48,11 @@ def upgrade() -> None:
     members = {m.id: m.name for m in conn.execute(
         sa.text("SELECT id, name FROM members")
     ).fetchall()}
-    used_usernames = set()
+    # 已存在的用户名按小写参与去重（CI 唯一索引口径）
+    used_usernames = {
+        (row[0] or "").lower()
+        for row in conn.execute(sa.text("SELECT username FROM members WHERE username IS NOT NULL")).fetchall()
+    }
     for cred in creds:
         conn.execute(sa.text(
             "INSERT INTO member_credentials (member_id, password_hash, failed_attempts, locked_until) "
@@ -54,9 +61,9 @@ def upgrade() -> None:
             "fa": cred.failed_attempts, "lu": cred.locked_until})
         base = (members.get(cred.member_id) or "owner").strip() or "owner"
         username, seq = base, 2
-        while username in used_usernames:
+        while username.lower() in used_usernames:
             username, seq = f"{base}_{seq}", seq + 1
-        used_usernames.add(username)
+        used_usernames.add(username.lower())
         conn.execute(sa.text("UPDATE members SET username = :u WHERE id = :id"),
                      {"u": username, "id": cred.member_id})
 

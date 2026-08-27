@@ -72,39 +72,52 @@ def preview_mode_switch(
     db: Session = Depends(get_db),
     owner=Depends(_require_owner),
 ) -> ApiResponse:
-    """C→B 切换预览（基线 §14-阶段4-3）。
+    """C→B 切换预览（基线 §14-阶段4-3；CHK-086：SQL 聚合+LIMIT，不拉全量）。
 
     列出 explicit_public 模式下：将继续公开（public）与将从匿名书架消失
     （lan_shared/members_only/private，含兼容读取的未标记存量）的书，
     附计数。members_only/private 在两种模式下都不可匿名见，单独计数。
     """
-    rows = db.execute(
-        select(Book.id, Book.title, Book.catalog_visibility).order_by(Book.id)
+    from sqlalchemy import case, func
+
+    vis_expr = func.coalesce(Book.catalog_visibility, "lan_shared")
+    base_count = select(func.count()).select_from(Book)
+    total = db.scalar(base_count) or 0
+
+    # 聚合计数（不加载行数据）
+    remain_count = db.scalar(base_count.where(vis_expr == "public")) or 0
+    never_count = db.scalar(
+        base_count.where(vis_expr.in_(("members_only", "private")))
+    ) or 0
+    disappear_count = total - remain_count - never_count
+
+    # SQL LIMIT 获取预览行（分别取前 N 条）
+    remain_rows = db.execute(
+        select(Book.id, Book.title, Book.catalog_visibility)
+        .where(vis_expr == "public")
+        .order_by(Book.id).limit(_PREVIEW_LIMIT)
     ).all()
-    remain: list[dict] = []
-    disappear: list[dict] = []
-    never_visible = 0
-    for book_id, title, raw_vis in rows:
-        vis = effective_visibility(raw_vis)
-        item = {"id": book_id, "title": title, "visibility": vis}
-        if vis == "public":
-            remain.append(item)
-        elif vis in ("members_only", "private"):
-            never_visible += 1  # 两种模式都不可匿名见，不进"消失"误导 Owner
-        else:
-            disappear.append(item)
+    disappear_rows = db.execute(
+        select(Book.id, Book.title, Book.catalog_visibility)
+        .where(vis_expr.notin_(("public", "members_only", "private")))
+        .order_by(Book.id).limit(_PREVIEW_LIMIT)
+    ).all()
+
+    def _to_items(rows):
+        return [{"id": r.id, "title": r.title, "visibility": effective_visibility(r.catalog_visibility)} for r in rows]
+
     return ApiResponse(data={
         "current_mode": _current_mode(),
         "target_mode": "explicit_public",
         "summary": {
-            "total": len(rows),
-            "remain_public": len(remain),
-            "disappear_from_anonymous": len(disappear),
-            "never_anonymous": never_visible,
+            "total": total,
+            "remain_public": remain_count,
+            "disappear_from_anonymous": disappear_count,
+            "never_anonymous": never_count,
         },
-        "remain_public": remain[:_PREVIEW_LIMIT],
-        "disappear": disappear[:_PREVIEW_LIMIT],
-        "truncated": len(remain) > _PREVIEW_LIMIT or len(disappear) > _PREVIEW_LIMIT,
+        "remain_public": _to_items(remain_rows),
+        "disappear": _to_items(disappear_rows),
+        "truncated": remain_count > _PREVIEW_LIMIT or disappear_count > _PREVIEW_LIMIT,
     })
 
 

@@ -3,7 +3,7 @@ import { onMounted, watch } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useMembersStore } from '@/stores/members'
 import { lastError, backendOffline } from '@/stores/api'
-import { sessionAuthenticated, sessionRole, sessionMemberId, invalidateSession } from '@/stores/session'
+import { sessionAuthenticated, sessionRole, sessionMemberId, sessionMemberName, invalidateSession } from '@/stores/session'
 
 const version = __APP_VERSION__
 
@@ -67,7 +67,8 @@ function onMemberChange(e: Event) {
         </template>
         <RouterLink to="/shared">共享书架</RouterLink>
       </nav>
-      <div class="member-selector" v-if="sessionAuthenticated === true">
+      <!-- BUG-226：切换器仅 Owner 渲染；Member 固定显示本人姓名，不可切换 -->
+      <div class="member-selector" v-if="sessionAuthenticated === true && sessionRole === 'owner'">
         <label for="member-select">成员</label>
         <select
           id="member-select"
@@ -81,6 +82,9 @@ function onMemberChange(e: Event) {
             {{ m.name }}
           </option>
         </select>
+      </div>
+      <div class="member-selector" v-else-if="sessionAuthenticated === true">
+        <span class="member-name-fixed">{{ sessionMemberName }}</span>
       </div>
       <template v-else>
         <RouterLink to="/login" class="login-entry" aria-label="登录">登录</RouterLink>

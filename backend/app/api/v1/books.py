@@ -18,6 +18,7 @@ from app.schemas.book import (
     BookUpdate,
     BookVisibilityUpdate,
 )
+from app.services import security_audit
 from app.services.books import delete_book, get_book_detail, merge_books, set_book_cover, update_book
 from app.services.storage import save_uploaded_image
 from app.utils.book_helpers import (
@@ -95,9 +96,21 @@ def list_books(
 
     if member_id is not None and not status:
         raise HTTPException(status_code=400, detail="member_id 必须配合 status 参数一起使用")
+    # BUG-225：状态筛选服务端强制归属——非 Owner 一律用 ctx.member_id（忽略
+    # query member_id），防止 Member 通过 query 参数或无参缺省看到他人阅读状态。
+    # Owner 代查允许 query member_id（视为代操作，写共享安全审计）。
+    _is_owner_view = _ctx.auth_type == "web" and _ctx.is_owner
+    if status and not _is_owner_view:
+        member_id = _ctx.member_id  # 强制本人（Agent/Channel/Web member 同口径）
+    _proxy_target_member_id: int | None = None
+    if (
+        status and _is_owner_view
+        and member_id is not None and member_id != _ctx.member_id
+    ):
+        _proxy_target_member_id = member_id  # Owner 显式代查其他成员
     if status:
         # BUG-117/123：状态筛选口径与 GET /stats 完全一致——每本书聚合成单一全局状态。
-        # 无 member_id 时按全部成员聚合；带 member_id 时仅按该成员的进度聚合。
+        # BUG-225 后非 Owner 始终按本人聚合（member_id 已被覆盖为 ctx.member_id）。
         from app.utils.book_helpers import aggregate_book_status
 
         prog_stmt = select(ReadingProgress.book_id, ReadingProgress.status)
@@ -125,9 +138,31 @@ def list_books(
         stmt = stmt.where(combined)
         count_stmt = count_stmt.where(combined)
 
+    # 阶段 2 验收：Owner 代查他人阅读状态 → 共享安全审计（acting_for + operator）
     total = db.scalar(count_stmt) or 0
     books = db.scalars(stmt.order_by(Book.updated_at.desc()).offset(offset).limit(limit)).all()
-    return ApiResponse(data=BookListOut(items=[book_to_out(b) for b in books], total=total))
+    if _proxy_target_member_id is not None:
+        # BUG-225/CHK-088：逐次留痕（suppress_seconds=0），操作者=ctx.member_id，
+        # 数据归属人=acting_for_member_id
+        security_audit.log_security_event(
+            event_type="owner.delegate_status_query",
+            outcome="allow",
+            subject=f"web:{_ctx.member_id}",
+            details={
+                "interface": "rest",
+                "operator_member_id": _ctx.member_id,
+                "acting_for_member_id": _proxy_target_member_id,
+                "status_filter": status,
+                "result_count": total,
+            },
+            suppress_seconds=0,
+            suppress_key=(
+                "owner.delegate_status_query", "allow", f"web:{_ctx.member_id}",
+                str(_proxy_target_member_id), status or "",
+            ),
+        )
+    _owner_view = _ctx.auth_type == 'web' and _ctx.is_owner
+    return ApiResponse(data=BookListOut(items=[book_to_out(b, include_visibility=_owner_view) for b in books], total=total))
 
 
 @router.post("", response_model=ApiResponse, status_code=201)
@@ -167,7 +202,8 @@ def create_book(
         raise HTTPException(status_code=409, detail=str(rollback_on_integrity(db, exc))) from exc
     db.refresh(book)
     log_and_commit(db, action="book.create", payload={"book_id": book.id, "isbn13": book.isbn13, "title": book.title})
-    return ApiResponse(data=book_to_out(book))
+    _owner_view = _ctx.auth_type == 'web' and _ctx.is_owner
+    return ApiResponse(data=book_to_out(book, include_visibility=_owner_view))
 
 
 @router.get("/{book_id}", response_model=ApiResponse)
@@ -226,6 +262,9 @@ def get_book(
                 subject=f"web:{ctx.member_id}",
                 details={"book_id": book_id, "data_owner_member_ids": sorted({f for f in foreign if f})},
             )
+    # BUG-227：catalog_visibility 仅 Owner 下发（Member/Agent 不见匿名策略）
+    book_row = db.get(Book, book_id)
+    data["catalog_visibility"] = getattr(book_row, "catalog_visibility", None) if _owner_view else None
     return ApiResponse(data=data)
 
 
@@ -245,7 +284,8 @@ def patch_book(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     log_and_commit(db, action="book.update", payload={"book_id": book_id})
-    return ApiResponse(data={**book_to_out(result.book).model_dump(), "message": result.message})
+    _owner_view = _ctx.auth_type == "web" and _ctx.is_owner
+    return ApiResponse(data={**book_to_out(result.book, include_visibility=_owner_view).model_dump(), "message": result.message})
 
 
 @router.patch("/{book_id}/visibility", response_model=ApiResponse)
@@ -407,4 +447,5 @@ async def set_cover(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     log_and_commit(db, action="book.set_cover", payload={"book_id": book_id, "cover_path": cover_rel})
-    return ApiResponse(data={**book_to_out(book).model_dump(), "message": "封面已设置"})
+    _owner_view = _ctx.auth_type == "web" and _ctx.is_owner
+    return ApiResponse(data={**book_to_out(book, include_visibility=_owner_view).model_dump(), "message": "封面已设置"})

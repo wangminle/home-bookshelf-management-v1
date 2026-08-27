@@ -1,0 +1,102 @@
+{
+  "tool": "official mcp SDK client",
+  "sdk_version": "2.1.0",
+  "protocol": "2026-07-28",
+  "summary": {
+    "pass": 18,
+    "fail": 0,
+    "result": "PASS"
+  },
+  "items": [
+    {
+      "name": "L1 discover→adopt 握手",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "L2 tools/list 双工具",
+      "ok": true,
+      "detail": "['bookshelf_search_books', 'bookshelf_get_book']"
+    },
+    {
+      "name": "L2 outputSchema 已声明",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1 搜索命中",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "2 详情读取",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "3 空条件拒绝",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "4 Cursor 翻页",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "5 不存在书目",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "9 隐私哨兵零命中",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "6 越权 Grant 拒绝",
+      "ok": true,
+      "detail": "MCPError"
+    },
+    {
+      "name": "10 REST-MCP 一致（试点双放行）",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "name": "L3 /mcp/ 精确 404",
+      "ok": true,
+      "detail": "404"
+    },
+    {
+      "name": "L3 GET /mcp 405",
+      "ok": true,
+      "detail": "405"
+    },
+    {
+      "name": "L4 未知方法 -32601",
+      "ok": true,
+      "detail": "st=200"
+    },
+    {
+      "name": "L4 通知静默 202",
+      "ok": true,
+      "detail": "202"
+    },
+    {
+      "name": "L5 Mcp-Name 头一致性",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "8 限流 429",
+      "ok": true,
+      "detail": "codes=[429, 429, 429, 429, 429, 429]"
+    },
+    {
+      "name": "7 撤销后请求失效",
+      "ok": true,
+      "detail": "握手被拒(MCPError)"
+    }
+  ]
+}

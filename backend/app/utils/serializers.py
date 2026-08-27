@@ -10,15 +10,15 @@ from app.schemas.reading import ProgressOut
 from app.utils.book_helpers import deserialize_json_dict, deserialize_json_list
 
 
-def book_to_out(book) -> BookOut:
+def book_to_out(book, *, include_visibility: bool = False) -> BookOut:
+    """序列化书目。BUG-227：catalog_visibility 仅 Owner 下发（include_visibility）。"""
     return BookOut(
         id=book.id,
         title=book.title,
         subtitle=book.subtitle,
         isbn13=book.isbn13,
         isbn10=book.isbn10,
-        # BUG-222：catalog_visibility 是策略字段，仅 owner 需要看到；
-        # 其他主体（member/Agent）不下发——避免泄露匿名策略信息
+        catalog_visibility=getattr(book, "catalog_visibility", None) if include_visibility else None,
         authors=deserialize_json_list(book.authors),
         publisher=book.publisher,
         publish_date=book.publish_date,

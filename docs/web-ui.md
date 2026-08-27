@@ -18,7 +18,7 @@ npm run dev
 
 开发服务器运行在 `http://localhost:3000`，API 请求自动代理到后端 `:8000`。
 
-> 注意：vite dev 只代理 `/api`（`vite.config.ts`），根级路由 `/auth`、`/agent-access`、`/agent` 等在开发模式下不可达——Owner 登录页与 Agent 授权页需走生产构建（后端托管或完整反代）验证。
+> 注意：vite dev 代理 `/api`、`/auth`、`/agent-access`（`vite.config.ts`；后两者为根级路由，2026-08-22 补充代理），Owner 登录页与 Agent 授权页在开发态可用；其余根级路由（`/agent`、`/skills`、`/mcp`）仍不代理，相关页面需走生产构建（后端托管或完整反代）验证。
 
 ## 生产构建
 

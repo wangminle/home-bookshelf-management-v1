@@ -116,15 +116,18 @@ PY
 write_report() {
   [ -z "$REPORT_FILE" ] && return
   END_TS=$(date +%s); DURATION=$((END_TS - START_TS))
-  python3 - "$REPORT_FILE" "$PASS" "$FAIL" "$DURATION" "$PHASE" "${FAILED[*]:-}" <<'PY'
+  # CHK-086：失败项经 stdin 逐行传入（每行一项，不拆词）
+  printf '%s\n' "${FAILED[@]:-}" | python3 - "$REPORT_FILE" "$PASS" "$FAIL" "$DURATION" "$PHASE" <<'PY'
 import sys, json, datetime
-path, p, f, dur, phase, failed = sys.argv[1:7]
+path, p, f, dur, phase = sys.argv[1:6]
+# CHK-086：failed_items 经 stdin 传入（每行一项，避免空格拆词）
+failed_lines = [l.rstrip("\n") for l in sys.stdin if l.strip()] if f != "0" else []
 report = {
     "timestamp": datetime.datetime.now().isoformat(),
     "phase": phase,
     "summary": {"pass": int(p), "fail": int(f), "duration_seconds": int(dur),
                 "result": "PASS" if int(f) == 0 else "FAIL"},
-    "failed_items": failed.split() if failed else [],
+    "failed_items": failed_lines,
 }
 with open(path, "w") as fh:
     json.dump(report, fh, ensure_ascii=False, indent=2)

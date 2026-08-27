@@ -1120,3 +1120,10 @@ body {
   font-size: 0.9rem;
 }
 .logout-btn:hover { background: var(--border, #eef2f6); }
+
+/* BUG-226：Member 固定身份显示（无切换器） */
+.member-name-fixed {
+  font-size: 0.9rem;
+  color: var(--text-muted, #5a6878);
+  padding: 6px 10px;
+}

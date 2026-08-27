@@ -253,6 +253,9 @@ def login(
     if member is None:
         if body.username:
             raise HTTPException(status_code=401, detail="用户名或密码错误")
+        # BUG-219：区分 0 条凭据（提示先初始化密码）与多条（要求提供用户名）
+        if agent_access.count_member_credentials(db) == 0:
+            raise HTTPException(status_code=400, detail="尚无已设置密码的账号，请先初始化密码")
         raise HTTPException(status_code=400, detail="存在多个登录账号，请提供用户名")
     if not agent_access.member_has_password(db, member.id):
         raise HTTPException(status_code=400, detail="该账号尚未设置密码")

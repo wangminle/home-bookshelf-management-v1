@@ -146,8 +146,8 @@ def test_discover_shape_matches_protocol(mcp_on, world: dict, db_session: Sessio
     result = r.json()["result"]
     assert result["supportedVersions"] == ["2026-07-28"]
     assert result["resultType"] == "discover"
+    assert result["capabilities"] == {"tools": {}}
     assert result["_meta"]["serverInfo"]["name"] == "home_bookshelf_mcp"
-    assert result["_meta"]["capabilities"] == {"tools": {}}
     assert "protocolVersion" not in result and "serverInfo" not in result
 
 

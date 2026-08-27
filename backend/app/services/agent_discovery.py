@@ -23,7 +23,7 @@ from app.schemas.agent_discovery import (
     SkillsRef,
 )
 
-_APP_VERSION = "0.3.11"
+_APP_VERSION = "0.3.12"
 
 # WBS-0：公开能力目录--只描述"系统能做什么"，不包含业务数据。
 _CAPABILITIES = [
@@ -66,6 +66,11 @@ def build_manifest() -> Manifest:
             openapi="/agent/openapi.json",
             skills_index="/agent/skills/index.json",
             authorization_manage="/settings/agent-access",
+            mcp_endpoint="/mcp" if settings.mcp_enabled else None,
+            mcp_protocol_version=(
+                settings.mcp_allowed_protocol_version_list[0]
+                if settings.mcp_allowed_protocol_version_list else None
+            ),
         ),
         data_policy=DataPolicy(),
         capabilities=_CAPABILITIES,

@@ -478,12 +478,21 @@ def verify_csrf(request: Request) -> None:
     from urllib.parse import urlparse
     parsed = urlparse(origin)
     expected_hosts = _get_expected_hosts()
+    # BUG-224：真实浏览器 Origin 总是带端口（127.0.0.1:8000 / 网关 :8080），
+    # 而默认白名单只有不带端口的 loopback--同源请求自身的 Host 必须放行
+    #（浏览器无法为跨站请求伪造 Host，Origin == Host 即同源）。
+    request_host = (request.headers.get("host") or "").strip().lower()
+    if request_host:
+        expected_hosts.add(request_host)
     actual_host = parsed.netloc.lower()
     if actual_host not in expected_hosts:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Origin 不匹配: {actual_host}",
-        )
+        # loopback 任意端口视为可信（vite 开发代理、本机多端口直连）
+        hostname = (parsed.hostname or "").strip().lower()
+        if hostname not in {"localhost", "127.0.0.1", "::1"}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Origin 不匹配: {actual_host}",
+            )
 
 
 def _get_expected_hosts() -> set[str]:

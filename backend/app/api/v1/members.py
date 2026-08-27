@@ -86,8 +86,8 @@ def add_member(
 
     caller_role: str | None = None
     if ctx.is_authenticated:
-        # BUG-221：已认证非 owner 一律拒绝（不再依赖渠道绑定状态）
-        if ctx.member_role != "owner":
+        # CHK-086：已认证非 owner 一律拒绝——除非系统无 owner（首个 owner 恢复路径）
+        if ctx.member_role != "owner" and not (not owner_exists and payload.role == "owner"):
             raise HTTPException(
                 status_code=403,
                 detail="只有 owner 角色的成员可以创建成员",
@@ -103,7 +103,9 @@ def add_member(
 
     # BUG-112：只有 owner 可创建 owner，防止 member 自行提权
     if payload.role == "owner" and caller_role != "owner":
-        # 引导期（系统尚无 owner）仍允许创建首个 owner
+        # 引导期/恢复路径：系统尚无 owner 时允许创建首个 owner
+        # （覆盖两种场景：空库首次 POST role=member 后无人能升 owner；
+        #   或已有成员但全部是 member 时需要恢复管理入口）
         if owner_exists:
             raise HTTPException(
                 status_code=403,

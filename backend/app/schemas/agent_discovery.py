@@ -21,6 +21,10 @@ class ManifestLinks(BaseModel):
     openapi: str
     skills_index: str
     authorization_manage: str
+    # CHK-088/WBS-MCP-8：MCP 端点与协议版本（MCP_ENABLED=false 时 endpoint 为空，
+    # 协议版本仍如实声明——发现面描述能力存在但不默认开放真实数据）
+    mcp_endpoint: str | None = None
+    mcp_protocol_version: str | None = None
 
 
 class DataPolicy(BaseModel):

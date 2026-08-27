@@ -440,6 +440,11 @@ def ensure_unique_username(db: Session, base: str, *, exclude_id: int | None = N
     return username
 
 
+def count_member_credentials(db: Session) -> int:
+    """已设置密码的成员凭据总数（BUG-219：登录提示区分 0 条与多条）。"""
+    return len(db.scalars(select(MemberCredential.member_id)).all())
+
+
 def resolve_login_member(db: Session, username: str | None) -> Member | None:
     """按用户名解析登录成员（大小写不敏感）。
 

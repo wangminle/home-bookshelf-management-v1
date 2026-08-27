@@ -46,6 +46,16 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
+      // 根级路由（web_auth/agent_access 不在 /api/v1 下），开发态登录与
+      // Agent 授权页依赖；其余根级路由（/agent、/skills、/mcp）仍不代理
+      '/auth': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/agent-access': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
     },
   },
 })

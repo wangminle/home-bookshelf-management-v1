@@ -10,7 +10,7 @@ CHK-073 协议硬化（BUG-196/BUG-195 补充）：
 - Host 必须命中 allowlist（默认仅内置回环精确值；非回环部署显式配置），
   不匹配 421（DNS Rebinding 防护）；带 Origin 时必须精确匹配可信 Origin，否则 403；
 - 该协议版本已移除 initialize：握手改用 server/discover（自描述发现，
-  返回 supportedVersions/resultType，serverInfo/capabilities 在 result._meta）；
+  返回 supportedVersions/resultType/capabilities，serverInfo 在 result._meta）；
   initialize 等未知方法按 -32601 处理。
 
 CHK-073/BUG-198 审计与限流契约：
@@ -344,23 +344,19 @@ async def mcp_post(
                client_ip=trust.client_ip, trust_reason=trust.reason)
         return _http_error(403, "HTTPS_REQUIRED")
 
-    # 4. 协议版本头必填且在 allowlist（BUG-196：缺头不再放行）
-    if mcp_protocol_version is None or not mcp_protocol_version.strip():
-        return _http_error(400, "PROTOCOL_VERSION_REQUIRED")
-    if mcp_protocol_version.strip() not in settings.mcp_allowed_protocol_version_list:
-        return _http_error(400, "PROTOCOL_VERSION_REJECTED")
-    protocol_version = mcp_protocol_version.strip()
+    # 4. 协议版本头处理移至帧解析后（CHK-088：server/discover 是版本协商方法，
+    #    官方 SDK 2.x 握手前不带该头，缺省按协商处理）
 
     # 5. 认证：仅 Bearer；显式拒绝 Cookie/渠道头携带者（MCP 设计 §8.1）
     authorization = request.headers.get("authorization", "")
     if request.cookies.get("hbs_session"):
         _audit(None, "deny", "COOKIE_REJECTED", None, request_id=request_id,
-               protocol_version=protocol_version, client_ip=trust.client_ip,
+               protocol_version=mcp_protocol_version, client_ip=trust.client_ip,
                trust_reason=trust.reason)
         return _http_error(401, "AUTH_REQUIRED")
     if request.headers.get("x-channel") or request.headers.get("x-external-user-id"):
         _audit(None, "deny", "CHANNEL_REJECTED", None, request_id=request_id,
-               protocol_version=protocol_version, client_ip=trust.client_ip,
+               protocol_version=mcp_protocol_version, client_ip=trust.client_ip,
                trust_reason=trust.reason)
         return _http_error(401, "AUTH_REQUIRED")
     bearer = authorization[7:].strip() if authorization.startswith("Bearer ") else None
@@ -403,6 +399,18 @@ async def mcp_post(
         if not isinstance(name_param, str) or mcp_name_header.strip() != name_param:
             return _http_error(400, "HEADER_BODY_MISMATCH")
 
+    # 9. 协议版本头：server/discover 是版本协商方法（官方 SDK 2.x 握手前不带
+    #    该头，缺省按协商处理，见 mcp.client.session._preconnect_stamp）；
+    #    其余方法必填且须在 allowlist（BUG-196：缺头不再放行）
+    if mcp_protocol_version is None or not mcp_protocol_version.strip():
+        if method != "server/discover":
+            return _http_error(400, "PROTOCOL_VERSION_REQUIRED")
+        protocol_version = None
+    else:
+        protocol_version = mcp_protocol_version.strip()
+        if protocol_version not in settings.mcp_allowed_protocol_version_list:
+            return _http_error(400, "PROTOCOL_VERSION_REJECTED")
+
     principal: AgentPrincipal | None = None
     with db_module.SessionLocal() as db:
         try:
@@ -434,21 +442,25 @@ async def mcp_post(
                                      client_ip=trust.client_ip, trust_reason=trust.reason)
                 if audit_state == security_audit.AUDIT_FAILED:
                     return _http_error(503, "AUDIT_UNAVAILABLE")
-                # BUG-208：DiscoverResult 契约 = supportedVersions + resultType，
-                # serverInfo/capabilities 在 result._meta（不再自定义 protocolVersion）
+                # BUG-208/CHK-088：DiscoverResult 契约 = supportedVersions + resultType +
+                # capabilities（2026-07-28 顶层必填，官方 SDK 2.x 按此解析）；
+                # serverInfo 在 result._meta（display-only stamp，SDK 从 meta 读取）；
+                # ttl_ms/cache_scope 为缓存指示（默认立即失效+私有，2026-07-28 wire 必填）
                 return JSONResponse({
                     "jsonrpc": _JSONRPC_VERSION,
                     "id": rpc_id,
                     "result": {
                         "supportedVersions": list(settings.mcp_allowed_protocol_version_list),
                         "resultType": "discover",
+                        "capabilities": (
+                            {"tools": {}, "resources": {}}
+                            if settings.mcp_cover_resource_enabled
+                            else {"tools": {}}
+                        ),
+                        "ttlMs": 0,
+                        "cacheScope": "private",
                         "_meta": {
                             "serverInfo": {"name": _SERVER_NAME, "version": _server_version()},
-                            "capabilities": (
-                                {"tools": {}, "resources": {}}
-                                if settings.mcp_cover_resource_enabled
-                                else {"tools": {}}
-                            ),
                         },
                     },
                 })
@@ -511,12 +523,20 @@ async def mcp_post(
                             "content": [{"type": "text", "text": exc.message}],
                             "structuredError": {"code": exc.code, "message": exc.message,
                                                 "retryable": exc.retryable, "request_id": request_id},
+                            "resultType": "complete",
+                            "ttlMs": 0,
+                            "cacheScope": "private",
                         },
                     })
                 # BUG-222：resources/read 也接响应体上限检查（与 tools/call 同口径）
                 _resp = JSONResponse({
                     "jsonrpc": _JSONRPC_VERSION, "id": rpc_id,
-                    "result": {"contents": [resource]},
+                    "result": {
+                        "contents": [resource],
+                        "resultType": "complete",
+                        "ttlMs": 0,
+                        "cacheScope": "private",
+                    },
                 })
                 if len(_resp.body) > settings.mcp_max_response_body_bytes:
                     _audit(principal, "deny", "RESPONSE_TOO_LARGE", method,
@@ -548,7 +568,12 @@ async def mcp_post(
                 return JSONResponse({
                     "jsonrpc": _JSONRPC_VERSION,
                     "id": rpc_id,
-                    "result": {"tools": tools.catalog.tool_descriptors()},
+                    "result": {
+                        "tools": tools.catalog.tool_descriptors(),
+                        "resultType": "complete",
+                        "ttlMs": 0,
+                        "cacheScope": "private",
+                    },
                 })
 
             # 13. tools/call
@@ -602,6 +627,9 @@ async def mcp_post(
                             "retryable": exc.retryable,
                             "request_id": request_id,
                         },
+                        "resultType": "complete",
+                        "ttlMs": 0,
+                        "cacheScope": "private",
                     },
                 })
             except SQLAlchemyError:
@@ -626,6 +654,9 @@ async def mcp_post(
                             "retryable": True,
                             "request_id": request_id,
                         },
+                        "resultType": "complete",
+                        "ttlMs": 0,
+                        "cacheScope": "private",
                     },
                 })
 
@@ -647,6 +678,9 @@ async def mcp_post(
                     "isError": False,
                     "content": [{"type": "text", "text": json.dumps(tool_result, ensure_ascii=False)}],
                     "structuredContent": tool_result,
+                    "resultType": "complete",
+                    "ttlMs": 0,
+                    "cacheScope": "private",
                 },
             })
             # BUG-212：响应体防御性硬上限（页长契约保证正常响应远小于该值）

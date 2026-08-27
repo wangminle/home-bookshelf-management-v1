@@ -154,11 +154,17 @@ def test_mcp_get_method_not_allowed(mcp_on, db_session: Session) -> None:
 
 
 def test_mcp_protocol_version_header_required(mcp_on, seeded: dict, db_session: Session) -> None:
-    """BUG-196：缺协议版本头不再放行。"""
+    """BUG-196/CHK-088：server/discover 是版本协商方法（官方 SDK 2.x 握手前不带
+    版本头），缺头按协商处理；其余方法缺协议版本头一律 400。"""
     c = _mcp_client(db_session)
-    r = _rpc(c, "server/discover", token=seeded["token"], headers={"MCP-Protocol-Version": ""})
     # 空头等效缺失：httpx 会去掉空值头，再显式不带头发一次
-    r = c.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "server/discover"},
+    r = c.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "server/discover",
+                             "params": {"_meta": {}}},
+               headers={"Authorization": f"Bearer {seeded['token']}"})
+    assert r.status_code == 200  # discover 缺头 = 协商
+    # 非协商方法缺头 -> 400
+    r = c.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list",
+                             "params": {"_meta": {}}},
                headers={"Authorization": f"Bearer {seeded['token']}"})
     assert r.status_code == 400
     assert r.headers.get("X-Error-Code") == "PROTOCOL_VERSION_REQUIRED"
@@ -225,8 +231,9 @@ def test_token_without_scope_403(mcp_on, seeded: dict, db_session: Session) -> N
 def test_discover_allowed_with_any_valid_token(mcp_on, seeded: dict, db_session: Session) -> None:
     """server/discover：自描述发现（该版本已移除 initialize），任何有效 Token 可用。
 
-    BUG-208：DiscoverResult = supportedVersions + resultType，
-    serverInfo/capabilities 在 result._meta（不再自定义顶层 protocolVersion）。
+    BUG-208/CHK-088：DiscoverResult = supportedVersions + resultType + capabilities
+    （2026-07-28 顶层必填，官方 SDK 2.x 按此解析），serverInfo 在 result._meta；
+    ttlMs/cacheScope 为缓存指示。
     """
     c = _mcp_client(db_session)
     r = _rpc(c, "server/discover", token=seeded["other_token"])
@@ -234,13 +241,15 @@ def test_discover_allowed_with_any_valid_token(mcp_on, seeded: dict, db_session:
     result = r.json()["result"]
     assert result["supportedVersions"] == ["2026-07-28"]
     assert result["resultType"] == "discover"
+    assert result["capabilities"] == {"tools": {}}
+    assert result["ttlMs"] == 0 and result["cacheScope"] == "private"
     meta = result["_meta"]
     assert meta["serverInfo"]["name"] == "home_bookshelf_mcp"
     assert "version" in meta["serverInfo"]
-    assert meta["capabilities"] == {"tools": {}}
-    # 顶层不再有自定义 protocolVersion/serverInfo
+    # 顶层不再有自定义 protocolVersion/serverInfo；capabilities 不再藏在 _meta
     assert "protocolVersion" not in result
     assert "serverInfo" not in result
+    assert "capabilities" not in meta
 
 
 def test_initialize_removed_by_protocol(mcp_on, seeded: dict, db_session: Session) -> None:

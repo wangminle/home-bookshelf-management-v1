@@ -15,6 +15,19 @@ CHK-077 补丁：
 - BUG-216：两个工具在 tools/list 中声明 outputSchema（JSON Schema
   2020-12 子集），成功结果经内置轻量校验器验证后才返回（不新增
   jsonschema 依赖）。
+
+CHK-096 补丁（Task 5.6）：
+- BUG-230：输入契约封闭——inputSchema additionalProperties=false +
+  anyOf 表达"至少一个筛选条件"；运行时在访问数据前拒绝任何未知键
+  （含 member_id 等身份类参数），稳定 PARAM_INVALID，不静默忽略；
+- OPT-010：v2 契约（MCP_CONTRACT_VERSION=v2 启用）版本化拆分搜索摘要
+  与详情——search 增加可选 output=summary 档，items 只含摘要字段；
+  v1 不移除字段、不改变业务输出与字段语义（工具描述、输入约束、
+  discover 与错误帧本轮按 BUG-230/OPT-011/OPT-012 有意演进，演进后
+  的 v1 线缆形状由 tests/mcp/fixtures/v1_wire_baseline.json 基线快照
+  固定）；服务端按实际档位用严格 Schema 校验后下发；
+- OPT-011：DISCOVER_INSTRUCTIONS 供 server/discover 自描述 Agent 用法
+  （search→get、隐私边界、分页、错误读取方式）。
 """
 from __future__ import annotations
 
@@ -41,6 +54,19 @@ _MCP_OUTPUT_FIELDS = (
     "summary", "availability",
 )
 
+# v2 摘要档字段（OPT-010：search 摘要 item 只含定位 + 轮廓字段，
+# 长文本 summary 等留给 bookshelf_get_book 详情档）
+_SEARCH_SUMMARY_FIELDS = ("id", "title", "authors", "category", "availability")
+
+# 输入契约封闭（BUG-230）：arguments 只接受列出的键，其余一律 PARAM_INVALID。
+# v2 在 search 侧追加 output 档位键；member_id/acting_for_member_id 等
+# 身份类参数永远不在任何版本的白名单里——服务端按 Grant 固定数据边界。
+_SEARCH_ARGUMENT_KEYS = frozenset({
+    "query", "author", "category", "language", "availability", "limit", "cursor",
+})
+_SEARCH_ARGUMENT_KEYS_V2 = _SEARCH_ARGUMENT_KEYS | {"output"}
+_GET_ARGUMENT_KEYS = frozenset({"book_id"})
+
 # 入参运行时硬上限（BUG-212：Schema 声明必须在边界强制，而非仅文档）
 _QUERY_MAX_LENGTH = 200
 _FILTER_MAX_LENGTH = 100
@@ -51,11 +77,35 @@ _CURSOR_MAX_LENGTH = 128
 SEARCH_DESCRIPTION = (
     "按关键词或结构化条件搜索家庭共享书目（L1 脱敏数据）。"
     "至少提供 query/author/category/language/availability 之一；"
-    "需要 books:read 授权；不返回成员、阅读、笔记、购买或文件信息。"
+    "需要 books:read 授权；不返回成员、阅读、笔记、购买或文件信息；"
+    "不接受任何未在 inputSchema 中声明的参数（含 member_id 等身份参数）。"
+)
+SEARCH_DESCRIPTION_V2 = SEARCH_DESCRIPTION + (
+    "v2 契约：output=summary 时 items 仅含摘要字段"
+    "（id/title/authors/category/availability），省略 output 时返回全字段。"
 )
 GET_DESCRIPTION = (
     "在搜索拿到 book_id 后读取一本书的脱敏详情（L1/L2 白名单字段）。"
-    "需要 books:read 授权；不返回封面 URL、文件路径或任何成员私有数据。"
+    "需要 books:read 授权；不返回封面 URL、文件路径或任何成员私有数据；"
+    "不接受任何未在 inputSchema 中声明的参数。"
+)
+
+# server/discover.instructions（OPT-011）：Agent 自描述用法，静态文案、
+# 不含任何真实家庭数据；与工具 description 互补，不重复字段级细节
+DISCOVER_INSTRUCTIONS = (
+    "家庭书架只读 MCP 服务（试点核心档，契约版本见 _meta['io.homebookshelf/contractVersion']）。"
+    "推荐流程：先用 bookshelf_search_books 检索（必须至少一个筛选条件），"
+    "再用 bookshelf_get_book 按 id 读取详情；两者均为只读，无写能力。"
+    "分页：search 返回 has_more/next_cursor，把 next_cursor 原样作为下一页 cursor，"
+    "不要改动页码或复用到其他筛选条件。"
+    "隐私边界：数据固定为 household_shared 脱敏白名单，不含成员、阅读、笔记、"
+    "购买、文件路径或封面信息；不存在以参数指定成员身份的用法，"
+    "传入未知参数（含 member_id）会被 PARAM_INVALID 拒绝。"
+    "错误处理：isError=true 时读 result._meta['io.homebookshelf/error'] 获取稳定"
+    " code/retryable/request_id（兼容客户端可读 result.structuredError），"
+    "按 code 决定重试或修正参数，不要解析本地化文本做逻辑分支。"
+    "序列化：成功结果读 result.structuredContent（JSON 对象），"
+    "content[0].text 是同一 JSON 的字符串形式。"
 )
 
 _ANNOTATIONS = {
@@ -98,6 +148,50 @@ _SEARCH_OUTPUT_SCHEMA: dict[str, Any] = {
     },
     "required": ["items", "count", "has_more", "next_cursor"],
     "additionalProperties": False,
+}
+
+# ── v2 契约（OPT-010：版本化拆分搜索摘要与详情） ──
+# 服务端按请求实际档位选择严格 Schema 校验：full 档仍用 _SEARCH_OUTPUT_SCHEMA，
+# summary 档用 _SEARCH_OUTPUT_SCHEMA_V2_SUMMARY；tools/list 声明的
+# _SEARCH_OUTPUT_SCHEMA_V2_DECLARED 用 envelope 级 oneOf 精确表达两种合法
+# 响应（BUG-231 + CHK-100 残余风险收口）：分支1=完整响应（items 全为 13
+# 字段形态）、分支2=摘要响应（items 全为恰 5 字段形态），两分支 envelope
+# 与 item 均 additionalProperties=false——同一响应内混用 full/summary 对象
+# 或出现混合形态 item 在任一分支都不通过，Agent 代码生成与响应验证可据此
+# 确定性区分档位。
+
+_BOOK_SUMMARY_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "title": {"type": "string"},
+        "authors": {"type": "array", "items": {"type": "string"}},
+        "category": {"type": ["string", "null"]},
+        "availability": {"type": "string", "enum": ["in_shelf", "borrowed", "unknown"]},
+    },
+    "required": list(_SEARCH_SUMMARY_FIELDS),
+    "additionalProperties": False,
+}
+
+_SEARCH_OUTPUT_SCHEMA_V2_SUMMARY: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "items": {"type": "array", "items": _BOOK_SUMMARY_OUTPUT_SCHEMA},
+        "count": {"type": "integer", "minimum": 0},
+        "has_more": {"type": "boolean"},
+        "next_cursor": {"type": ["string", "null"]},
+    },
+    "required": ["items", "count", "has_more", "next_cursor"],
+    "additionalProperties": False,
+}
+
+# 声明面（BUG-231）：envelope 级 oneOf——完整响应或摘要响应二选一；
+# 服务端每档产生同构 items，混用数组与混合形态 item 均被拒绝
+_SEARCH_OUTPUT_SCHEMA_V2_DECLARED: dict[str, Any] = {
+    "oneOf": [
+        _SEARCH_OUTPUT_SCHEMA,
+        _SEARCH_OUTPUT_SCHEMA_V2_SUMMARY,
+    ]
 }
 
 
@@ -184,26 +278,62 @@ def validate_tool_output(payload: Any, schema: dict[str, Any]) -> None:
         ) from exc
 
 
+def _contract_v2() -> bool:
+    from app.config import settings
+
+    return settings.mcp_contract_version == "v2"
+
+
+def search_argument_keys() -> frozenset[str]:
+    """当前契约版本下 search 接受的 arguments 键集（BUG-230 封闭白名单）。"""
+    return _SEARCH_ARGUMENT_KEYS_V2 if _contract_v2() else _SEARCH_ARGUMENT_KEYS
+
+
+def _search_input_schema() -> dict[str, Any]:
+    """search inputSchema（BUG-230：additionalProperties=false + anyOf 至少一条件）。
+
+    BUG-232：anyOf 分支不只断言键存在，还要求字符串筛选值含至少一个
+    非空白字符（ECMA 正则 \\S，非锚定）——与运行时"strip 后为空视同
+    未提供"的语义一致：`{"query": "   "}` 在机器 Schema 层即拒绝，
+    `{"query": "   ", "author": "刘"}` 仍合法（author 分支通过）。
+    服务端运行时校验保留（不信任客户端校验）。availability 为枚举，
+    无空白问题，分支仅需 required。
+    """
+    properties: dict[str, Any] = {
+        "query": {"type": "string", "maxLength": _QUERY_MAX_LENGTH},
+        "author": {"type": "string", "maxLength": _FILTER_MAX_LENGTH},
+        "category": {"type": "string", "maxLength": _FILTER_MAX_LENGTH},
+        "language": {"type": "string", "maxLength": _LANGUAGE_MAX_LENGTH},
+        "availability": {"type": "string", "enum": ["in_shelf", "borrowed", "unknown"]},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+        "cursor": {"type": "string"},
+    }
+    if _contract_v2():
+        # OPT-010：v2 摘要档；不用 default 关键字（契约测试禁 example/default）
+        properties["output"] = {"type": "string", "enum": ["full", "summary"]}
+    non_blank = {"pattern": "\\S"}
+    any_of = [
+        {"required": [field], "properties": {field: non_blank}}
+        for field in ("query", "author", "category", "language")
+    ]
+    any_of.append({"required": ["availability"]})
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": [],
+        "additionalProperties": False,
+        "anyOf": any_of,
+    }
+
+
 def tool_descriptors() -> list[dict[str, Any]]:
     """tools/list 描述符（顺序固定：search -> get；Schema 不含真实家庭数据）。"""
     return [
         {
             "name": "bookshelf_search_books",
-            "description": SEARCH_DESCRIPTION,
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "maxLength": _QUERY_MAX_LENGTH},
-                    "author": {"type": "string", "maxLength": _FILTER_MAX_LENGTH},
-                    "category": {"type": "string", "maxLength": _FILTER_MAX_LENGTH},
-                    "language": {"type": "string", "maxLength": _LANGUAGE_MAX_LENGTH},
-                    "availability": {"type": "string", "enum": ["in_shelf", "borrowed", "unknown"]},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": 20},
-                    "cursor": {"type": "string"},
-                },
-                "required": [],
-            },
-            "outputSchema": _SEARCH_OUTPUT_SCHEMA,
+            "description": SEARCH_DESCRIPTION_V2 if _contract_v2() else SEARCH_DESCRIPTION,
+            "inputSchema": _search_input_schema(),
+            "outputSchema": _SEARCH_OUTPUT_SCHEMA_V2_DECLARED if _contract_v2() else _SEARCH_OUTPUT_SCHEMA,
             "annotations": dict(_ANNOTATIONS),
         },
         {
@@ -215,6 +345,7 @@ def tool_descriptors() -> list[dict[str, Any]]:
                     "book_id": {"type": "integer", "minimum": 1},
                 },
                 "required": ["book_id"],
+                "additionalProperties": False,
             },
             "outputSchema": _BOOK_OUTPUT_SCHEMA,
             "annotations": dict(_ANNOTATIONS),
@@ -309,7 +440,30 @@ def _clean_string_arguments(arguments: dict[str, Any]) -> dict[str, str | None]:
     return cleaned
 
 
+def _reject_unknown_arguments(arguments: dict[str, Any], allowed: frozenset[str],
+                              tool_name: str) -> None:
+    """BUG-230：访问数据前拒绝任何未在契约中声明的参数键，不静默忽略。
+
+    错误信息只回显键名（截断到 32 字符、最多 5 个），不回显值——
+    攻击者可控内容不进入错误文本；身份类参数（member_id 等）被显式点名，
+    避免 Agent 误以为"以某成员身份查询"的意图已生效。
+    """
+    unknown = sorted(k for k in arguments if k not in allowed)
+    if not unknown:
+        return
+    shown = ", ".join(k[:32] for k in unknown[:5])
+    raise ToolError(
+        "PARAM_INVALID",
+        f"{tool_name} 不接受未知参数: {shown}（允许: {sorted(allowed)}）。"
+        "数据边界由服务端 Grant 固定为 household_shared，"
+        "不存在也不接受 member_id 等任何成员身份参数",
+    )
+
+
 def search_books(db: Session, arguments: dict[str, Any]) -> dict[str, Any]:
+    # BUG-230：输入契约封闭——未知键（含 member_id/acting_for_member_id）
+    # 在任何数据访问前稳定拒绝，绝不静默忽略
+    _reject_unknown_arguments(arguments, search_argument_keys(), "bookshelf_search_books")
     # BUG-204/210/212：入参类型/空白/长度校验前移到工具边界
     cleaned = _clean_string_arguments(arguments)
     query = cleaned["query"]
@@ -339,6 +493,11 @@ def search_books(db: Session, arguments: dict[str, Any]) -> dict[str, Any]:
         raise ToolError("INVALID_CURSOR", "cursor 必须是字符串")
     if cursor is not None and len(cursor.strip()) != len(cursor):
         raise ToolError("INVALID_CURSOR", "游标格式无效")
+    # OPT-010（v2）：output 档位——full=v1 全字段，summary=摘要字段；
+    # v1 契约下该键已在白名单外被 PARAM_INVALID 拒绝，不会到达这里
+    output_mode = arguments.get("output", "full")
+    if output_mode not in ("full", "summary"):
+        raise ToolError("PARAM_INVALID", "output 必须是 full 或 summary 之一")
     filters = {
         "query": query, "author": author, "category": category,
         "language": language, "availability": availability,
@@ -353,18 +512,24 @@ def search_books(db: Session, arguments: dict[str, Any]) -> dict[str, Any]:
         page=page, page_size=limit,
     )
     items = [_mcp_item(i.model_dump()) for i in result.items]
+    if output_mode == "summary":
+        # 摘要档：只保留摘要字段（长文本 summary 等留给 get_book 详情）
+        items = [{k: item[k] for k in _SEARCH_SUMMARY_FIELDS} for item in items]
     payload = {
         "items": items,
         "count": len(items),
         "has_more": result.has_more,
         "next_cursor": encode_cursor(page + 1, digest) if result.has_more else None,
     }
-    # BUG-216：structuredContent 必须通过 outputSchema 才下发
-    validate_tool_output(payload, _SEARCH_OUTPUT_SCHEMA)
+    # BUG-216：structuredContent 必须通过（按档位选择的严格）outputSchema 才下发
+    strict_schema = _SEARCH_OUTPUT_SCHEMA_V2_SUMMARY if output_mode == "summary" else _SEARCH_OUTPUT_SCHEMA
+    validate_tool_output(payload, strict_schema)
     return payload
 
 
 def get_book(db: Session, arguments: dict[str, Any]) -> dict[str, Any]:
+    # BUG-230：输入契约封闭（get 仅接受 book_id）
+    _reject_unknown_arguments(arguments, _GET_ARGUMENT_KEYS, "bookshelf_get_book")
     book_id = arguments.get("book_id")
     # BUG-195：排除 bool（True 是 int 子类）
     if isinstance(book_id, bool) or not isinstance(book_id, int) or book_id < 1:

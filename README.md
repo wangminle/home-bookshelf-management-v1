@@ -49,7 +49,7 @@ home-bookshelf-management-v1/
 
 ### 文档入口
 
-- **使用说明**（`docs/`）：[快速开始](docs/get-started.md) · [使用指南](docs/user-guide.md) · [CLI 参考](docs/cli-reference.md) · [部署](docs/deployment.md) · [Web UI](docs/web-ui.md) · [接入 Agent](docs/agent-setup.md) · [FAQ](docs/faq.md)
+- **使用说明**（`docs/`）：[快速开始](docs/get-started.md) · [使用指南](docs/user-guide.md) · [CLI 参考](docs/cli-reference.md) · [部署](docs/deployment.md) · [Web UI](docs/web-ui.md) · [接入 Agent](docs/agent-setup.md) · [MCP Agent 接入指引](docs/mcp-agent-guide.md) · [FAQ](docs/faq.md)
 - **设计与需求**：[AI-native 总体规划](design/plans/家庭图书管理系统AI-native系统框架和实施规划-20260822.md) · [权限与数据分层](design/plans/权限-数据分层与用户角色设计建议-20260820.md) · [MCP 设计与 WBS](design/plans/家庭图书管理系统-MCP接口设计与WBS-20260821.md) · [完整调研](design/discussions/家庭与中小组织AI-native系统框架调研报告-20260822.md) · [阶段复盘](design/checkpoints/README.md) · [历史成果](design/achievements/README.md)
 
 ### 后端安装与运行
@@ -161,7 +161,7 @@ home-bookshelf-management-v1/
 
 ### Docs
 
-- User: [get-started](docs/get-started.md) · [user guide](docs/user-guide.md) · [FAQ](docs/faq.md) · [CLI](docs/cli-reference.md) · [deploy](docs/deployment.md) · [Web UI](docs/web-ui.md) · [agent](docs/agent-setup.md)
+- User: [get-started](docs/get-started.md) · [user guide](docs/user-guide.md) · [FAQ](docs/faq.md) · [CLI](docs/cli-reference.md) · [deploy](docs/deployment.md) · [Web UI](docs/web-ui.md) · [agent](docs/agent-setup.md) · [MCP agent guide](docs/mcp-agent-guide.md)
 - Design: [AI-native plan](design/plans/家庭图书管理系统AI-native系统框架和实施规划-20260822.md) · [permissions](design/plans/权限-数据分层与用户角色设计建议-20260820.md) · [MCP](design/plans/家庭图书管理系统-MCP接口设计与WBS-20260821.md) · [research](design/discussions/家庭与中小组织AI-native系统框架调研报告-20260822.md) · [checkpoints](design/checkpoints/README.md) · [achievements](design/achievements/README.md)
 
 ### Backend Setup & Run

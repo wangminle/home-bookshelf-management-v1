@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "home_bookshelf MCP catalog tools v2 (summary/detail split)",
+  "description": "OPT-010（Task 5.6 / CHK-095）：v2 契约版本化拆分搜索摘要与详情输出，降低 Agent 上下文与 Token 消耗。不新增工具名、不放宽隐私边界；v1（mcp-catalog-tools-v1.schema.json）保持冻结并继续作为默认发布契约，服务端通过 MCP_CONTRACT_VERSION=v2 显式发布本契约。本文件除清单外嵌入 tools/list 描述符的结构约束（descriptor_constraints），测试据此验证线上描述符与冻结契约一致（BUG-231）。",
+  "type": "object",
+  "required": ["tools", "contract_version", "descriptor_constraints"],
+  "properties": {
+    "tools": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["name", "description", "inputSchema", "outputSchema", "annotations"],
+        "properties": {
+          "name": { "enum": ["bookshelf_search_books", "bookshelf_get_book"] },
+          "description": { "type": "string", "minLength": 1 },
+          "inputSchema": { "type": "object" },
+          "outputSchema": { "type": "object" },
+          "annotations": {
+            "type": "object",
+            "required": ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"],
+            "properties": {
+              "readOnlyHint": { "const": true },
+              "destructiveHint": { "const": false },
+              "idempotentHint": { "const": true },
+              "openWorldHint": { "const": false }
+            }
+          }
+        }
+      }
+    },
+    "contract_version": {
+      "const": "v2",
+      "description": "discover 响应 result._meta['io.homebookshelf/contractVersion'] 必须为 v2 才代表本契约已发布"
+    },
+    "descriptor_constraints": {
+      "type": "object",
+      "description": "对线上 tools/list 描述符的冻结约束：以描述符为实例、本节为 Schema 验证（Draft 2020-12）。search 声明面 inputSchema 必须封闭（additionalProperties=false）且带 output 枚举与非空白 anyOf 分支；outputSchema 的 items 必须是 oneOf 两形态（full=13 字段全量 / summary=恰 5 字段），不接受混合形态。get 的输入必须恰为 book_id 且输出为 13 字段冻结集。",
+      "properties": {
+        "bookshelf_search_books": {
+          "type": "object",
+          "required": ["name", "inputSchema", "outputSchema"],
+          "properties": {
+            "name": { "const": "bookshelf_search_books" },
+            "inputSchema": {
+              "type": "object",
+              "required": ["type", "properties", "additionalProperties", "anyOf"],
+              "properties": {
+                "type": { "const": "object" },
+                "additionalProperties": { "const": false },
+                "properties": {
+                  "type": "object",
+                  "required": ["output", "query", "author", "category", "language", "availability", "limit", "cursor"],
+                  "properties": {
+                    "output": {
+                      "type": "object",
+                      "required": ["enum"],
+                      "properties": { "enum": { "const": ["full", "summary"] } }
+                    },
+                    "query": { "type": "object", "required": ["maxLength"] },
+                    "availability": {
+                      "type": "object",
+                      "required": ["enum"],
+                      "properties": { "enum": { "const": ["in_shelf", "borrowed", "unknown"] } }
+                    },
+                    "limit": {
+                      "type": "object",
+                      "required": ["minimum", "maximum"],
+                      "properties": { "minimum": { "const": 1 }, "maximum": { "const": 20 } }
+                    }
+                  }
+                },
+                "anyOf": {
+                  "type": "array",
+                  "minItems": 5,
+                  "maxItems": 5,
+                  "description": "前四分支为字符串筛选字段的 required+非空白 pattern（BUG-232），末分支为 availability required"
+                }
+              }
+            },
+            "outputSchema": {
+              "type": "object",
+              "required": ["oneOf"],
+              "properties": {
+                "oneOf": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "description": "envelope 级 oneOf（BUG-231/CHK-100 残余风险收口）：分支1=完整响应（items 全为 13 字段形态）、分支2=摘要响应（items 全为恰 5 字段形态）；两分支 envelope 与 item 均 additionalProperties=false，同一响应混用两形态或混合形态 item 在任一分支都不通过"
+                }
+              }
+            }
+          }
+        },
+        "bookshelf_get_book": {
+          "type": "object",
+          "required": ["name", "inputSchema", "outputSchema"],
+          "properties": {
+            "name": { "const": "bookshelf_get_book" },
+            "inputSchema": {
+              "type": "object",
+              "required": ["properties", "required", "additionalProperties"],
+              "properties": {
+                "additionalProperties": { "const": false },
+                "required": { "const": ["book_id"] },
+                "properties": {
+                  "type": "object",
+                  "required": ["book_id"],
+                  "properties": {
+                    "book_id": {
+                      "type": "object",
+                      "required": ["type", "minimum"],
+                      "properties": { "type": { "const": "integer" }, "minimum": { "const": 1 } }
+                    }
+                  }
+                }
+              }
+            },
+            "outputSchema": {
+              "type": "object",
+              "required": ["required", "additionalProperties"],
+              "properties": {
+                "additionalProperties": { "const": false },
+                "required": {
+                  "const": [
+                    "id", "title", "subtitle", "authors", "translators", "publisher",
+                    "publish_date", "edition", "language", "page_count", "category",
+                    "summary", "availability"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "search_output_mode": {
+      "type": "object",
+      "description": "v2 仅在 bookshelf_search_books 增加可选 output 参数（enum full|summary，缺省 full=与 v1 字段语义一致）",
+      "properties": {
+        "full": {
+          "type": "object",
+          "description": "完整输出：items 内书目对象含全部 13 个白名单字段；服务端按 _SEARCH_OUTPUT_SCHEMA 严格校验；与声明面 oneOf 分支 1 对应"
+        },
+        "summary": {
+          "type": "object",
+          "description": "摘要输出：items 内书目对象恰含 id/title/authors/category/availability 5 个摘要字段；长文本 summary、出版社、页数等详情字段由 bookshelf_get_book 提供；服务端按 _SEARCH_OUTPUT_SCHEMA_V2_SUMMARY 严格校验；与声明面 oneOf 分支 2 对应"
+        }
+      }
+    },
+    "declared_output_schema_note": {
+      "type": "string",
+      "description": "v2 发布时 tools/list 中 search 的 outputSchema 声明用 envelope 级 oneOf 精确表达两种合法响应：分支1=完整响应（items 全为 13 字段形态）、分支2=摘要响应（items 全为恰 5 字段形态），两分支 envelope 与 item 均为封闭对象（additionalProperties=false）。服务端不产生的形态——混合 item、或同一响应内混用 full/summary 对象——在任一分支都不通过，机器 Schema 即可拒绝。实际响应仍由服务端按请求档位用严格 Schema 校验后下发。这是 v2 对 v1 声明面的唯一变化，也是必须以新契约版本而非原地改 v1 实施的原因。"
+    },
+    "unchanged_from_v1": {
+      "type": "array",
+      "description": "v2 不改变的内容（v1 兼容口径为业务输出与字段语义兼容，不是字节级不变；v1 线缆基线由 tests/mcp/fixtures/v1_wire_baseline.json 固定）",
+      "items": { "type": "string" },
+      "contains": {
+        "enum": [
+          "工具名称与数量（仍仅两个核心只读工具）",
+          "bookshelf_get_book 输入与输出（详情档即 v1 全字段）",
+          "output 省略时 search 的业务结果与字段集与 v1 一致",
+          "output_denylist（成员/位置/文件/阅读/笔记/购买/封面 URL/标签仍禁止）",
+          "授权边界（books:read + household_shared 试点 Grant 硬门禁）",
+          "BUG-230 输入契约封闭（未知参数 PARAM_INVALID；member_id 等身份参数永不接受）"
+        ]
+      }
+    },
+    "forbidden_tool_names": {
+      "type": "array",
+      "description": "与 v1 相同的能力面禁止清单",
+      "items": { "type": "string" },
+      "contains": { "enum": ["list_all_books", "get_notes", "get_purchases", "get_attachments"] }
+    },
+    "output_denylist": {
+      "type": "array",
+      "description": "任何工具输出不得包含的键（与 v1 完全一致）",
+      "items": { "type": "string" }
+    }
+  }
+}

@@ -186,7 +186,17 @@ Owner 在书籍详情页可单书设置可见级别，在「策略」页（`/cat
 
 - 握手用 `server/discover`（该协议版本已移除 `initialize`）；数据范围由 Grant
   显式声明且服务端固定为家庭共享书目（L1/L2 白名单字段），不含成员、阅读、
-  笔记、购买、封面 URL 或文件路径；
+  笔记、购买、封面 URL 或文件路径；discover 返回 `instructions`（Agent 用法
+  自描述）与 `_meta["io.homebookshelf/contractVersion"]`（实际发布契约版本）；
+- 输入契约封闭：两个工具的 `inputSchema` 均 `additionalProperties=false`，
+  search 以 `anyOf` 声明至少一个非空白筛选条件；运行时对 `member_id` 等
+  任何未知参数在访问数据前返回稳定 `PARAM_INVALID`（不静默忽略）并记审计；
+- 工具错误统一带 `isError` + `result._meta["io.homebookshelf/error"]`
+  （稳定 `code/retryable/request_id`，官方 SDK 可直接读取；顶层
+  `structuredError` 扩展保留向后兼容）；
+- 工具契约版本 `MCP_CONTRACT_VERSION`（默认 `v1` 冻结核心档；`v2` 时 search
+  增加可选 `output=summary` 摘要档，声明面 outputSchema 为 oneOf 两形态）。
+  发布 `v2` 须同步 `design/schemas/mcp-catalog-tools-v2.schema.json` 与兼容报告；
 - 搜索必须至少带一个筛选条件（纯空白不计）；单页最多 20 条（配置超限自动
   夹取到 20）；游标经 HMAC 签名防篡改且限长；
 - 限流两层：每个 Agent Client + Grant 共享全局每分钟额度（未知方法同样
@@ -200,7 +210,10 @@ Owner 在书籍详情页可单书设置可见级别，在「策略」页（`/cat
   `MCP_COVER_RESOURCE_ENABLED=true` 启用，同样受试点 Grant/限流/审计门禁，
   返回 base64 blob（上限 `MCP_COVER_MAX_BYTES`，默认 512 KiB），不复用匿名
   封面 URL；实机验证前建议保持关闭；
-- 关闭：`MCP_ENABLED=false` 重启即可，不影响 REST/Web/CLI。
+- 关闭：`MCP_ENABLED=false` 重启即可，不影响 REST/Web/CLI；
+- Agent 客户端接入方法与错误码表见 [MCP Agent 接入指引](mcp-agent-guide.md)，
+  客户端兼容门禁（Inspector/Claude Code/OpenCode 实测）见
+  [MCP 客户端预检报告](mcp-client-preflight.md)。
 
 ---
 

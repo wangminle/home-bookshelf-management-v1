@@ -11,6 +11,7 @@
 
 用法:
   python3 scripts/mcp-sdk-conformance.py [--report FILE] [--port N] [--keep]
+  python3 scripts/mcp-sdk-conformance.py --serve [--port N]   # 真实客户端实机连引用
 
 依赖: 官方 mcp==2.1.0（requirements.txt 已锁定）、uvicorn。默认跑完自动清理临时库。
 """
@@ -152,10 +153,17 @@ async def _evaluate(base: str, token: str, mixed_token: str, tmp: Path) -> None:
         ctx = streamable_http_client(f"{base}/mcp", http_client=http_client)
         read, write = await ctx.__aenter__()
         session = ClientSession(read, write)
-        await session.__aenter__()
-        disc = await session.send_request(
-            types.DiscoverRequest(params=types.RequestParams(_meta={})), types.DiscoverResult)
-        session.adopt(disc)
+        try:
+            await session.__aenter__()
+            disc = await session.send_request(
+                types.DiscoverRequest(params=types.RequestParams(_meta={})), types.DiscoverResult)
+            session.adopt(disc)
+        except BaseException:
+            # 同任务内对称退出（撤销/越权用例握手被拒时到达）：
+            # 放任 ctx 泄漏会让 GC 在别的任务里 athrow 清理异步生成器，
+            # 触发 anyio「Attempted to exit cancel scope in a different task」
+            await _close(ctx, session)
+            raise
         return ctx, session
 
     async def _close(ctx, session):
@@ -171,10 +179,28 @@ async def _evaluate(base: str, token: str, mixed_token: str, tmp: Path) -> None:
                 _meta={}, name=name, arguments=arguments)),
             types.CallToolResult)
 
+    def _meta_extra(meta) -> dict:
+        """兼容两种 SDK 形态：compat types 的 _meta 是 dict，版本化模型是
+        ResultMetaObject（extra="allow"，扩展键在 model_extra）。"""
+        if meta is None:
+            return {}
+        if isinstance(meta, dict):
+            return meta
+        return meta.model_extra or {}
+
     ctx, s = await _session(token)
     try:
         # L1. discover 协商（无版本头 = 官方握手姿势）
         _record("L1 discover→adopt 握手", True)
+
+        # L1b. discover instructions + 契约版本（OPT-010/OPT-011，Task 5.6）：
+        #      SDK 原生 instructions 字段可读；_meta 命名空间键声明契约版本
+        disc2 = await s.send_request(
+            types.DiscoverRequest(params=types.RequestParams(_meta={})), types.DiscoverResult)
+        _record("L1b discover.instructions", bool(disc2.instructions),
+                (disc2.instructions or "")[:24])
+        contract_v = _meta_extra(disc2.meta).get("io.homebookshelf/contractVersion")
+        _record("L1b 契约版本 _meta", contract_v in ("v1", "v2"), str(contract_v))
 
         # L2. tools/list 呈现 + outputSchema
         tl = await s.send_request(
@@ -200,6 +226,24 @@ async def _evaluate(base: str, token: str, mixed_token: str, tmp: Path) -> None:
         _record("3 空条件拒绝", te.is_error
                 and "至少提供一个" in "".join(c.text or "" for c in te.content))
 
+        # 3b. _meta 稳定错误码（OPT-012）：官方 SDK CallToolResult 对未知顶层
+        #     字段 extra="ignore"（structuredError 被丢弃），但 result._meta 的
+        #     ResultMetaObject extra="allow"——io.homebookshelf/error 原样可读
+        meta_err = _meta_extra(te.meta).get("io.homebookshelf/error")
+        _record("3b _meta 稳定错误码",
+                bool(meta_err) and meta_err.get("code") == "QUERY_REQUIRED"
+                and meta_err.get("request_id", "").startswith("req_"),
+                str(meta_err))
+
+        # 3c. 输入契约封闭（BUG-230）：member_id 等未知参数必须被 PARAM_INVALID
+        #     明确拒绝，不得静默忽略后当作正常结果返回
+        tmi = await _call(s, "bookshelf_search_books",
+                          {"query": "三体", "member_id": 3})
+        mi_err = _meta_extra(tmi.meta).get("io.homebookshelf/error")
+        _record("3c 未知参数明确拒绝",
+                tmi.is_error and (mi_err or {}).get("code") == "PARAM_INVALID",
+                str(mi_err))
+
         # 4. Cursor 翻页
         tp1 = await _call(s, "bookshelf_search_books", {"query": "刘", "limit": 1})
         cur = tp1.structured_content["next_cursor"]
@@ -213,11 +257,22 @@ async def _evaluate(base: str, token: str, mixed_token: str, tmp: Path) -> None:
         _record("5 不存在书目", tnf.is_error
                 and "未找到可访问" in "".join(c.text or "" for c in tnf.content))
 
-        # 9. 隐私哨兵：全输出无敏感键
+        # 9. 隐私哨兵：输出无敏感键。BUG-230 起 description 文案会显式声明
+        #    "不接受 member_id 等身份参数"（有意为之的教学文本），因此键名
+        #    哨兵只扫描结构性字段（name/inputSchema/outputSchema/annotations）
+        #    与工具调用结果；description 自然语言不在键名扫描范围。敏感值
+        #    哨兵（真实家庭数据）另由 tests/mcp/test_contract.py 全量覆盖。
         tl2 = await s.send_request(
             types.ListToolsRequest(params=types.PaginatedRequestParams(_meta={})),
             types.ListToolsResult)
-        all_text = json.dumps([tl2.model_dump(mode="json", by_alias=True),
+        tl2_dump = tl2.model_dump(mode="json", by_alias=True)
+        tl2_structural = {
+            "tools": [
+                {k: v for k, v in t.items() if k != "description"}
+                for t in tl2_dump.get("tools", [])
+            ],
+        }
+        all_text = json.dumps([tl2_structural,
                                tc.model_dump(mode="json", by_alias=True)], ensure_ascii=False)
         sentinels = ["member_id", "file_path", "cover_path", "reading_notes", "purchase",
                      "channel", "location", "isbn13", "isbn10", "extra"]
@@ -309,6 +364,10 @@ def main() -> int:
     ap.add_argument("--report", default="")
     ap.add_argument("--port", type=int, default=0)
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--serve", action="store_true",
+                    help="只引导不起评估：起临时库 uvicorn 并保持运行，打印 URL 与"
+                         "试点 Token 供真实客户端（Claude Code / Inspector）实机连接；"
+                         "Ctrl-C 退出后自动清理临时库（--keep 保留）")
     args = ap.parse_args()
 
     tmp = Path(tempfile.mkdtemp(prefix="mcp-cf-"))
@@ -317,8 +376,16 @@ def main() -> int:
     try:
         _seed(tmp)
         token = (tmp / "token.txt").read_text().strip()
-        mixed_token = (tmp / "mixed_token.txt").read_text().strip()
         proc = _start_server(tmp, port)
+        if args.serve:
+            print(f"SERVE_READY base=http://127.0.0.1:{port} token={token}")
+            print("按 Ctrl-C 停止并清理临时库")
+            try:
+                proc.wait()
+            except KeyboardInterrupt:
+                pass
+            return 0
+        mixed_token = (tmp / "mixed_token.txt").read_text().strip()
         asyncio.run(_evaluate(f"http://127.0.0.1:{port}", token, mixed_token, tmp))
     finally:
         if proc is not None:

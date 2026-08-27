@@ -8,8 +8,10 @@
 
 - 代码实现与自动化验证：本项目开发代理（CHK-088 会话）
 - 交叉核验：官方 mcp SDK 2.1.0 client 实机 conformance（18/18）
-- 说明：无独立外部评审人；本记录为内部技术评审留痕，**不含"允许真实家庭数据试点"的
-  签署意见**（见末尾结论）。
+- 后续验证（2026-08-27）：Claude Code / Inspector 协议代际抓帧；
+  OpenCode + 官方 SDK 在 Owner 授权的临时窗口访问真实部署数据。
+- 说明：无独立外部评审人；本记录为内部技术评审留痕，不等于
+  跨客户端通用发布签署（见末尾结论）。
 
 ## 威胁面与防护结论
 
@@ -34,21 +36,42 @@
 ## 残余风险（已知、未消除）
 
 1. **传输层为自建实现**：经官方 SDK client 验证 wire 兼容，但未使用官方 SDK server 端，
-   未来协议演进需人工跟进（`mcp==2.1.0` 已作为 dev 依赖锁定）；
+   未来协议演进需人工跟进（`mcp==2.1.0` 已在
+   `backend/requirements.txt` 作为运行时依赖锁定）；
 2. **无 Session/SSE 语义**：仅支持无状态 POST；要求 Session 的客户端不兼容（判据 no-go 第 3 条）；
 3. **进程内限流/抑制表**：多实例部署时按实例各自计数（与 rate_limit/security_audit 同边界，
    基线 §12.2 已注明）；生产多副本须改用共享存储或网关限流；
-4. **`structuredError` 不在 SDK 2.1.0 模型内**：官方客户端经 `is_error`+文本透出错误码，
-   结构化错误字段对非 SDK 客户端可用但对 SDK client 不可见；
+4. ~~**`structuredError` 不在 SDK 2.1.0 模型内**~~（2026-08-27 收口）：
+   稳定 `code/retryable/request_id` 已加入
+   `result._meta["io.homebookshelf/error"]`（`ResultMetaObject`
+   extra="allow"，官方 SDK 原样可读并经 conformance 实机验证）；
+   `structuredError` 顶层扩展保留作向后兼容，`isError` 语义不变；
 5. **封面 Resource 未实机**：默认关闭，属可选扩展（第三期范围）。
+6. ~~**工具输入未完全封闭**~~（2026-08-27 BUG-230 收口）：
+   `inputSchema` 已 `additionalProperties=false` + `anyOf` 至少一个
+   筛选条件；运行时在数据访问前拒绝 `member_id` 等一切未知键并返回
+   `PARAM_INVALID` + 审计，不再静默忽略（测试 89 项 + conformance
+   3c 用例覆盖）。
+7. **跨客户端协议代际未完全收口**：Claude Code 官方升级至 2.1.247 后
+   wiretap 首帧仍 Legacy `initialize`+`2025-11-25`（2026-08-27 P0A 复测）；
+   Inspector 2.4.0 显式 `protocolEra=modern` 已实机全通过，其"默认
+   Legacy"仅是配置问题。该风险现仅影响 Claude Code 单一客户端的兼容
+   范围，是否启动 WBS-MCP-11 由 Owner 决策。
 
-## 签署意见（发布门禁）
+## 签署意见（发布门禁，2026-08-27 更新）
 
-- **不允许开启真实家庭数据试点**。理由：MCP Inspector 与第二个目标客户端
-  （Claude Code）实机验证未完成，不满足 WBS-MCP-P0 双客户端 go 判据；
-- 当前可宣称：**核心只读代码级试点完成 + 官方 SDK client 协议兼容已验证**；
-- `MCP_ENABLED` 保持默认 `false`；官方 SDK、Inspector、双客户端实机全部完成后，
-  再启动正式签署流程。
+- Owner 授权的一次性真实数据验收已完成：OpenCode + 官方 SDK
+  完成 9 项闭环，没有功能性异常或隐私哨兵命中；测后已撤销凭据、
+  恢复 `MCP_ENABLED=false`，`/mcp` 再次 404。
+- 当前可签署：**现代协议核心链路 go**，包括真实部署的 Bearer
+  认证、试点 Grant、输出白名单、防枚举和撤销即失效。
+- 当前仍不能签署：**标准跨客户端通用发布**。WBS-MCP-P0A 复测
+  （2026-08-27）：Inspector 2.4.0 显式 modern 全通过，但 Claude Code
+  官方升级至 2.1.247 后首帧仍 Legacy `initialize`，单一客户端兼容
+  门禁未过；是否为其启动 WBS-MCP-11 属 Owner 决策。
+- `MCP_ENABLED` 继续默认 `false`；WBS-MCP-P0A 已执行完毕，只在
+  Owner 确认 Claude Code 为必需客户端且仍只能 Legacy 时，才启动
+  条件式 WBS-MCP-11 双代际兼容。
 
 ## 回滚与发布演练结论（WBS-MCP-9 Task 9.4）
 
@@ -57,3 +80,6 @@
 - 撤销试点 Grant → 下一请求 401（握手即被拒）；
 - REST 与两只读工具数据不受 MCP 开关影响（REST/MCP 一致性用例通过）；
 - 回滚 = 关闭 `MCP_ENABLED`（无需数据迁移，`agent_grants`/`agent_tokens` 为独立表）。
+
+2026-08-27 真实部署验收再次确认：撤销测试 Grant 后下一请求
+立即失败；关闭 MCP 后端口 18009 的 `/mcp` 恢复 404。

@@ -1,0 +1,494 @@
+{
+  "discover": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "supportedVersions": [
+        "2026-07-28"
+      ],
+      "resultType": "discover",
+      "capabilities": {
+        "tools": {}
+      },
+      "instructions": "家庭书架只读 MCP 服务（试点核心档，契约版本见 _meta['io.homebookshelf/contractVersion']）。推荐流程：先用 bookshelf_search_books 检索（必须至少一个筛选条件），再用 bookshelf_get_book 按 id 读取详情；两者均为只读，无写能力。分页：search 返回 has_more/next_cursor，把 next_cursor 原样作为下一页 cursor，不要改动页码或复用到其他筛选条件。隐私边界：数据固定为 household_shared 脱敏白名单，不含成员、阅读、笔记、购买、文件路径或封面信息；不存在以参数指定成员身份的用法，传入未知参数（含 member_id）会被 PARAM_INVALID 拒绝。错误处理：isError=true 时读 result._meta['io.homebookshelf/error'] 获取稳定 code/retryable/request_id（兼容客户端可读 result.structuredError），按 code 决定重试或修正参数，不要解析本地化文本做逻辑分支。序列化：成功结果读 result.structuredContent（JSON 对象），content[0].text 是同一 JSON 的字符串形式。",
+      "ttlMs": 0,
+      "cacheScope": "private",
+      "_meta": {
+        "serverInfo": {
+          "name": "home_bookshelf_mcp",
+          "version": "<version>"
+        },
+        "io.homebookshelf/contractVersion": "v1"
+      }
+    }
+  },
+  "tools_list": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "tools": [
+        {
+          "name": "bookshelf_search_books",
+          "description": "按关键词或结构化条件搜索家庭共享书目（L1 脱敏数据）。至少提供 query/author/category/language/availability 之一；需要 books:read 授权；不返回成员、阅读、笔记、购买或文件信息；不接受任何未在 inputSchema 中声明的参数（含 member_id 等身份参数）。",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "author": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "category": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "language": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "availability": {
+                "type": "string",
+                "enum": [
+                  "in_shelf",
+                  "borrowed",
+                  "unknown"
+                ]
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20
+              },
+              "cursor": {
+                "type": "string"
+              }
+            },
+            "required": [],
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "required": [
+                  "query"
+                ],
+                "properties": {
+                  "query": {
+                    "pattern": "\\S"
+                  }
+                }
+              },
+              {
+                "required": [
+                  "author"
+                ],
+                "properties": {
+                  "author": {
+                    "pattern": "\\S"
+                  }
+                }
+              },
+              {
+                "required": [
+                  "category"
+                ],
+                "properties": {
+                  "category": {
+                    "pattern": "\\S"
+                  }
+                }
+              },
+              {
+                "required": [
+                  "language"
+                ],
+                "properties": {
+                  "language": {
+                    "pattern": "\\S"
+                  }
+                }
+              },
+              {
+                "required": [
+                  "availability"
+                ]
+              }
+            ]
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "subtitle": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "authors": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "translators": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "publisher": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "publish_date": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "edition": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "language": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "page_count": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "category": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "summary": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "availability": {
+                      "type": "string",
+                      "enum": [
+                        "in_shelf",
+                        "borrowed",
+                        "unknown"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "subtitle",
+                    "authors",
+                    "translators",
+                    "publisher",
+                    "publish_date",
+                    "edition",
+                    "language",
+                    "page_count",
+                    "category",
+                    "summary",
+                    "availability"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "has_more": {
+                "type": "boolean"
+              },
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "items",
+              "count",
+              "has_more",
+              "next_cursor"
+            ],
+            "additionalProperties": false
+          },
+          "annotations": {
+            "readOnlyHint": true,
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false
+          }
+        },
+        {
+          "name": "bookshelf_get_book",
+          "description": "在搜索拿到 book_id 后读取一本书的脱敏详情（L1/L2 白名单字段）。需要 books:read 授权；不返回封面 URL、文件路径或任何成员私有数据；不接受任何未在 inputSchema 中声明的参数。",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "book_id": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "book_id"
+            ],
+            "additionalProperties": false
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "title": {
+                "type": "string"
+              },
+              "subtitle": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "authors": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "translators": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "publisher": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "publish_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "edition": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "language": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "page_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "category": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "availability": {
+                "type": "string",
+                "enum": [
+                  "in_shelf",
+                  "borrowed",
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "subtitle",
+              "authors",
+              "translators",
+              "publisher",
+              "publish_date",
+              "edition",
+              "language",
+              "page_count",
+              "category",
+              "summary",
+              "availability"
+            ],
+            "additionalProperties": false
+          },
+          "annotations": {
+            "readOnlyHint": true,
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false
+          }
+        }
+      ],
+      "resultType": "complete",
+      "ttlMs": 0,
+      "cacheScope": "private"
+    }
+  },
+  "search_full": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "isError": false,
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"items\": [{\"id\": 2, \"title\": \"契约书2\", \"subtitle\": null, \"authors\": [\"作者2\"], \"translators\": [], \"publisher\": \"出版社2\", \"publish_date\": null, \"edition\": null, \"language\": \"zh\", \"page_count\": null, \"category\": \"科幻\", \"summary\": \"契约测试摘要2\", \"availability\": \"unknown\"}, {\"id\": 1, \"title\": \"契约书1\", \"subtitle\": null, \"authors\": [\"作者1\"], \"translators\": [], \"publisher\": \"出版社1\", \"publish_date\": null, \"edition\": null, \"language\": \"zh\", \"page_count\": null, \"category\": \"科幻\", \"summary\": \"契约测试摘要1\", \"availability\": \"unknown\"}], \"count\": 2, \"has_more\": false, \"next_cursor\": null}"
+        }
+      ],
+      "structuredContent": {
+        "items": [
+          {
+            "id": 2,
+            "title": "契约书2",
+            "subtitle": null,
+            "authors": [
+              "作者2"
+            ],
+            "translators": [],
+            "publisher": "出版社2",
+            "publish_date": null,
+            "edition": null,
+            "language": "zh",
+            "page_count": null,
+            "category": "科幻",
+            "summary": "契约测试摘要2",
+            "availability": "unknown"
+          },
+          {
+            "id": 1,
+            "title": "契约书1",
+            "subtitle": null,
+            "authors": [
+              "作者1"
+            ],
+            "translators": [],
+            "publisher": "出版社1",
+            "publish_date": null,
+            "edition": null,
+            "language": "zh",
+            "page_count": null,
+            "category": "科幻",
+            "summary": "契约测试摘要1",
+            "availability": "unknown"
+          }
+        ],
+        "count": 2,
+        "has_more": false,
+        "next_cursor": null
+      },
+      "resultType": "complete",
+      "ttlMs": 0,
+      "cacheScope": "private"
+    }
+  },
+  "get_book": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "isError": false,
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"id\": 1, \"title\": \"契约书1\", \"subtitle\": null, \"authors\": [\"作者1\"], \"translators\": [], \"publisher\": \"出版社1\", \"publish_date\": null, \"edition\": null, \"language\": \"zh\", \"page_count\": null, \"category\": \"科幻\", \"summary\": \"契约测试摘要1\", \"availability\": \"unknown\"}"
+        }
+      ],
+      "structuredContent": {
+        "id": 1,
+        "title": "契约书1",
+        "subtitle": null,
+        "authors": [
+          "作者1"
+        ],
+        "translators": [],
+        "publisher": "出版社1",
+        "publish_date": null,
+        "edition": null,
+        "language": "zh",
+        "page_count": null,
+        "category": "科幻",
+        "summary": "契约测试摘要1",
+        "availability": "unknown"
+      },
+      "resultType": "complete",
+      "ttlMs": 0,
+      "cacheScope": "private"
+    }
+  },
+  "search_query_required": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "isError": true,
+      "content": [
+        {
+          "type": "text",
+          "text": "至少提供一个搜索或筛选条件（query/author/category/language/availability）"
+        }
+      ],
+      "structuredError": {
+        "code": "QUERY_REQUIRED",
+        "message": "至少提供一个搜索或筛选条件（query/author/category/language/availability）",
+        "retryable": false,
+        "request_id": "req_<id>"
+      },
+      "_meta": {
+        "io.homebookshelf/error": {
+          "code": "QUERY_REQUIRED",
+          "retryable": false,
+          "request_id": "req_<id>"
+        }
+      },
+      "resultType": "complete",
+      "ttlMs": 0,
+      "cacheScope": "private"
+    }
+  }
+}

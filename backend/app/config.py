@@ -75,6 +75,13 @@ class Settings(BaseSettings):
     # 响应超限防御性拒绝（分页上限保证正常响应远小于该值）
     mcp_max_request_body_bytes: int = 1_048_576
     mcp_max_response_body_bytes: int = 1_048_576
+    # MCP 工具契约版本（OPT-010，Task 5.6）：v1 = 冻结核心档（默认）；
+    # v2 = 版本化拆分搜索摘要/详情——search 新增可选 output=summary 档，
+    # 声明的 outputSchema 用 oneOf 精确表达 full/summary 两种形态；
+    # v1 业务输出与字段语义不变（线缆基线见
+    # backend/tests/mcp/fixtures/v1_wire_baseline.json）。
+    # 发布 v2 须同步 design/schemas/mcp-catalog-tools-v2.schema.json 与兼容报告
+    mcp_contract_version: str = "v1"
 
     @property
     def mcp_allowed_host_set(self) -> set[str]:
@@ -112,6 +119,16 @@ class Settings(BaseSettings):
     @property
     def mcp_allowed_protocol_version_list(self) -> list[str]:
         return [v.strip() for v in self.mcp_allowed_protocol_versions.split(",") if v.strip()]
+
+    @field_validator("mcp_contract_version")
+    @classmethod
+    def _validate_mcp_contract_version(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        # OPT-010：契约版本只有 v1/v2 两档；拼错直接报错而非静默回 v1，
+        # 避免"以为发布了 v2 实际还是 v1"的部署事故
+        if v not in ("v1", "v2"):
+            raise ValueError("mcp_contract_version 仅支持 v1 或 v2")
+        return v
 
     @field_validator("mcp_max_page_size")
     @classmethod

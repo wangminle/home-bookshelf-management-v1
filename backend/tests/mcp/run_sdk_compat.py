@@ -71,8 +71,10 @@ def setup():
 
 
 async def run_tests(token: str) -> bool:
-    from mcp.client.streamable_http import streamable_http_client, create_mcp_http_client
-    from mcp import Client
+    # DOC-046：高层 Client 的首参是 server/传输而非展示名，且其 URL 分支
+    # 无法注入 Bearer 头——与 Agent 指引/预检一致，用 ClientSession 显式会话
+    from mcp import ClientSession, types
+    from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
 
     results = {"pass": 0, "fail": 0}
 
@@ -86,23 +88,34 @@ async def run_tests(token: str) -> bool:
 
     print(f"\n═══ 官方 MCP SDK v2.1.0 客户端兼容性 ═══")
     url = f"{BASE}/mcp"
-    headers = {"Authorization": f"Bearer {token}"}
-
-    # 用 SDK 推荐的工厂函数（含 follow_redirects + MCP 超时）
-    http_client = create_mcp_http_client(headers=headers)
+    http_client = create_mcp_http_client(
+        headers={"Authorization": f"Bearer {token}"})
 
     try:
         async with streamable_http_client(url, http_client=http_client) as (read, write):
             ok("streamable_http_client 连接")
 
-            client = Client("sdk-test", mode="2026-07-28")
-            async with client:
-                ok("Client(mode=2026-07-28) 初始化")
+            async with ClientSession(read, write) as s:
+                ok("ClientSession 初始化")
+
+                # 2026-07-28 握手：server/discover + adopt
+                try:
+                    disc = await asyncio.wait_for(
+                        s.send_request(
+                            types.DiscoverRequest(params=types.RequestParams(_meta={})),
+                            types.DiscoverResult), timeout=10)
+                    s.adopt(disc)
+                    ok(f"discover+adopt: {disc.supported_versions}")
+                except Exception as e:
+                    fail(f"discover+adopt: {type(e).__name__}: {e}")
 
                 # list_tools
                 try:
-                    tools = await asyncio.wait_for(client.list_tools(), timeout=10)
-                    names = [t.name for t in tools.tools]
+                    tl = await asyncio.wait_for(
+                        s.send_request(
+                            types.ListToolsRequest(params=types.PaginatedRequestParams(_meta={})),
+                            types.ListToolsResult), timeout=10)
+                    names = [t.name for t in tl.tools]
                     if "bookshelf_search_books" in names:
                         ok(f"list_tools: {names}")
                     else:
@@ -110,10 +123,16 @@ async def run_tests(token: str) -> bool:
                 except Exception as e:
                     fail(f"list_tools: {type(e).__name__}: {e}")
 
+                async def call(name: str, arguments: dict):
+                    return await asyncio.wait_for(
+                        s.send_request(
+                            types.CallToolRequest(params=types.CallToolRequestParams(
+                                _meta={}, name=name, arguments=arguments)),
+                            types.CallToolResult), timeout=10)
+
                 # search
                 try:
-                    result = await asyncio.wait_for(
-                        client.call_tool("bookshelf_search_books", {"query": "SDK"}), timeout=10)
+                    result = await call("bookshelf_search_books", {"query": "SDK"})
                     if not result.is_error:
                         sc = result.structured_content or {}
                         ok(f"search: count={sc.get('count', '?')}")
@@ -124,8 +143,7 @@ async def run_tests(token: str) -> bool:
 
                 # get
                 try:
-                    result = await asyncio.wait_for(
-                        client.call_tool("bookshelf_get_book", {"book_id": 1}), timeout=10)
+                    result = await call("bookshelf_get_book", {"book_id": 1})
                     if not result.is_error:
                         sc = result.structured_content or {}
                         ok(f"get: title={sc.get('title', '?')}")

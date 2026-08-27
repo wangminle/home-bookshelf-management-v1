@@ -42,6 +42,15 @@ CHK-077/BUG-215 错误兜底：
 - 数据库异常（含 busy/超时）-> 稳定可重试工具错误 + 完整调用审计；
 - 其他未捕获异常 -> JSON-RPC -32603（retryable=true）+ 审计，不再裸 500。
 
+CHK-096/Task 5.6 补丁：
+- BUG-230：工具 arguments 在调度前经 catalog 白名单封闭，未知键（含
+  member_id 等身份参数）稳定 PARAM_INVALID，不静默忽略；
+- OPT-011：server/discover 返回 instructions（Agent 用法自描述）；
+- OPT-012：工具错误在 result._meta["io.homebookshelf/error"] 携带稳定
+  code/retryable/request_id（官方 SDK CallToolResult 对未知顶层字段
+  extra="ignore"，仅 _meta 的 extra="allow" 能原样保留）；顶层
+  structuredError 扩展字段保留作向后兼容。
+
 其余不变：默认关闭 404；仅 Bearer（Cookie/渠道头 401）；撤销下一请求生效；
 试点 Grant 硬门禁（scopes 恰 {books:read} 且显式 data_scope）。
 """
@@ -80,6 +89,13 @@ _SERVER_NAME = "home_bookshelf_mcp"
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
 # 方法名/头长度硬上限（BUG-211：攻击者可控字符串进入审计/错误前先限长）
 _METHOD_MAX_LENGTH = 128
+# OPT-012：稳定错误码的 SDK 可消费位置。官方 SDK 2.1.0 的 CallToolResult
+# 对未知顶层字段 extra="ignore"（自定义 structuredError 会被静默丢弃），
+# 但 result._meta 的 ResultMetaObject 为 extra="allow"——放在命名空间键下
+# 才能被官方 SDK 客户端原样读到。前缀第二段不得为 mcp/modelcontextprotocol
+_ERROR_META_KEY = "io.homebookshelf/error"
+# OPT-010：discover 声明实际发布的工具契约版本（兼容报告同源）
+_CONTRACT_META_KEY = "io.homebookshelf/contractVersion"
 
 
 def _server_version() -> str:
@@ -119,6 +135,35 @@ def _jsonrpc_error(
         "jsonrpc": _JSONRPC_VERSION,
         "id": request_id,
         "error": error,
+    })
+
+
+def _tool_error_response(
+    rpc_id: Any, code: str, message: str, retryable: bool, request_id: str
+) -> JSONResponse:
+    """工具级错误的统一帧（MCP 设计 §11.2 + Task 5.6）。
+
+    - isError=true + content 文本（任何客户端可见）；
+    - structuredError：顶层扩展（自定义/OpenCode 客户端可读；官方 SDK
+      CallToolResult extra="ignore" 会丢弃该字段，仅作向后兼容保留）；
+    - _meta[io.homebookshelf/error]：官方 SDK 2.1.0 可原样保留的稳定
+      code/retryable/request_id（ResultMetaObject extra="allow"，OPT-012），
+      客户端不得解析本地化 message 做逻辑分支。
+    """
+    return JSONResponse({
+        "jsonrpc": _JSONRPC_VERSION,
+        "id": rpc_id,
+        "result": {
+            "isError": True,
+            "content": [{"type": "text", "text": message}],
+            "structuredError": {"code": code, "message": message,
+                                "retryable": retryable, "request_id": request_id},
+            "_meta": {_ERROR_META_KEY: {"code": code, "retryable": retryable,
+                                        "request_id": request_id}},
+            "resultType": "complete",
+            "ttlMs": 0,
+            "cacheScope": "private",
+        },
     })
 
 
@@ -445,7 +490,9 @@ async def mcp_post(
                 # BUG-208/CHK-088：DiscoverResult 契约 = supportedVersions + resultType +
                 # capabilities（2026-07-28 顶层必填，官方 SDK 2.x 按此解析）；
                 # serverInfo 在 result._meta（display-only stamp，SDK 从 meta 读取）；
-                # ttl_ms/cache_scope 为缓存指示（默认立即失效+私有，2026-07-28 wire 必填）
+                # ttl_ms/cache_scope 为缓存指示（默认立即失效+私有，2026-07-28 wire 必填）；
+                # OPT-011：instructions 为 SDK 原生字段（Agent 用法自描述）；
+                # OPT-010：_meta 命名空间键声明实际发布的工具契约版本
                 return JSONResponse({
                     "jsonrpc": _JSONRPC_VERSION,
                     "id": rpc_id,
@@ -457,10 +504,12 @@ async def mcp_post(
                             if settings.mcp_cover_resource_enabled
                             else {"tools": {}}
                         ),
+                        "instructions": tools.catalog.DISCOVER_INSTRUCTIONS,
                         "ttlMs": 0,
                         "cacheScope": "private",
                         "_meta": {
                             "serverInfo": {"name": _SERVER_NAME, "version": _server_version()},
+                            _CONTRACT_META_KEY: settings.mcp_contract_version,
                         },
                     },
                 })
@@ -516,18 +565,8 @@ async def mcp_post(
                            protocol_version=protocol_version, tool_name="resources/read",
                            args_digest=_args_digest({"uri": uri}), client_ip=trust.client_ip,
                            trust_reason=trust.reason)
-                    return JSONResponse({
-                        "jsonrpc": _JSONRPC_VERSION, "id": rpc_id,
-                        "result": {
-                            "isError": True,
-                            "content": [{"type": "text", "text": exc.message}],
-                            "structuredError": {"code": exc.code, "message": exc.message,
-                                                "retryable": exc.retryable, "request_id": request_id},
-                            "resultType": "complete",
-                            "ttlMs": 0,
-                            "cacheScope": "private",
-                        },
-                    })
+                    return _tool_error_response(rpc_id, exc.code, exc.message,
+                                                exc.retryable, request_id)
                 # BUG-222：resources/read 也接响应体上限检查（与 tools/call 同口径）
                 _resp = JSONResponse({
                     "jsonrpc": _JSONRPC_VERSION, "id": rpc_id,
@@ -615,23 +654,8 @@ async def mcp_post(
                        args_digest=digest, status=200,
                        duration_ms=int((time.monotonic() - started) * 1000),
                        client_ip=trust.client_ip, trust_reason=trust.reason)
-                return JSONResponse({
-                    "jsonrpc": _JSONRPC_VERSION,
-                    "id": rpc_id,
-                    "result": {
-                        "isError": True,
-                        "content": [{"type": "text", "text": exc.message}],
-                        "structuredError": {
-                            "code": exc.code,
-                            "message": exc.message,
-                            "retryable": exc.retryable,
-                            "request_id": request_id,
-                        },
-                        "resultType": "complete",
-                        "ttlMs": 0,
-                        "cacheScope": "private",
-                    },
-                })
+                return _tool_error_response(rpc_id, exc.code, exc.message,
+                                            exc.retryable, request_id)
             except SQLAlchemyError:
                 # BUG-215：数据库异常（busy/超时/约束等）映射为稳定可重试错误 +
                 # 完整调用审计，不泄露 SQL/堆栈，不再裸 500
@@ -642,23 +666,8 @@ async def mcp_post(
                        args_digest=digest, status=200,
                        duration_ms=int((time.monotonic() - started) * 1000),
                        client_ip=trust.client_ip, trust_reason=trust.reason)
-                return JSONResponse({
-                    "jsonrpc": _JSONRPC_VERSION,
-                    "id": rpc_id,
-                    "result": {
-                        "isError": True,
-                        "content": [{"type": "text", "text": "数据库暂时不可用，请稍后重试"}],
-                        "structuredError": {
-                            "code": "DB_BUSY",
-                            "message": "数据库暂时不可用，请稍后重试",
-                            "retryable": True,
-                            "request_id": request_id,
-                        },
-                        "resultType": "complete",
-                        "ttlMs": 0,
-                        "cacheScope": "private",
-                    },
-                })
+                return _tool_error_response(rpc_id, "DB_BUSY", "数据库暂时不可用，请稍后重试",
+                                            True, request_id)
 
             # allow 路径审计 fail-closed（BUG-198）：写入失败绝不返回真实数据
             result_count = tool_result.get("count") if isinstance(tool_result, dict) else None

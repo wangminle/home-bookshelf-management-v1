@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import functools
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -13,12 +15,46 @@ app = typer.Typer(help="家庭图书管理系统 CLI", no_args_is_help=True)
 client = BookshelfClient()
 
 
+def clean_cli_errors(func):
+    """业务错误不再以 Python traceback 抛给用户。
+
+    client 层把连接失败/HTTP 4xx 5xx/业务错误统一抛 RuntimeError；
+    此前未捕获会整段 traceback 直接面向使用者。这里转为一行错误：
+    JSON 模式输出 {"ok": false, "error": ...}（保持 stdout 可解析），
+    文本模式输出到 stderr，均以 exit code 1 退出。
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        json_output = kwargs.get("json_output", True)
+        try:
+            return func(*args, **kwargs)
+        except RuntimeError as exc:
+            if json_output:
+                print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False, indent=2))
+            else:
+                typer.secho(f"❌ {exc}", err=True, fg=typer.colors.RED)
+            raise typer.Exit(code=1)
+    return wrapper
+
+
+def _expand_image(path: Path | None, option_name: str) -> Path | None:
+    """展开 ~ 前缀并校验文件存在（typer 的 exists=True 不会做 expanduser）。"""
+    if path is None:
+        return None
+    expanded = path.expanduser()
+    if not expanded.is_file():
+        raise typer.BadParameter(f"图片不存在：{expanded}", param_hint=option_name)
+    return expanded
+
+
 @app.command("add")
+@clean_cli_errors
 def add_book(
     isbn: Optional[str] = typer.Option(None, "--isbn", help="ISBN-10/13"),
     title: Optional[str] = typer.Option(None, "--title", help="书名"),
     author: Optional[str] = typer.Option(None, "--author", help="作者"),
-    image: Optional[Path] = typer.Option(None, "--image", exists=True, dir_okay=False, help="书封/条码图片"),
+    image: Optional[Path] = typer.Option(None, "--image", dir_okay=False, help="书封/条码图片（支持 ~ 路径）"),
     price: Optional[float] = typer.Option(None, "--price", help="购买价格"),
     channel: Optional[str] = typer.Option(None, "--channel", help="购买渠道"),
     location: Optional[str] = typer.Option(None, "--location", help="存放位置"),
@@ -30,7 +66,7 @@ def add_book(
         isbn=isbn,
         title=title,
         author=author,
-        image=image,
+        image=_expand_image(image, "--image"),
         price=price,
         channel=channel,
         location=location,
@@ -40,6 +76,7 @@ def add_book(
 
 
 @app.command("find")
+@clean_cli_errors
 def find_books(
     keyword: Optional[str] = typer.Option(None, "--keyword", help="关键词（书名）"),
     author: Optional[str] = typer.Option(None, "--author", help="作者"),
@@ -52,6 +89,7 @@ def find_books(
 
 
 @app.command("show")
+@clean_cli_errors
 def show_book(
     book_id: int = typer.Option(..., "--id", help="书籍 ID"),
     json_output: bool = typer.Option(True, "--json/--no-json", help="JSON 输出"),
@@ -62,16 +100,18 @@ def show_book(
 
 
 @app.command("recognize")
+@clean_cli_errors
 def recognize_isbn(
-    image: Path = typer.Option(..., "--image", exists=True, dir_okay=False, help="条码/书封图片"),
+    image: Path = typer.Option(..., "--image", dir_okay=False, help="条码/书封图片（支持 ~ 路径）"),
     json_output: bool = typer.Option(True, "--json/--no-json", help="JSON 输出"),
 ):
     """识别图片中的 ISBN 条码"""
-    result = client.recognize_isbn(image)
+    result = client.recognize_isbn(_expand_image(image, "--image"))
     emit(result, json_output)
 
 
 @app.command("progress")
+@clean_cli_errors
 def update_progress(
     book_id: int = typer.Option(..., "--book-id", help="书籍 ID"),
     member_id: Optional[int] = typer.Option(None, "--member-id", help="家庭成员 ID"),
@@ -96,6 +136,7 @@ def update_progress(
 
 
 @app.command("purchase")
+@clean_cli_errors
 def log_purchase(
     book_id: int = typer.Option(..., "--book-id", help="书籍 ID"),
     price: float = typer.Option(..., "--price", help="购买价格"),
@@ -122,6 +163,7 @@ def log_purchase(
 
 
 @app.command("health")
+@clean_cli_errors
 def health(json_output: bool = typer.Option(True, "--json/--no-json", help="JSON 输出")):
     """检查 API 服务状态"""
     result = client.health()
@@ -129,6 +171,7 @@ def health(json_output: bool = typer.Option(True, "--json/--no-json", help="JSON
 
 
 @app.command("note")
+@clean_cli_errors
 def add_note(
     book_id: int = typer.Option(..., "--book-id", help="书籍 ID"),
     content: str = typer.Option(..., "--content", help="笔记内容（Markdown）"),
@@ -151,6 +194,7 @@ def add_note(
 
 
 @app.command("reading-log")
+@clean_cli_errors
 def add_reading_log(
     book_id: int = typer.Option(..., "--book-id", help="书籍 ID"),
     log_date: str = typer.Option(..., "--date", help="日期 YYYY-MM-DD"),
@@ -173,6 +217,7 @@ def add_reading_log(
 
 
 @app.command("stats")
+@clean_cli_errors
 def show_stats(json_output: bool = typer.Option(True, "--json/--no-json", help="JSON 输出")):
     """查看藏书与阅读统计"""
     result = client.stats()
@@ -191,23 +236,32 @@ def doctor(
     """
     if authorized:
         # WBS-8：授权后业务检查
-        from bookshelf.bootstrap import cmd_auth_status
-        import json
+        from bookshelf.bootstrap import collect_auth_status, emit_auth_status
         import os
         token = os.environ.get("BOOKSHELF_TOKEN")
         if not token:
             print(json.dumps({"ok": False, "error": "未设置 BOOKSHELF_TOKEN，无法执行授权后检查"}, ensure_ascii=False))
             raise typer.Exit(code=1)
-        # 先检查 auth status
-        cmd_auth_status(json_output)
-        # auth status 成功后再跑常规 doctor
+        # auth 失败（无效 Token/连接失败）直接以单一 JSON 退出，不再继续 doctor
+        auth_result = collect_auth_status()
+        if auth_result["status"] != "authorized":
+            print(json.dumps({"ok": False, "auth_status": auth_result}, ensure_ascii=False, indent=2))
+            raise typer.Exit(code=1)
+        if not json_output:
+            # 文本模式可分段输出；JSON 模式必须合并为单一文档（见下方）
+            emit_auth_status(auth_result, json_output)
     payload = run_doctor(client).to_payload()
+    if authorized:
+        # 此前 JSON 模式下 auth status 与 doctor 各 print 一份，
+        # stdout 拼成两个 JSON 文档无法解析；合并为单一文档输出
+        payload["auth_status"] = auth_result
     emit_doctor(payload, json_output)
     if not payload.get("ok"):
         raise typer.Exit(code=1)
 
 
 @app.command("bind")
+@clean_cli_errors
 def bind_member(
     member_id: int = typer.Option(..., "--member-id", help="家庭成员 ID"),
     channel: str = typer.Option(..., "--channel", help="渠道名，如 feishu / telegram"),
@@ -224,6 +278,7 @@ def bind_member(
 
 
 @app.command("member")
+@clean_cli_errors
 def add_member(
     name: str = typer.Option(..., "--name", help="成员名称"),
     role: str = typer.Option("member", "--role", help="角色：owner / member"),

@@ -133,6 +133,15 @@ class BookshelfClient:
                 f"public-health 亦不可达（HTTP {pub_status}）"
             )
         if status and status >= 400:
+            # DB 断开时后端返回 503 + 完整诊断体（data.database=disconnected）：
+            # 这是"可达但降级"，应原样交给 doctor 走数据库分支；
+            # 此前只认 detail 键会把诊断信息丢掉，doctor 误报"API 不可达、请启动 uvicorn"。
+            if (
+                isinstance(payload, dict)
+                and isinstance(payload.get("data"), dict)
+                and "database" in payload["data"]
+            ):
+                return payload
             detail = payload.get("detail") if isinstance(payload, dict) else payload
             raise RuntimeError(f"[HTTP {status}] {detail or 'health 检查失败'}")
         return payload

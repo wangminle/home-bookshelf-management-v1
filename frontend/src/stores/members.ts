@@ -8,6 +8,8 @@ const STORAGE_KEY = 'bookshelf_selected_member_id'
 export const useMembersStore = defineStore('members', () => {
   const members = ref<MemberOut[]>([])
   const selectedId = ref<number | null>(null)
+  /** 成功加载过至少一次（空列表也算成功）；失败保持 false 以便重试 */
+  const loaded = ref(false)
   const api = useApiStore()
 
   const selectedMember = computed(() =>
@@ -23,6 +25,7 @@ export const useMembersStore = defineStore('members', () => {
       try {
         const data = await api.get<{ items: MemberOut[]; total: number }>('/members')
         members.value = data.items
+        loaded.value = true
         // 恢复 localStorage 中的选择，或默认选第一个
         const saved = localStorage.getItem(STORAGE_KEY)
         const savedId = saved ? parseInt(saved, 10) : null
@@ -43,5 +46,5 @@ export const useMembersStore = defineStore('members', () => {
     localStorage.setItem(STORAGE_KEY, String(id))
   }
 
-  return { members, selectedId, selectedMember, load, select }
+  return { members, selectedId, selectedMember, loaded, load, select }
 })

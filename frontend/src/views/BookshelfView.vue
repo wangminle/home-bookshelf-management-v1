@@ -62,6 +62,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll)
+  // 防抖定时器随组件清理，否则卸载后仍会触发 filters 更新
+  if (keywordTimer) clearTimeout(keywordTimer)
 })
 </script>
 

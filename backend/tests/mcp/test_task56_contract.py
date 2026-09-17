@@ -7,10 +7,10 @@
   空白筛选值在机器 Schema（Draft 2020-12 实例级验证）即拒绝，与运行时
   "strip 后为空视同未提供"语义一致；
 - OPT-010：v2 契约（MCP_CONTRACT_VERSION=v2）版本化拆分搜索摘要/详情；
-  声明面 outputSchema 用 oneOf 精确表达 full/summary 两形态（BUG-231：
-  混合形态在任一分支都不通过）；v1 兼容口径为业务输出与字段语义兼容
-  （BUG-233），v1 线缆形状由 fixtures/v1_wire_baseline.json 基线快照固定
-  （MCP_BASELINE_REGEN=1 重新生成）；
+  声明面 outputSchema 用 envelope 级 anyOf 表达 full/summary 两形态（BUG-231：
+  空结果合法；混合形态在任一分支都不通过）；v1 兼容口径为业务输出与字段语义兼容
+  （BUG-233），v1 线缆形状由 fixtures/v1_wire_baseline.json 以归一化 JSON
+  结构/值固定（不冻结键序、空白或真实传输字节；MCP_BASELINE_REGEN=1 重新生成）；
 - OPT-011：server/discover 返回 instructions 与契约版本 _meta；
 - OPT-012：工具错误在 result._meta["io.homebookshelf/error"] 携带稳定
   code/retryable/request_id（官方 SDK CallToolResult extra="ignore" 顶层
@@ -18,6 +18,7 @@
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -260,8 +261,9 @@ def test_cover_resource_error_meta(mcp_on, seeded: dict, db_session: Session, mo
 def _normalize_wire(obj: object) -> dict:
     """基线快照归一化：仅抹平跨运行必然变化的动态值。
 
-    request_id（随机）、游标（HMAC）、serverInfo 版本（随构建变化）；
-    其余字节（含描述文案、Schema、instructions、错误帧结构）原样保留。
+    request_id（随机）、游标（HMAC）、serverInfo 版本（随构建变化）。
+    比较对象是 json.dumps 后再 json.loads 的 dict，冻结的是归一化 JSON
+    结构与值，不是键顺序、空白或真实传输字节。
     """
     text = json.dumps(obj, ensure_ascii=False)
     text = re.sub(r"req_[0-9a-f]{12}", "req_<id>", text)
@@ -300,7 +302,8 @@ def _capture_v1_frames(c: TestClient, token: str, book_id: int) -> dict:
 def test_v1_semantic_compatibility_with_v2_off(mcp_on, seeded: dict, db_session: Session) -> None:
     """默认 v1：描述符无 output 参数、声明面仍是 13 字段严格 Schema、
     缺省搜索输出全字段——v2 不改变 v1 的业务输出与字段语义（BUG-233：
-    兼容口径是字段/语义兼容，不是字节级不变；线缆形状由基线快照固定）。"""
+    兼容口径是字段/语义兼容，不是传输字节不变；线缆形状由归一化 JSON
+    基线快照固定）。"""
     c = _mcp_client(db_session)
     r = c.post("/mcp", json={
         "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"_meta": {}},
@@ -318,8 +321,9 @@ def test_v1_semantic_compatibility_with_v2_off(mcp_on, seeded: dict, db_session:
 
 def test_v1_wire_baseline_snapshot(mcp_on, seeded: dict, db_session: Session) -> None:
     """v1 线缆基线快照（BUG-233）：描述符、discover、错误帧、业务结果的
-    归一化字节必须与冻结基线一致——此后对 v1 线缆的任何改动都必须
-    有意更新基线，而不是无声漂移。MCP_BASELINE_REGEN=1 重新生成。
+    归一化 JSON 结构与值必须与冻结基线一致——此后对 v1 线缆的任何改动都
+    必须有意更新基线，而不是无声漂移。比较的是 dict，不是键序/空白/传输
+    字节。MCP_BASELINE_REGEN=1 重新生成。
     """
     c = _mcp_client(db_session)
     captured = _capture_v1_frames(c, seeded["token"], seeded["books"][0].id)
@@ -351,12 +355,11 @@ def test_v2_descriptor_summary_default_full(mcp_on, seeded: dict, db_session: Se
     result = r.json()["result"]
     search = result["tools"][0]
     assert search["inputSchema"]["properties"]["output"]["enum"] == ["full", "summary"]
-    # 声明面（BUG-231 + CHK-100 残余风险收口）：envelope 级 oneOf 两分支——
-    # 完整响应（items 全为 13 字段形态）/ 摘要响应（items 全为恰 5 字段形态）；
-    # 混合形态 item 或同响应混用两形态在任一分支都不通过
-    envelope_one_of = search["outputSchema"]["oneOf"]
-    assert len(envelope_one_of) == 2
-    full_branch, summary_branch = envelope_one_of
+    # 声明面（BUG-231）：envelope 级 anyOf 两分支——完整响应 / 摘要响应；
+    # 空结果合法；混合形态 item 或同响应混用两形态在任一分支都不通过
+    envelope_any_of = search["outputSchema"]["anyOf"]
+    assert len(envelope_any_of) == 2
+    full_branch, summary_branch = envelope_any_of
     full_items = full_branch["properties"]["items"]["items"]
     assert set(full_items["required"]) == V1_ITEM_FIELDS
     assert full_items["additionalProperties"] is False
@@ -370,8 +373,8 @@ def test_v2_descriptor_summary_default_full(mcp_on, seeded: dict, db_session: Se
 
 
 def test_v2_declared_schema_rejects_mixed_form(mcp_on, monkeypatch) -> None:
-    """BUG-231 + CHK-100 残余风险：声明面 envelope 级 oneOf——完整/摘要
-    响应合法，混合形态 item 与同响应混用两形态均非法。
+    """BUG-231：声明面 envelope 级 anyOf——完整/摘要响应与空结果合法，
+    混合形态 item 与同响应混用两形态均非法。
 
     用与官方 SDK 客户端同源的 Draft 2020-12 验证器做实例级验证。
     """
@@ -401,6 +404,32 @@ def test_v2_declared_schema_rejects_mixed_form(mcp_on, monkeypatch) -> None:
     assert list(validator.iter_errors(_envelope([partial_item])))
     # 同一响应混用 full/summary 对象（服务端按档位同构产出，不会出现）也非法
     assert list(validator.iter_errors(_envelope([full_item, summary_item])))
+    # 空结果页（items=[]）同时匹配两分支；anyOf 允许，oneOf 会误拒
+    empty = _envelope([])
+    assert not list(validator.iter_errors(empty)), (
+        "空搜索结果必须通过声明面：envelope oneOf 会因同时匹配两分支而拒绝"
+    )
+
+
+def test_v2_empty_search_http_passes_declared_schema(
+        mcp_on, seeded: dict, db_session: Session, monkeypatch) -> None:
+    """线上空结果页（full 与 summary）都必须通过声明面，不能被 oneOf 误拒。"""
+    from app.config import settings
+    monkeypatch.setattr(settings, "mcp_contract_version", "v2")
+    c = _mcp_client(db_session)
+    search = mcp_catalog.tool_descriptors()[0]
+    validator = Draft202012Validator(search["outputSchema"])
+    for arguments in (
+        {"query": "不存在的书名xyzzy"},
+        {"query": "不存在的书名xyzzy", "output": "summary"},
+    ):
+        r = _call(c, seeded["token"], "bookshelf_search_books", arguments)
+        result = r.json()["result"]
+        assert result["isError"] is False
+        payload = result["structuredContent"]
+        assert payload["items"] == [] and payload["count"] == 0
+        errors = list(validator.iter_errors(payload))
+        assert not errors, [str(e) for e in errors]
 
 
 def test_v2_served_responses_pass_declared_schema(mcp_on, seeded: dict, db_session: Session,
@@ -507,3 +536,137 @@ def test_v2_contract_file_loads_and_freezes_surface(monkeypatch) -> None:
         validator = Draft202012Validator(constraints[descriptor["name"]])
         errors = list(validator.iter_errors(descriptor))
         assert not errors, [str(e) for e in errors]
+
+
+def test_v2_descriptor_constraints_reject_weakened_branches(monkeypatch) -> None:
+    """BUG-231：descriptor_constraints 必须冻结 anyOf/输出分支的 required、
+    pattern、字段集与 additionalProperties——仅限制分支数量不够。
+    把输入换成 5 个空分支、输出换成 2 个任意 object 分支必须被拒绝。
+    """
+    from app.config import settings
+    monkeypatch.setattr(settings, "mcp_contract_version", "v2")
+    schema = json.loads(V2_SCHEMA_PATH.read_text(encoding="utf-8"))
+    constraints = schema["properties"]["descriptor_constraints"]["properties"]
+    search = copy.deepcopy(mcp_catalog.tool_descriptors()[0])
+    validator = Draft202012Validator(constraints[search["name"]])
+    assert not list(validator.iter_errors(search)), "线上描述符本身必须通过冻结约束"
+
+    weakened_input = copy.deepcopy(search)
+    weakened_input["inputSchema"]["anyOf"] = [{}, {}, {}, {}, {}]
+    assert list(validator.iter_errors(weakened_input)), (
+        "5 个空 anyOf 分支必须被 descriptor_constraints 拒绝"
+    )
+
+    weakened_output = copy.deepcopy(search)
+    combinator = "anyOf" if "anyOf" in weakened_output["outputSchema"] else "oneOf"
+    weakened_output["outputSchema"] = {combinator: [{}, {}]}
+    assert list(validator.iter_errors(weakened_output)), (
+        "2 个空输出分支必须被 descriptor_constraints 拒绝"
+    )
+
+
+# ── BUG-231 深冻（CHK-107 收口）：字段级弱化的对抗变异集 ──
+# 前 8 项为 CHK-107 对抗复现的变异——「保留 required 外壳、掏空/放宽字段
+# 定义」在深冻前全部 0 errors 通过；深冻后 descriptor_constraints 必须拒绝。
+# 其后为同思路的补充变异：部分在深冻前已被既有约束拦截（回归保持），
+# 部分（键集外添加字段、enum 删除、next_cursor 收窄）为深冻新增拦截。
+
+def _set(container: dict, key: str, value) -> None:
+    container[key] = value
+
+
+def _drop(container: dict, key: str) -> None:
+    del container[key]
+
+
+def _out_item(descriptor: dict, branch: int) -> dict:
+    """定位 search outputSchema anyOf 分支的 items 子 Schema（item 形态定义）。"""
+    return descriptor["outputSchema"]["anyOf"][branch]["properties"]["items"]["items"]
+
+
+SEARCH_FIELD_WEAKENINGS = [
+    # CHK-107 变异集
+    ("input-query-type-integer",
+     lambda d: _set(d["inputSchema"]["properties"]["query"], "type", "integer")),
+    ("input-query-maxlength-999999",
+     lambda d: _set(d["inputSchema"]["properties"]["query"], "maxLength", 999999)),
+    ("input-author-maxlength-dropped",
+     lambda d: _drop(d["inputSchema"]["properties"]["author"], "maxLength")),
+    ("output-envelope-count-type-string",
+     lambda d: [_set(d["outputSchema"]["anyOf"][b]["properties"]["count"], "type", "string")
+                for b in (0, 1)]),
+    ("output-item-member-id-added",
+     lambda d: _set(_out_item(d, 0)["properties"], "member_id", {"type": "integer"})),
+    ("output-item-id-type-string",
+     lambda d: [_set(_out_item(d, b)["properties"]["id"], "type", "string") for b in (0, 1)]),
+    ("output-item-properties-cleared",
+     lambda d: [_set(_out_item(d, b), "properties", {}) for b in (0, 1)]),
+    ("output-envelope-has-more-type-string",
+     lambda d: [_set(d["outputSchema"]["anyOf"][b]["properties"]["has_more"], "type", "string")
+                for b in (0, 1)]),
+    # 补充变异：同一弱化思路的相邻字段
+    ("input-limit-minimum-zero",
+     lambda d: _set(d["inputSchema"]["properties"]["limit"], "minimum", 0)),
+    ("input-member-id-added",
+     lambda d: _set(d["inputSchema"]["properties"], "member_id", {"type": "integer"})),
+    ("input-availability-key-dropped",
+     lambda d: _drop(d["inputSchema"]["properties"], "availability")),
+    ("anyof-branch1-pattern-weakened",
+     lambda d: _set(d["inputSchema"]["anyOf"][0]["properties"]["query"], "pattern", ".*")),
+    ("output-item-availability-enum-dropped",
+     lambda d: [_drop(_out_item(d, b)["properties"]["availability"], "enum") for b in (0, 1)]),
+    ("output-item-additionalprops-true",
+     lambda d: [_set(_out_item(d, b), "additionalProperties", True) for b in (0, 1)]),
+    ("output-envelope-next-cursor-not-nullable",
+     lambda d: [_set(d["outputSchema"]["anyOf"][b]["properties"]["next_cursor"], "type", "string")
+                for b in (0, 1)]),
+]
+
+GET_FIELD_WEAKENINGS = [
+    ("get-output-properties-cleared",
+     lambda d: _set(d["outputSchema"], "properties", {})),
+    ("get-output-id-type-string",
+     lambda d: _set(d["outputSchema"]["properties"]["id"], "type", "string")),
+    ("get-input-book-id-minimum-dropped",
+     lambda d: _drop(d["inputSchema"]["properties"]["book_id"], "minimum")),
+    ("get-input-member-id-added",
+     lambda d: _set(d["inputSchema"]["properties"], "member_id", {"type": "integer"})),
+]
+
+
+def _assert_weakening_rejected(weakened: dict, constraints: dict, case: str) -> None:
+    validator = Draft202012Validator(constraints[weakened["name"]])
+    errors = list(validator.iter_errors(weakened))
+    assert errors, f"字段级弱化 {case} 必须被 descriptor_constraints 拒绝（BUG-231 深冻）"
+
+
+@pytest.mark.parametrize("case,weaken", SEARCH_FIELD_WEAKENINGS, ids=[c for c, _ in SEARCH_FIELD_WEAKENINGS])
+def test_v2_descriptor_constraints_reject_field_weakenings_search(monkeypatch, case, weaken) -> None:
+    """BUG-231 深冻：search 描述符保留外壳、弱化字段定义必须被拒绝。"""
+    from app.config import settings
+    monkeypatch.setattr(settings, "mcp_contract_version", "v2")
+    schema = json.loads(V2_SCHEMA_PATH.read_text(encoding="utf-8"))
+    constraints = schema["properties"]["descriptor_constraints"]["properties"]
+    search = copy.deepcopy(mcp_catalog.tool_descriptors()[0])
+    validator = Draft202012Validator(constraints[search["name"]])
+    assert not list(validator.iter_errors(search)), "线上描述符本身必须通过冻结约束"
+
+    weakened = copy.deepcopy(search)
+    weaken(weakened)
+    _assert_weakening_rejected(weakened, constraints, case)
+
+
+@pytest.mark.parametrize("case,weaken", GET_FIELD_WEAKENINGS, ids=[c for c, _ in GET_FIELD_WEAKENINGS])
+def test_v2_descriptor_constraints_reject_field_weakenings_get(monkeypatch, case, weaken) -> None:
+    """BUG-231 深冻：get 描述符的字段级弱化同样必须被拒绝（与 search 同口径）。"""
+    from app.config import settings
+    monkeypatch.setattr(settings, "mcp_contract_version", "v2")
+    schema = json.loads(V2_SCHEMA_PATH.read_text(encoding="utf-8"))
+    constraints = schema["properties"]["descriptor_constraints"]["properties"]
+    get = copy.deepcopy(mcp_catalog.tool_descriptors()[1])
+    validator = Draft202012Validator(constraints[get["name"]])
+    assert not list(validator.iter_errors(get)), "线上描述符本身必须通过冻结约束"
+
+    weakened = copy.deepcopy(get)
+    weaken(weakened)
+    _assert_weakening_rejected(weakened, constraints, case)

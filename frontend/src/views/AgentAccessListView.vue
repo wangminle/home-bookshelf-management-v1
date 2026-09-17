@@ -6,6 +6,7 @@
 */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { extractApiErrorMessage } from '@/stores/api'
 
 const router = useRouter()
 // CHK-039 P2: auth/* 和 agent-access/* 路由注册在根级，不在 /api/v1 下。
@@ -156,7 +157,8 @@ async function apiCall(path: string, options?: RequestInit) {
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body.detail || res.statusText)
+    // 422 数组 detail 需规范化，否则渲染成 [object Object]
+    throw new Error(extractApiErrorMessage(body, res.status, '请求失败'))
   }
   return res.json()
 }

@@ -8,7 +8,7 @@ from app.config import settings
 from app import db as db_module
 from app.schemas.agent_discovery import PublicHealthData
 from app.schemas.book import ApiResponse, HealthOut
-from app.services.agent_discovery import build_public_health
+from app.services.agent_discovery import _APP_VERSION, build_public_health, read_frontend_build_info
 
 router = APIRouter()
 
@@ -52,6 +52,9 @@ def health_check(
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
 
     ok = database == "connected"
+    # 前端产物版本态势与 public-health 同源：持有 Token 的 doctor 走 /health，
+    # 缺这两个字段会误报"前端产物未同步"的漂移告警
+    frontend_version, _build_time = read_frontend_build_info()
     return ApiResponse(
         ok=ok,
         data=HealthOut(
@@ -60,6 +63,8 @@ def health_check(
             database=database,
             google_books_configured=bool(settings.google_books_api_key),
             barcode_scan_available=_barcode_scan_available(),
+            app_version=_APP_VERSION,
+            frontend_version=frontend_version,
             channel_signing_configured=bool(settings.channel_signing_secret),
             channel_bindings_present=channel_bindings_present,
             # CHK-071：按成功解析的网络数判断——无效 CIDR 被静默跳过时

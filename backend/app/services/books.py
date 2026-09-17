@@ -177,6 +177,19 @@ def _delete_data_file(rel_path: str | None) -> None:
         pass
 
 
+def _delete_cover_if_unreferenced(db: Session, cover_path: str | None) -> None:
+    """删除封面文件前确认库中无书籍仍引用该路径（merge_books 同款检查）。
+
+    无 ISBN 的同名书可能指向同一封面文件（历史数据/下载封面按
+    normalize_title 命名），不加检查会把另一本书正在用的封面删成 404。
+    """
+    if not cover_path:
+        return
+    referenced = db.scalar(select(Book.id).where(Book.cover_path == cover_path).limit(1))
+    if not referenced:
+        _delete_data_file(cover_path)
+
+
 def delete_book(db: Session, book_id: int) -> str:
     """删除一本书及其全部关联数据。
 
@@ -215,8 +228,9 @@ def delete_book(db: Session, book_id: int) -> str:
     except IntegrityError as exc:
         raise rollback_on_integrity(db, exc) from exc
 
-    # 提交成功后再删封面与附件文件：避免回滚后文件已丢却书还在
-    _delete_data_file(cover_path)
+    # 提交成功后再删封面与附件文件：避免回滚后文件已丢却书还在。
+    # 封面可能被其它书共享引用，须先查引用（此时本书行已删，剩余引用即他人）。
+    _delete_cover_if_unreferenced(db, cover_path)
     for fp in attachment_file_paths:
         _delete_data_file(fp)
     return title
@@ -482,8 +496,9 @@ def set_book_cover(db: Session, book_id: int, cover_path: str) -> Book:
     except IntegrityError as exc:
         raise rollback_on_integrity(db, exc) from exc
 
-    # 新封面已生效后清理旧封面文件（避免被新封面覆盖的同名情况）
+    # 新封面已生效后清理旧封面文件（避免被新封面覆盖的同名情况）。
+    # 旧封面可能被其它书引用（无 ISBN 同名书共享封面），须先查引用。
     if old_cover and old_cover != cover_path:
-        _delete_data_file(old_cover)
+        _delete_cover_if_unreferenced(db, old_cover)
     db.refresh(book)
     return book

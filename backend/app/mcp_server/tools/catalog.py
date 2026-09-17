@@ -153,12 +153,11 @@ _SEARCH_OUTPUT_SCHEMA: dict[str, Any] = {
 # ── v2 契约（OPT-010：版本化拆分搜索摘要与详情） ──
 # 服务端按请求实际档位选择严格 Schema 校验：full 档仍用 _SEARCH_OUTPUT_SCHEMA，
 # summary 档用 _SEARCH_OUTPUT_SCHEMA_V2_SUMMARY；tools/list 声明的
-# _SEARCH_OUTPUT_SCHEMA_V2_DECLARED 用 envelope 级 oneOf 精确表达两种合法
-# 响应（BUG-231 + CHK-100 残余风险收口）：分支1=完整响应（items 全为 13
-# 字段形态）、分支2=摘要响应（items 全为恰 5 字段形态），两分支 envelope
-# 与 item 均 additionalProperties=false——同一响应内混用 full/summary 对象
-# 或出现混合形态 item 在任一分支都不通过，Agent 代码生成与响应验证可据此
-# 确定性区分档位。
+# _SEARCH_OUTPUT_SCHEMA_V2_DECLARED 用 envelope 级 anyOf 表达两种合法响应
+# （不可用 oneOf：空 items=[] 会同时匹配两分支而被误拒）。
+# 分支1=完整响应（items 全为 13 字段形态）、分支2=摘要响应（items 全为
+# 恰 5 字段形态），两分支 envelope 与 item 均 additionalProperties=false。
+# 同一响应内混用 full/summary 对象或混合形态 item 在任一分支都不通过。
 
 _BOOK_SUMMARY_OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -185,10 +184,11 @@ _SEARCH_OUTPUT_SCHEMA_V2_SUMMARY: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-# 声明面（BUG-231）：envelope 级 oneOf——完整响应或摘要响应二选一；
-# 服务端每档产生同构 items，混用数组与混合形态 item 均被拒绝
+# 声明面（BUG-231）：envelope 级 anyOf——完整响应或摘要响应。
+# 不用 oneOf：空 items=[] 会同时匹配两分支，oneOf 会把合法空搜索判无效。
+# 服务端每档产生同构 items；混用数组与混合形态 item 仍在两分支都不通过。
 _SEARCH_OUTPUT_SCHEMA_V2_DECLARED: dict[str, Any] = {
-    "oneOf": [
+    "anyOf": [
         _SEARCH_OUTPUT_SCHEMA,
         _SEARCH_OUTPUT_SCHEMA_V2_SUMMARY,
     ]
@@ -563,7 +563,9 @@ def parse_cover_uri(uri: str) -> int:
     if not isinstance(uri, str) or not uri.startswith(_COVER_URI_PREFIX):
         raise ToolError("RESOURCE_URI_INVALID", f"不支持的资源 URI（当前仅 {_COVER_URI_PREFIX}{{book_id}}）")
     raw = uri[len(_COVER_URI_PREFIX):]
-    if isinstance(raw, bool) or not raw.isdigit() or int(raw) < 1:
+    # 必须限定 ASCII 数字：isdigit() 对 Unicode 数字（如全角"１２３"、上标"²"）
+    # 也返回 True，int() 对上标等抛 ValueError 会落进 INTERNAL_ERROR 而非参数错误
+    if not raw.isascii() or not raw.isdigit() or int(raw) < 1:
         raise ToolError("RESOURCE_URI_INVALID", "资源 URI 的 book_id 必须是正整数")
     return int(raw)
 

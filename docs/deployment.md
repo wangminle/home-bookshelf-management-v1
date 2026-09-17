@@ -43,8 +43,18 @@ docker compose down
 bash scripts/deploy_frontend.sh --base /home-bookshelf/
 ```
 
-3. 再执行 `lwa rebuild home-bookshelf-management-v1`。
-4. 探活：
+3. 再执行 `lwa rebuild <instance-id>`。
+4. 核对数据库指向（GitHub #15：`lwa rebuild` 重建 `docker/.env` 时可能重置 `DATABASE_URL`；旧式部署曾在 start 命令里 `export DATABASE_URL=...bookshelf.db` 指定自定义库名，该来源不在 lwa 的保留逻辑内，rebuild 后会被丢弃）：
+
+```bash
+# .env 里的库名应与 data/ 下实际带数据的库文件一致
+grep DATABASE_URL <lwa-workspace>/apps/<instance-id>/docker/.env
+ls -la <lwa-workspace>/apps/<instance-id>/data/
+```
+
+不一致的典型症状：应用连上空库，登录报「尚无已设置密码的账号」，业务数据"消失"（文件仍在，只是没被指向）。处置：停实例后把带数据的库文件换名为 `.env` 指向的名字（连同 `-wal`/`-shm` 一起），再启动——start 命令里的 `alembic upgrade head` 会在线补齐迁移。新部署建议从一开始就用 lwa 默认的 `app.sqlite` 命名，不要把 `DATABASE_URL` 写进 start 命令。
+
+5. 探活：
 
 ```bash
 curl -f http://<host>:<port>/api/v1/public-health
@@ -62,6 +72,10 @@ lwa import --from-dir <项目路径>/backend --name "家庭图书管理" --yes
 # 修改启动命令加入 alembic 迁移（lwa 生成的 Dockerfile 默认不跑迁移）
 # 编辑 apps/<instance-id>/local-web.json，将 start 改为：
 #   sh -c "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir ."
+# 注意：不要在 start 命令里 export DATABASE_URL 指定自定义库名——lwa rebuild 重建
+# docker/.env 时该来源会被丢弃，应用会静默切到默认空库（GitHub #15）；
+# 需要自定义库名时改 docker/.env（lwa 对其中的 DATABASE_URL 有保留逻辑），
+# 或直接沿用 lwa 默认的 app.sqlite 命名。
 
 # 启动
 lwa start <instance-id>
@@ -195,7 +209,7 @@ Owner 在书籍详情页可单书设置可见级别，在「策略」页（`/cat
   （稳定 `code/retryable/request_id`，官方 SDK 可直接读取；顶层
   `structuredError` 扩展保留向后兼容）；
 - 工具契约版本 `MCP_CONTRACT_VERSION`（默认 `v1` 冻结核心档；`v2` 时 search
-  增加可选 `output=summary` 摘要档，声明面 outputSchema 为 oneOf 两形态）。
+  增加可选 `output=summary` 摘要档，声明面 outputSchema 为 anyOf 两形态）。
   发布 `v2` 须同步 `design/schemas/mcp-catalog-tools-v2.schema.json` 与兼容报告；
 - 搜索必须至少带一个筛选条件（纯空白不计）；单页最多 20 条（配置超限自动
   夹取到 20）；游标经 HMAC 签名防篡改且限长；

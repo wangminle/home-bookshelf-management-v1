@@ -166,6 +166,14 @@ def download_cover(cover_url: str, target_name: str) -> str | None:
         return None
 
     dest = settings.covers_dir / f"{sanitize_filename_stem(target_name)}{suffix}"
+    # 目标文件已存在时不得覆盖：无 ISBN 的同名书会生成相同 target_name
+    # （isbn13 or normalize_title(title)），直接 replace 会把另一本书
+    # 正在引用的封面文件内容换掉。改用带 uuid 后缀的唯一文件名（与
+    # save_uploaded_image 的 overwrite=False 分支一致）。
+    if dest.exists():
+        from uuid import uuid4
+
+        dest = settings.covers_dir / f"{sanitize_filename_stem(target_name)}_{uuid4().hex[:8]}{suffix}"
     from uuid import uuid4
 
     tmp_dest = settings.covers_dir / f"{sanitize_filename_stem(target_name)}.{uuid4().hex[:8]}.part{suffix}"

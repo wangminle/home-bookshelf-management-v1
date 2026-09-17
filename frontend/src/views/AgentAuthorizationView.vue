@@ -12,6 +12,7 @@
 import { ref, onMounted } from 'vue'
 import ScopeSelector from '@/components/ScopeSelector.vue'
 import { invalidateSession } from '@/stores/session'
+import { extractApiErrorMessage } from '@/stores/api'
 
 // ── 类型 ──
 interface AgentClient {
@@ -78,8 +79,9 @@ async function apiCall(path: string, options?: RequestInit) {
     ...options,
   })
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
-    throw new Error(body.detail || `HTTP ${res.status}`)
+    const body = await res.json().catch(() => ({}))
+    // 422 数组 detail 需规范化，否则 alert 弹出 [object Object]
+    throw new Error(extractApiErrorMessage(body, res.status, '请求失败'))
   }
   return res.json()
 }

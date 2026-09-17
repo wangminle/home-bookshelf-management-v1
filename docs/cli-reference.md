@@ -46,7 +46,7 @@ bookshelf add [--isbn ISBN] [--title 书名] [--author 作者] [--image 路径]
               [--price 价格] [--channel 渠道] [--location 位置] [--member-id ID]
 ```
 
-至少提供 ISBN、图片或书名之一。
+至少提供 ISBN、图片或书名之一。`--image` 支持 `~` 前缀（自动展开为家目录）。
 
 ## `find` / `show`
 
@@ -99,7 +99,7 @@ bookshelf bind --member-id ID --channel 渠道名 --external-user-id 外部ID
 ```bash
 bookshelf doctor [--authorized]
 bookshelf health
-bookshelf recognize --image 路径
+bookshelf recognize --image 路径        # 支持 ~ 前缀
 bookshelf stats
 bookshelf bootstrap http://<服务器>
 bookshelf auth status
@@ -108,10 +108,16 @@ bookshelf auth status
 补充：
 
 - `bookshelf doctor` 在检查未通过时会以退出码 `1` 结束，便于 Agent / 脚本判断失败
-- `doctor --authorized`：授权后业务检查，需先设置 `BOOKSHELF_TOKEN`（会先跑 `auth status` 再做常规诊断）
-- `bookshelf health` / 其他命令若遇到 API 非 JSON、网络错误或 HTTP 4xx/5xx，会返回更明确的中文错误而不是裸 traceback
-- `GET /api/v1/health` 已要求认证（`members:read`）：无凭证时 `health`/`doctor` 自动回退 `GET /api/v1/public-health` 验证可达性，并以警告提示诊断细节不可用（数据库状态显示「未知」而非误报异常）。监控脚本请直接打 `public-health`，不要再对 `/health` 期望 200。
-- `doctor` 会读取 `public-health` 的 `frontend_version` / `build_time`，与 `app_version` 不一致时警告 static 漂移。
+- `doctor --authorized`：授权后业务检查，需先设置 `BOOKSHELF_TOKEN`（会先跑
+  `auth status` 再做常规诊断）。JSON 模式输出**单一** JSON 文档——auth 结果并入
+  顶层 `auth_status` 键，stdout 始终可整体解析；auth 失败（无效 Token / 连接失败）
+  时输出失败文档并退出码 1，不再继续诊断
+- `bookshelf health` / 其他命令若遇到 API 非 JSON、网络错误或 HTTP 4xx/5xx，
+  会返回更明确的中文错误而不是裸 traceback：JSON 模式输出
+  `{"ok": false, "error": "..."}` 单文档、文本模式向 stderr 输出一行错误，
+  均以退出码 `1` 结束
+- `GET /api/v1/health` 已要求认证（`members:read`）：无凭证时 `health`/`doctor` 自动回退 `GET /api/v1/public-health` 验证可达性，并以警告提示诊断细节不可用（数据库状态显示「未知」而非误报异常）。监控脚本请直接打 `public-health`，不要再对 `/health` 期望 200。数据库断开时 `/health` 返回 503 + 诊断体，`doctor` 会正确报告「数据库未连接」并给出处置建议（检查 `DATABASE_URL` / 迁移），不会误诊为 API 不可达
+- `doctor` 会读取 health 响应（无凭证走 `public-health`，持 Token 走 `/health`，两者均携带）的 `frontend_version` / `app_version`，不一致时警告 static 漂移
 
 ---
 

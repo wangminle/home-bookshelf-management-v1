@@ -51,8 +51,8 @@ HMAC 签名并绑定查询条件与页长，换条件复用会得到 `INVALID_CU
 - **v2 契约**（`contractVersion=v2` 时）：`search` 支持可选
   `output="summary"`，items 只含 `id/title/authors/category/availability`
   五个摘要字段以降低上下文消耗；省略 `output` 时业务结果与字段集与
-  v1 相同（声明面 items 为 oneOf：完整形态 13 字段全量或摘要形态恰
-  5 字段，混合形态非法），`bookshelf_get_book` 始终返回全字段。v1 下
+  v1 相同（声明面 envelope 为 anyOf：完整响应 13 字段全量或摘要响应恰
+  5 字段；空结果合法，混合形态与同页混用非法），`bookshelf_get_book` 始终返回全字段。v1 下
   传 `output` 会被 `PARAM_INVALID` 拒绝。
 
 ## 5. 错误处理（稳定错误码）

@@ -77,7 +77,8 @@ class Settings(BaseSettings):
     mcp_max_response_body_bytes: int = 1_048_576
     # MCP 工具契约版本（OPT-010，Task 5.6）：v1 = 冻结核心档（默认）；
     # v2 = 版本化拆分搜索摘要/详情——search 新增可选 output=summary 档，
-    # 声明的 outputSchema 用 oneOf 精确表达 full/summary 两种形态；
+    # 声明的 outputSchema 用 envelope 级 anyOf 表达 full/summary 两种形态
+    # （不可用 oneOf：空 items=[] 会同时匹配两分支而被误拒）；
     # v1 业务输出与字段语义不变（线缆基线见
     # backend/tests/mcp/fixtures/v1_wire_baseline.json）。
     # 发布 v2 须同步 design/schemas/mcp-catalog-tools-v2.schema.json 与兼容报告

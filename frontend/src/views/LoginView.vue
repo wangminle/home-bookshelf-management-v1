@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { probeSession } from '@/stores/session'
+import { extractApiErrorMessage } from '@/stores/api'
 
 /**
  * 统一登录页（权限阶段 2，基线 §10.2）：Owner/Member 共用同一入口，
@@ -32,7 +33,8 @@ async function doLogin() {
     })
     const body = await res.json().catch(() => ({}))
     if (!res.ok) {
-      error.value = body.detail || `登录失败 (${res.status})`
+      // 422 数组 detail 需规范化，否则渲染成 [object Object]
+      error.value = extractApiErrorMessage(body, res.status, '登录失败')
       return
     }
     await probeSession(true)

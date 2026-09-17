@@ -238,7 +238,7 @@ def _warn_frontend_drift(report: DoctorReport, health_data: dict[str, Any]) -> N
     frontend_version = health_data.get("frontend_version")
     if not frontend_version:
         report.warnings.append(
-            "未发现前端 static/version.json（public-health 无 frontend_version），产物可能未同步"
+            "未发现前端 static/version.json（health 响应无 frontend_version），产物可能未同步"
         )
         report.hints.append("仓库根执行：bash scripts/deploy_frontend.sh   # 别名部署加 --base /alias/")
         return

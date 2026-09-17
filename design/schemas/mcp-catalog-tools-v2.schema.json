@@ -36,7 +36,7 @@
     },
     "descriptor_constraints": {
       "type": "object",
-      "description": "对线上 tools/list 描述符的冻结约束：以描述符为实例、本节为 Schema 验证（Draft 2020-12）。search 声明面 inputSchema 必须封闭（additionalProperties=false）且带 output 枚举与非空白 anyOf 分支；outputSchema 的 items 必须是 oneOf 两形态（full=13 字段全量 / summary=恰 5 字段），不接受混合形态。get 的输入必须恰为 book_id 且输出为 13 字段冻结集。",
+      "description": "对线上 tools/list 描述符的冻结约束：以描述符为实例、本节为 Schema 验证（Draft 2020-12）。冻结粒度（BUG-231 深冻，CHK-107 收口）：不只冻分支数量与 required 外壳，还逐字段冻结 type/enum/minimum/maximum/maxLength 常量，并对每一层 properties 施加「全键 required + additionalProperties=false」的精确键集——保留外壳、掏空/放宽/增删字段定义的弱化描述符一律拒绝。search inputSchema 封闭且 anyOf 五分支冻结 required+非空白 pattern；outputSchema 为 envelope 级 anyOf 两分支（不用 oneOf：空 items=[] 会同时匹配两分支）。get 输入恰为 book_id，输出为 13 字段冻结集。",
       "properties": {
         "bookshelf_search_books": {
           "type": "object",
@@ -45,29 +45,88 @@
             "name": { "const": "bookshelf_search_books" },
             "inputSchema": {
               "type": "object",
-              "required": ["type", "properties", "additionalProperties", "anyOf"],
+              "required": ["type", "properties", "required", "additionalProperties", "anyOf"],
+              "additionalProperties": false,
               "properties": {
                 "type": { "const": "object" },
+                "required": { "const": [] },
                 "additionalProperties": { "const": false },
                 "properties": {
                   "type": "object",
                   "required": ["output", "query", "author", "category", "language", "availability", "limit", "cursor"],
+                  "additionalProperties": false,
                   "properties": {
                     "output": {
                       "type": "object",
-                      "required": ["enum"],
-                      "properties": { "enum": { "const": ["full", "summary"] } }
+                      "required": ["type", "enum"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": { "const": "string" },
+                        "enum": { "const": ["full", "summary"] }
+                      }
                     },
-                    "query": { "type": "object", "required": ["maxLength"] },
+                    "query": {
+                      "type": "object",
+                      "required": ["type", "maxLength"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": { "const": "string" },
+                        "maxLength": { "const": 200 }
+                      }
+                    },
+                    "author": {
+                      "type": "object",
+                      "required": ["type", "maxLength"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": { "const": "string" },
+                        "maxLength": { "const": 100 }
+                      }
+                    },
+                    "category": {
+                      "type": "object",
+                      "required": ["type", "maxLength"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": { "const": "string" },
+                        "maxLength": { "const": 100 }
+                      }
+                    },
+                    "language": {
+                      "type": "object",
+                      "required": ["type", "maxLength"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": { "const": "string" },
+                        "maxLength": { "const": 20 }
+                      }
+                    },
                     "availability": {
                       "type": "object",
-                      "required": ["enum"],
-                      "properties": { "enum": { "const": ["in_shelf", "borrowed", "unknown"] } }
+                      "required": ["type", "enum"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": { "const": "string" },
+                        "enum": { "const": ["in_shelf", "borrowed", "unknown"] }
+                      }
                     },
                     "limit": {
                       "type": "object",
-                      "required": ["minimum", "maximum"],
-                      "properties": { "minimum": { "const": 1 }, "maximum": { "const": 20 } }
+                      "required": ["type", "minimum", "maximum"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": { "const": "integer" },
+                        "minimum": { "const": 1 },
+                        "maximum": { "const": 20 }
+                      }
+                    },
+                    "cursor": {
+                      "type": "object",
+                      "required": ["type"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": { "const": "string" }
+                      }
                     }
                   }
                 },
@@ -75,19 +134,398 @@
                   "type": "array",
                   "minItems": 5,
                   "maxItems": 5,
-                  "description": "前四分支为字符串筛选字段的 required+非空白 pattern（BUG-232），末分支为 availability required"
+                  "prefixItems": [
+                    {
+                      "type": "object",
+                      "required": ["required", "properties"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "required": { "const": ["query"] },
+                        "properties": {
+                          "type": "object",
+                          "required": ["query"],
+                          "additionalProperties": false,
+                          "properties": {
+                            "query": {
+                              "type": "object",
+                              "required": ["pattern"],
+                              "additionalProperties": false,
+                              "properties": { "pattern": { "const": "\\S" } }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": ["required", "properties"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "required": { "const": ["author"] },
+                        "properties": {
+                          "type": "object",
+                          "required": ["author"],
+                          "additionalProperties": false,
+                          "properties": {
+                            "author": {
+                              "type": "object",
+                              "required": ["pattern"],
+                              "additionalProperties": false,
+                              "properties": { "pattern": { "const": "\\S" } }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": ["required", "properties"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "required": { "const": ["category"] },
+                        "properties": {
+                          "type": "object",
+                          "required": ["category"],
+                          "additionalProperties": false,
+                          "properties": {
+                            "category": {
+                              "type": "object",
+                              "required": ["pattern"],
+                              "additionalProperties": false,
+                              "properties": { "pattern": { "const": "\\S" } }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": ["required", "properties"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "required": { "const": ["language"] },
+                        "properties": {
+                          "type": "object",
+                          "required": ["language"],
+                          "additionalProperties": false,
+                          "properties": {
+                            "language": {
+                              "type": "object",
+                              "required": ["pattern"],
+                              "additionalProperties": false,
+                              "properties": { "pattern": { "const": "\\S" } }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": ["required"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "required": { "const": ["availability"] }
+                      }
+                    }
+                  ],
+                  "items": false,
+                  "description": "前四分支为字符串筛选字段的 required+非空白 pattern（BUG-232），末分支为 availability required；每分支键集与 pattern 值均冻结，空对象分支必须失败"
                 }
               }
             },
             "outputSchema": {
               "type": "object",
-              "required": ["oneOf"],
+              "required": ["anyOf"],
+              "additionalProperties": false,
               "properties": {
-                "oneOf": {
+                "anyOf": {
                   "type": "array",
                   "minItems": 2,
                   "maxItems": 2,
-                  "description": "envelope 级 oneOf（BUG-231/CHK-100 残余风险收口）：分支1=完整响应（items 全为 13 字段形态）、分支2=摘要响应（items 全为恰 5 字段形态）；两分支 envelope 与 item 均 additionalProperties=false，同一响应混用两形态或混合形态 item 在任一分支都不通过"
+                  "prefixItems": [
+                    {
+                      "type": "object",
+                      "required": ["type", "properties", "required", "additionalProperties"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": { "const": "object" },
+                        "additionalProperties": { "const": false },
+                        "required": { "const": ["items", "count", "has_more", "next_cursor"] },
+                        "properties": {
+                          "type": "object",
+                          "required": ["items", "count", "has_more", "next_cursor"],
+                          "additionalProperties": false,
+                          "properties": {
+                            "items": {
+                              "type": "object",
+                              "required": ["type", "items"],
+                              "additionalProperties": false,
+                              "properties": {
+                                "type": { "const": "array" },
+                                "items": {
+                                  "type": "object",
+                                  "required": ["type", "properties", "required", "additionalProperties"],
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "type": { "const": "object" },
+                                    "additionalProperties": { "const": false },
+                                    "required": {
+                                      "const": [
+                                        "id", "title", "subtitle", "authors", "translators", "publisher",
+                                        "publish_date", "edition", "language", "page_count", "category",
+                                        "summary", "availability"
+                                      ]
+                                    },
+                                    "properties": {
+                                      "type": "object",
+                                      "required": [
+                                        "id", "title", "subtitle", "authors", "translators", "publisher",
+                                        "publish_date", "edition", "language", "page_count", "category",
+                                        "summary", "availability"
+                                      ],
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "id": {
+                                          "type": "object",
+                                          "required": ["type", "minimum"],
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "type": { "const": "integer" },
+                                            "minimum": { "const": 1 }
+                                          }
+                                        },
+                                        "title": {
+                                          "type": "object",
+                                          "required": ["type"],
+                                          "additionalProperties": false,
+                                          "properties": { "type": { "const": "string" } }
+                                        },
+                                        "subtitle": {
+                                          "type": "object",
+                                          "required": ["type"],
+                                          "additionalProperties": false,
+                                          "properties": { "type": { "const": ["string", "null"] } }
+                                        },
+                                        "authors": {
+                                          "type": "object",
+                                          "required": ["type", "items"],
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "type": { "const": "array" },
+                                            "items": {
+                                              "type": "object",
+                                              "required": ["type"],
+                                              "additionalProperties": false,
+                                              "properties": { "type": { "const": "string" } }
+                                            }
+                                          }
+                                        },
+                                        "translators": {
+                                          "type": "object",
+                                          "required": ["type", "items"],
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "type": { "const": "array" },
+                                            "items": {
+                                              "type": "object",
+                                              "required": ["type"],
+                                              "additionalProperties": false,
+                                              "properties": { "type": { "const": "string" } }
+                                            }
+                                          }
+                                        },
+                                        "publisher": {
+                                          "type": "object",
+                                          "required": ["type"],
+                                          "additionalProperties": false,
+                                          "properties": { "type": { "const": ["string", "null"] } }
+                                        },
+                                        "publish_date": {
+                                          "type": "object",
+                                          "required": ["type"],
+                                          "additionalProperties": false,
+                                          "properties": { "type": { "const": ["string", "null"] } }
+                                        },
+                                        "edition": {
+                                          "type": "object",
+                                          "required": ["type"],
+                                          "additionalProperties": false,
+                                          "properties": { "type": { "const": ["string", "null"] } }
+                                        },
+                                        "language": {
+                                          "type": "object",
+                                          "required": ["type"],
+                                          "additionalProperties": false,
+                                          "properties": { "type": { "const": ["string", "null"] } }
+                                        },
+                                        "page_count": {
+                                          "type": "object",
+                                          "required": ["type"],
+                                          "additionalProperties": false,
+                                          "properties": { "type": { "const": ["integer", "null"] } }
+                                        },
+                                        "category": {
+                                          "type": "object",
+                                          "required": ["type"],
+                                          "additionalProperties": false,
+                                          "properties": { "type": { "const": ["string", "null"] } }
+                                        },
+                                        "summary": {
+                                          "type": "object",
+                                          "required": ["type"],
+                                          "additionalProperties": false,
+                                          "properties": { "type": { "const": ["string", "null"] } }
+                                        },
+                                        "availability": {
+                                          "type": "object",
+                                          "required": ["type", "enum"],
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "type": { "const": "string" },
+                                            "enum": { "const": ["in_shelf", "borrowed", "unknown"] }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "count": {
+                              "type": "object",
+                              "required": ["type", "minimum"],
+                              "additionalProperties": false,
+                              "properties": {
+                                "type": { "const": "integer" },
+                                "minimum": { "const": 0 }
+                              }
+                            },
+                            "has_more": {
+                              "type": "object",
+                              "required": ["type"],
+                              "additionalProperties": false,
+                              "properties": { "type": { "const": "boolean" } }
+                            },
+                            "next_cursor": {
+                              "type": "object",
+                              "required": ["type"],
+                              "additionalProperties": false,
+                              "properties": { "type": { "const": ["string", "null"] } }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": ["type", "properties", "required", "additionalProperties"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": { "const": "object" },
+                        "additionalProperties": { "const": false },
+                        "required": { "const": ["items", "count", "has_more", "next_cursor"] },
+                        "properties": {
+                          "type": "object",
+                          "required": ["items", "count", "has_more", "next_cursor"],
+                          "additionalProperties": false,
+                          "properties": {
+                            "items": {
+                              "type": "object",
+                              "required": ["type", "items"],
+                              "additionalProperties": false,
+                              "properties": {
+                                "type": { "const": "array" },
+                                "items": {
+                                  "type": "object",
+                                  "required": ["type", "properties", "required", "additionalProperties"],
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "type": { "const": "object" },
+                                    "additionalProperties": { "const": false },
+                                    "required": { "const": ["id", "title", "authors", "category", "availability"] },
+                                    "properties": {
+                                      "type": "object",
+                                      "required": ["id", "title", "authors", "category", "availability"],
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "id": {
+                                          "type": "object",
+                                          "required": ["type", "minimum"],
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "type": { "const": "integer" },
+                                            "minimum": { "const": 1 }
+                                          }
+                                        },
+                                        "title": {
+                                          "type": "object",
+                                          "required": ["type"],
+                                          "additionalProperties": false,
+                                          "properties": { "type": { "const": "string" } }
+                                        },
+                                        "authors": {
+                                          "type": "object",
+                                          "required": ["type", "items"],
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "type": { "const": "array" },
+                                            "items": {
+                                              "type": "object",
+                                              "required": ["type"],
+                                              "additionalProperties": false,
+                                              "properties": { "type": { "const": "string" } }
+                                            }
+                                          }
+                                        },
+                                        "category": {
+                                          "type": "object",
+                                          "required": ["type"],
+                                          "additionalProperties": false,
+                                          "properties": { "type": { "const": ["string", "null"] } }
+                                        },
+                                        "availability": {
+                                          "type": "object",
+                                          "required": ["type", "enum"],
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "type": { "const": "string" },
+                                            "enum": { "const": ["in_shelf", "borrowed", "unknown"] }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "count": {
+                              "type": "object",
+                              "required": ["type", "minimum"],
+                              "additionalProperties": false,
+                              "properties": {
+                                "type": { "const": "integer" },
+                                "minimum": { "const": 0 }
+                              }
+                            },
+                            "has_more": {
+                              "type": "object",
+                              "required": ["type"],
+                              "additionalProperties": false,
+                              "properties": { "type": { "const": "boolean" } }
+                            },
+                            "next_cursor": {
+                              "type": "object",
+                              "required": ["type"],
+                              "additionalProperties": false,
+                              "properties": { "type": { "const": ["string", "null"] } }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "items": false,
+                  "description": "envelope 级 anyOf（BUG-231 深冻）：分支1=完整响应（13 字段全量）、分支2=摘要响应（恰 5 字段）；envelope 与 item 每层均冻结精确键集与字段 type/enum/minimum 常量。空结果合法；混用或混合形态在两分支都不通过。不用 oneOf，避免空 items=[] 被误拒。"
                 }
               }
             }
@@ -100,18 +538,25 @@
             "name": { "const": "bookshelf_get_book" },
             "inputSchema": {
               "type": "object",
-              "required": ["properties", "required", "additionalProperties"],
+              "required": ["type", "properties", "required", "additionalProperties"],
+              "additionalProperties": false,
               "properties": {
+                "type": { "const": "object" },
                 "additionalProperties": { "const": false },
                 "required": { "const": ["book_id"] },
                 "properties": {
                   "type": "object",
                   "required": ["book_id"],
+                  "additionalProperties": false,
                   "properties": {
                     "book_id": {
                       "type": "object",
                       "required": ["type", "minimum"],
-                      "properties": { "type": { "const": "integer" }, "minimum": { "const": 1 } }
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": { "const": "integer" },
+                        "minimum": { "const": 1 }
+                      }
                     }
                   }
                 }
@@ -119,8 +564,10 @@
             },
             "outputSchema": {
               "type": "object",
-              "required": ["required", "additionalProperties"],
+              "required": ["type", "properties", "required", "additionalProperties"],
+              "additionalProperties": false,
               "properties": {
+                "type": { "const": "object" },
                 "additionalProperties": { "const": false },
                 "required": {
                   "const": [
@@ -128,6 +575,117 @@
                     "publish_date", "edition", "language", "page_count", "category",
                     "summary", "availability"
                   ]
+                },
+                "properties": {
+                  "type": "object",
+                  "required": [
+                    "id", "title", "subtitle", "authors", "translators", "publisher",
+                    "publish_date", "edition", "language", "page_count", "category",
+                    "summary", "availability"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "object",
+                      "required": ["type", "minimum"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": { "const": "integer" },
+                        "minimum": { "const": 1 }
+                      }
+                    },
+                    "title": {
+                      "type": "object",
+                      "required": ["type"],
+                      "additionalProperties": false,
+                      "properties": { "type": { "const": "string" } }
+                    },
+                    "subtitle": {
+                      "type": "object",
+                      "required": ["type"],
+                      "additionalProperties": false,
+                      "properties": { "type": { "const": ["string", "null"] } }
+                    },
+                    "authors": {
+                      "type": "object",
+                      "required": ["type", "items"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": { "const": "array" },
+                        "items": {
+                          "type": "object",
+                          "required": ["type"],
+                          "additionalProperties": false,
+                          "properties": { "type": { "const": "string" } }
+                        }
+                      }
+                    },
+                    "translators": {
+                      "type": "object",
+                      "required": ["type", "items"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": { "const": "array" },
+                        "items": {
+                          "type": "object",
+                          "required": ["type"],
+                          "additionalProperties": false,
+                          "properties": { "type": { "const": "string" } }
+                        }
+                      }
+                    },
+                    "publisher": {
+                      "type": "object",
+                      "required": ["type"],
+                      "additionalProperties": false,
+                      "properties": { "type": { "const": ["string", "null"] } }
+                    },
+                    "publish_date": {
+                      "type": "object",
+                      "required": ["type"],
+                      "additionalProperties": false,
+                      "properties": { "type": { "const": ["string", "null"] } }
+                    },
+                    "edition": {
+                      "type": "object",
+                      "required": ["type"],
+                      "additionalProperties": false,
+                      "properties": { "type": { "const": ["string", "null"] } }
+                    },
+                    "language": {
+                      "type": "object",
+                      "required": ["type"],
+                      "additionalProperties": false,
+                      "properties": { "type": { "const": ["string", "null"] } }
+                    },
+                    "page_count": {
+                      "type": "object",
+                      "required": ["type"],
+                      "additionalProperties": false,
+                      "properties": { "type": { "const": ["integer", "null"] } }
+                    },
+                    "category": {
+                      "type": "object",
+                      "required": ["type"],
+                      "additionalProperties": false,
+                      "properties": { "type": { "const": ["string", "null"] } }
+                    },
+                    "summary": {
+                      "type": "object",
+                      "required": ["type"],
+                      "additionalProperties": false,
+                      "properties": { "type": { "const": ["string", "null"] } }
+                    },
+                    "availability": {
+                      "type": "object",
+                      "required": ["type", "enum"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": { "const": "string" },
+                        "enum": { "const": ["in_shelf", "borrowed", "unknown"] }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -141,21 +699,21 @@
       "properties": {
         "full": {
           "type": "object",
-          "description": "完整输出：items 内书目对象含全部 13 个白名单字段；服务端按 _SEARCH_OUTPUT_SCHEMA 严格校验；与声明面 oneOf 分支 1 对应"
+          "description": "完整输出：items 内书目对象含全部 13 个白名单字段；服务端按 _SEARCH_OUTPUT_SCHEMA 严格校验；与声明面 anyOf 分支 1 对应"
         },
         "summary": {
           "type": "object",
-          "description": "摘要输出：items 内书目对象恰含 id/title/authors/category/availability 5 个摘要字段；长文本 summary、出版社、页数等详情字段由 bookshelf_get_book 提供；服务端按 _SEARCH_OUTPUT_SCHEMA_V2_SUMMARY 严格校验；与声明面 oneOf 分支 2 对应"
+          "description": "摘要输出：items 内书目对象恰含 id/title/authors/category/availability 5 个摘要字段；长文本 summary、出版社、页数等详情字段由 bookshelf_get_book 提供；服务端按 _SEARCH_OUTPUT_SCHEMA_V2_SUMMARY 严格校验；与声明面 anyOf 分支 2 对应"
         }
       }
     },
     "declared_output_schema_note": {
       "type": "string",
-      "description": "v2 发布时 tools/list 中 search 的 outputSchema 声明用 envelope 级 oneOf 精确表达两种合法响应：分支1=完整响应（items 全为 13 字段形态）、分支2=摘要响应（items 全为恰 5 字段形态），两分支 envelope 与 item 均为封闭对象（additionalProperties=false）。服务端不产生的形态——混合 item、或同一响应内混用 full/summary 对象——在任一分支都不通过，机器 Schema 即可拒绝。实际响应仍由服务端按请求档位用严格 Schema 校验后下发。这是 v2 对 v1 声明面的唯一变化，也是必须以新契约版本而非原地改 v1 实施的原因。"
+      "description": "v2 发布时 tools/list 中 search 的 outputSchema 声明用 envelope 级 anyOf 表达两种合法响应：分支1=完整响应（items 全为 13 字段形态）、分支2=摘要响应（items 全为恰 5 字段形态），两分支 envelope 与 item 均为封闭对象（additionalProperties=false）。不用 oneOf：空 items=[] 会同时匹配两分支而被误拒。服务端不产生的形态——混合 item、或同一响应内混用 full/summary 对象——在任一分支都不通过。实际响应仍由服务端按请求档位用严格 Schema 校验后下发。"
     },
     "unchanged_from_v1": {
       "type": "array",
-      "description": "v2 不改变的内容（v1 兼容口径为业务输出与字段语义兼容，不是字节级不变；v1 线缆基线由 tests/mcp/fixtures/v1_wire_baseline.json 固定）",
+      "description": "v2 不改变的内容（v1 兼容口径为业务输出与字段语义兼容，不是字节级不变；v1 线缆形状由 tests/mcp/fixtures/v1_wire_baseline.json 以归一化 JSON 结构/值固定，不冻结键序或空白）",
       "items": { "type": "string" },
       "contains": {
         "enum": [

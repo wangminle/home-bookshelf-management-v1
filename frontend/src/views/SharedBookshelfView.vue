@@ -17,7 +17,13 @@ const total = ref(0)
 const page = ref(1)
 const hasMore = ref(false)
 const loadingMore = ref(false)
+// 翻页/二次搜索失败时保留已加载列表，仅在此处提示可重试（局部降级）
+const moreError = ref(false)
 const selected = ref<PublicCatalogBook | null>(null)
+
+// 请求序号：新搜索/新翻页发起时作废在途响应，防止旧查询的分页结果
+// 追加进新列表、total/hasMore 被旧响应覆盖（对照 useBooks 的 requestId 机制）
+let requestSeq = 0
 
 const query = ref('')
 const category = ref('')
@@ -30,6 +36,7 @@ const AVAILABILITY_LABELS: Record<string, string> = {
 }
 
 async function load(nextPage = 1) {
+  const seq = ++requestSeq
   if (nextPage === 1) status.value = 'loading'
   const result = await publicCatalogSearch({
     query: query.value || undefined,
@@ -37,13 +44,20 @@ async function load(nextPage = 1) {
     availability: availability.value || undefined,
     page: nextPage,
   })
+  if (seq !== requestSeq) return // 过期响应（期间已发起新搜索）：丢弃
   if (!result.ok) {
-    if (result.code === 'LAN_REQUIRED') status.value = 'lan_required'
-    else if (result.code === 'ANONYMOUS_CATALOG_DISABLED') status.value = 'disabled'
-    else if (result.code === 'RATE_LIMITED') status.value = 'rate_limited'
-    else status.value = 'error'
+    if (nextPage === 1) {
+      if (result.code === 'LAN_REQUIRED') status.value = 'lan_required'
+      else if (result.code === 'ANONYMOUS_CATALOG_DISABLED') status.value = 'disabled'
+      else if (result.code === 'RATE_LIMITED') status.value = 'rate_limited'
+      else status.value = 'error'
+    } else {
+      // 首页之后的翻页失败：保留已加载列表与筛选状态，仅提示重试
+      moreError.value = true
+    }
     return
   }
+  moreError.value = false
   status.value = 'ok'
   total.value = result.data.total
   hasMore.value = result.data.has_more
@@ -145,6 +159,11 @@ onMounted(() => load(1))
         </li>
       </ul>
 
+      <div v-if="moreError" class="more-error" role="alert">
+        <span>加载更多失败，已加载的书目仍在上方</span>
+        <button type="button" @click="loadMore">重试</button>
+      </div>
+
       <button v-if="hasMore" class="load-more" :disabled="loadingMore" @click="loadMore">
         {{ loadingMore ? '加载中…' : '加载更多' }}
       </button>
@@ -198,6 +217,8 @@ onMounted(() => load(1))
 .badge[data-av='in_shelf'] { background: #d9f0e5; color: #1c6b48; }
 .badge[data-av='borrowed'] { background: #fdeeda; color: #8a5a19; }
 .load-more { display: block; margin: 16px auto; padding: 10px 24px; border-radius: 8px; border: 1px solid var(--border, #d7dee8); background: var(--card-bg, #fff); color: inherit; cursor: pointer; }
+.more-error { display: flex; justify-content: center; align-items: center; gap: 12px; margin: 16px auto; padding: 10px 16px; border: 1px solid #f0c1b4; border-radius: 8px; background: #fdf1ee; color: #9c3d2a; max-width: 480px; }
+.more-error button { padding: 6px 16px; border-radius: 8px; border: 1px solid #d9a08e; background: transparent; color: inherit; cursor: pointer; }
 .detail-card { position: relative; margin-top: 16px; background: var(--card-bg, #fff); border: 1px solid var(--border, #e2e8f0); border-radius: 12px; padding: 20px 24px; }
 .detail-card .close { position: absolute; top: 8px; right: 12px; border: none; background: none; font-size: 1.4rem; cursor: pointer; color: inherit; }
 .detail-card h2 { margin: 0 0 4px; }

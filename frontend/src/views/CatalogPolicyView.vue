@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { sessionRole } from '@/stores/session'
-import { lastError } from '@/stores/api'
+import { lastError, extractApiErrorMessage } from '@/stores/api'
 
 /**
  * 访问策略页（权限阶段 4，基线 §10.7）：Owner 查看匿名目录模式与 C→B 切换预览，
@@ -28,7 +28,7 @@ async function api(path: string, options?: RequestInit) {
     ...options,
   })
   const body = await res.json().catch(() => ({}))
-  if (!res.ok || body.ok === false) throw new Error(body.detail || body.error || `HTTP ${res.status}`)
+  if (!res.ok || body.ok === false) throw new Error(extractApiErrorMessage(body, res.status, `HTTP`))
   return body.data
 }
 

@@ -1,25 +1,28 @@
 <script setup lang="ts">
-import { onMounted, watch } from 'vue'
-import { RouterLink, RouterView } from 'vue-router'
+import { watch } from 'vue'
+import { RouterLink, RouterView, useRoute } from 'vue-router'
 import { useMembersStore } from '@/stores/members'
 import { lastError, backendOffline } from '@/stores/api'
 import { sessionAuthenticated, sessionRole, sessionMemberId, sessionMemberName, invalidateSession } from '@/stores/session'
 
 const version = __APP_VERSION__
+const route = useRoute()
 
 const members = useMembersStore()
 // CHK-071：成员列表仅在会话确认后加载；匿名壳层（/shared）只展示
 // 共享书架与登录入口，不触发受保护的 /members 请求。
-onMounted(() => {
-  if (sessionAuthenticated.value === true && members.members.length === 0) {
-    members.load().then(fixMemberIdentity).catch(() => {})
-  }
-})
-watch(sessionAuthenticated, (authed) => {
-  if (authed === true && members.members.length === 0) {
-    members.load().then(fixMemberIdentity).catch(() => {})
-  }
-})
+// 用 loaded 标记而非 members.length：首次加载失败后 length 恒为 0，
+// 只 watch sessionAuthenticated 永不再触发；改为同时 watch 路由变化，
+// 每次站内导航都会对"已登录但未加载成功"的状态自动重试。
+watch(
+  [sessionAuthenticated, () => route.fullPath],
+  () => {
+    if (sessionAuthenticated.value === true && !members.loaded) {
+      members.load().then(fixMemberIdentity).catch(() => {})
+    }
+  },
+  { immediate: true },
+)
 // 权限阶段 2（基线 §3.3）：Member 固定显示本人身份，不出现成员切换器；
 // 切换器仅 Owner 可见（Owner 代操作须显式选择归属人，后端仍校验代操作权限）。
 function fixMemberIdentity() {

@@ -183,6 +183,11 @@ class HealthOut(BaseModel):
     database: str = "connected"
     google_books_configured: bool = False
     barcode_scan_available: bool = False
+    # 前端产物版本态势（DEV-025）：与 public-health 同源（static/version.json）。
+    # 缺此字段时持有 Token 的 doctor 拿不到 frontend_version，会把"字段缺失"
+    # 误报为"前端产物未同步"的漂移告警。
+    app_version: str | None = None
+    frontend_version: str | None = None
     # 权限阶段 0（任务 0.7）：部署信任态势（基线 §11.3），供 doctor 检查；
     # 只输出布尔/URL 事实，不含密钥值。仅在受保护 /health 下发。
     channel_signing_configured: bool = False

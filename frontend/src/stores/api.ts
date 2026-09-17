@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { ApiResponse } from '@/types/models'
+import { markSessionExpired } from '@/stores/session'
 
 // 可配置部署基址：路径别名部署时 Vite base=/home-bookshelf/，
 // API 请求需带上同一前缀（Caddy handle_path 会去前缀转发给后端）。
@@ -25,6 +26,24 @@ export const backendOffline = ref(false)
  */
 let inflightRequests = 0
 
+/**
+ * 从响应体提取人可读的错误消息（BUG-096 规范化逻辑的公共实现）。
+ * 兼容后端 { error } 与 FastAPI { detail: "..." } / 422 { detail: [{ msg }] }：
+ * 数组 detail 若不规范化，直接 String() 会渲染成 [object Object]。
+ * 各视图自带 fetch 封装时也应复用本函数，保证错误文案一致。
+ */
+export function extractApiErrorMessage(raw: unknown, status: number, fallback = '请求失败'): string {
+  const body = raw as any
+  let msg = body?.error ?? body?.detail
+  if (Array.isArray(msg)) {
+    msg = msg.map((e: any) => e?.msg || JSON.stringify(e)).join('; ')
+  }
+  if (typeof msg !== 'string' || !msg) {
+    msg = fallback.includes(String(status)) ? fallback : `${fallback} (${status})`
+  }
+  return msg
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   inflightRequests++
   let succeeded = false
@@ -43,20 +62,19 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       lastError.value = msg
       throw new Error(msg)
     }
+    // 会话过期统一感知：任何业务 API 401 都标记未登录，
+    // 顶栏/路由守卫随之切换，不再依赖用户手动刷新发现过期
+    if (res.status === 401) {
+      markSessionExpired()
+    }
     const body: ApiResponse<T> = await res.json().catch(() => ({
       ok: false,
       data: null as any,
       error: `HTTP ${res.status}`,
     }))
     if (!body.ok) {
-      // BUG-096 修复：兼容 FastAPI 错误格式 { detail: "..." } 和验证错误 { detail: [{ msg }] }
-      const raw = body as any
-      let msg = body.error || raw.detail
-      if (Array.isArray(msg)) {
-        msg = msg.map((e: any) => e.msg || JSON.stringify(e)).join('; ')
-      }
-      msg = msg || `请求失败 (${res.status})`
-      lastError.value = msg
+      const msg = extractApiErrorMessage(body, res.status, '请求失败')
+      lastError.value = res.status === 401 ? '登录已过期，请重新登录' : msg
       throw new Error(msg)
     }
     // 请求成功，后端在线

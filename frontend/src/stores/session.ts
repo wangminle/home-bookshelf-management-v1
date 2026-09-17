@@ -41,3 +41,15 @@ export function invalidateSession(): void {
   sessionMemberId.value = null
   sessionMemberName.value = null
 }
+
+/**
+ * 任意业务 API 返回 401 时调用：会话已过期/失效。
+ * 置为未登录（非 null 缓存），顶栏立即回到登录入口，
+ * 路由守卫拿缓存的 false 直接降级到共享书架，不再信任过期结论。
+ */
+export function markSessionExpired(): void {
+  sessionAuthenticated.value = false
+  sessionRole.value = null
+  sessionMemberId.value = null
+  sessionMemberName.value = null
+}

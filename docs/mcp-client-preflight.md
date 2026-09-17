@@ -103,7 +103,12 @@ async with streamable_http_client("http://<host>:<port>/mcp", http_client=http) 
             types.CallToolResult)
 ```
 
-### 客户端 B：Claude Code（配置就绪，实机待跑通）
+### 客户端 B：Claude Code（已实机测试，兼容门禁未通过）
+
+2.1.231 与官方升级后的 2.1.247 均已抓帧：首帧仍为 Legacy `initialize` +
+`2025-11-25` + 无 `params._meta`，被 400 `PARAMS_META_REQUIRED` 拒绝，
+工具未注册。配置示例如下，仅供对照；是否作为必需客户端启动双代际兼容
+层见 `PLN-010` / `WBS-MCP-11`。
 
 `.mcp.json`（项目级）：
 
@@ -158,12 +163,14 @@ CLI 添加：`claude mcp add --transport http bookshelf http://<host>:<port>/mcp
    `extra="allow"`，官方 SDK 原样可读并已实机验证；顶层 `structuredError`
    扩展保留作自定义客户端向后兼容）。
 
-## 自动化验证结论（2026-08-22 复核；2026-08-26 SDK conformance 回填；2026-08-27 Task 5.6 增补与复审修复）
+## 自动化验证结论（2026-08-22 复核；2026-08-26 SDK conformance 回填；2026-08-27 Task 5.6 增补与复审修复；2026-09-17 BUG-231 深冻增补）
 
-- `backend/tests/mcp/`：93 项全绿（含 BUG-208～216 修复回归与 Task 5.6
-  20 项：输入契约封闭、discover instructions、`_meta` 稳定错误码、
-  v2 摘要档契约、oneOf 声明面拒绝混合形态、空白筛选值 Schema/运行时
-  一致、v1 线缆基线快照）；
+- `backend/tests/mcp/`：114 项全绿（含 BUG-208～216 修复回归与 Task 5.6
+  专项：输入契约封闭、discover instructions、`_meta` 稳定错误码、
+  v2 摘要档契约、anyOf 声明面拒绝混合形态（空结果合法）、空白筛选值 Schema/运行时
+  一致、v1 线缆基线快照、BUG-231 深冻 descriptor_constraints 字段级
+  常量与精确键集的 19 项对抗变异测试——保留 required 外壳、掏空/放宽
+  字段定义的弱化描述符全部被拒绝）；
 - **SDK conformance 实机**（`scripts/mcp-sdk-conformance.py`，官方 SDK 2.1.0 client，
   v1 与 v2 契约各 22/22 全过）：discover→adopt 握手、discover.instructions 与契约版本 `_meta`、
   tools/list + outputSchema、搜索命中、详情读取、空条件拒绝、`_meta` 稳定错误码、

@@ -9,6 +9,8 @@ from app.api.v1 import (
     files,
     health,
     intake,
+    intake_workflow,
+    llm_settings,
     members,
     notes,
     progress,
@@ -36,3 +38,5 @@ api_router.include_router(recognize.router)
 api_router.include_router(files.router)
 api_router.include_router(public_catalog.router)
 api_router.include_router(catalog_visibility.router)
+api_router.include_router(llm_settings.router)
+api_router.include_router(intake_workflow.router)

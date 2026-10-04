@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.services.metadata.openlibrary import _normalize_publish_date
+from app.services.recognition import BarcodeScanResult
 from app.services.storage import save_uploaded_image
 
 
@@ -124,7 +125,8 @@ def test_bug136_orphan_cover_cleaned_on_recheck(client, db_session, tmp_path):
     # 第二次（recheck）返回已有书籍
     with (
         patch("app.services.intake.fetch_metadata", return_value=None),
-        patch("app.services.intake.recognize_isbn_from_image", return_value=None),
+        patch("app.services.intake.scan_isbn_from_image",
+              return_value=BarcodeScanResult(outcome="not_found")),
         patch("app.services.intake._find_existing", side_effect=[None, book]),
     ):
         result = intake_book(
@@ -167,7 +169,8 @@ def test_bug136_cover_reused_when_existing_book_lacks_cover(client, db_session, 
 
     with (
         patch("app.services.intake.fetch_metadata", return_value=None),
-        patch("app.services.intake.recognize_isbn_from_image", return_value=None),
+        patch("app.services.intake.scan_isbn_from_image",
+              return_value=BarcodeScanResult(outcome="not_found")),
         patch("app.services.intake._find_existing", side_effect=[None, book]),
     ):
         result = intake_book(

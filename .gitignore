@@ -39,6 +39,14 @@ backend/tests/_tmp/
 # 识书评测运行产物（金标准与合成封面入库，预测与结果不入库）
 tests/eval/predictions.json
 tests/eval/results-*.json
+tests/eval/user-set/predictions.json
+tests/eval/user-set/results-*.json
+# 自备测试集只入库 sim_ 模拟样例，真实封面不入库
+tests/eval/user-set/covers/*
+!tests/eval/user-set/covers/sim_*.png
+
+# 真实拍照批量导入素材（个人照片与清单/报告，不入库）
+tests/real-tasks/
 
 # 临时与备份文件
 *.log
@@ -58,10 +66,8 @@ Thumbs.db
 .zcode/
 
 # AI 工具工作区：会话级任务同步的 Stop hook 为项目机制（见 CLAUDE.md），
-# settings.json 与 hooks/ 入库；本地个人配置（settings.local.json 等）仍忽略。
-.claude/*
-!.claude/settings.json
-!.claude/hooks/
+# settings.json 与 hooks/ 入库；本地个人配置仍忽略。
+.claude/settings.local.json
 
 # Node / 前端
 node_modules/

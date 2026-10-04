@@ -33,7 +33,11 @@ async def recognize_isbn(
             tmp.write(content)
 
         isbn13 = await run_in_threadpool(recognize_isbn_from_image, temp_file)
-    except (RuntimeError, OSError, ValueError) as exc:
+    except RuntimeError as exc:
+        # BI-02（契约 §4.1）：依赖不可用（缺 pyzbar/zbar）是能力故障 → 503。
+        # 入库降级不意味着识别能力正常；独立识别接口如实报告。
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (OSError, ValueError) as exc:
         # OSError 覆盖 PIL.UnidentifiedImageError；service 层将 OSError 重写为 ValueError
         raise HTTPException(status_code=400, detail=f"图片识别失败：{exc}") from exc
     finally:

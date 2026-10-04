@@ -99,7 +99,7 @@ def test_doctor_authorized_emits_single_json(monkeypatch):
     mock_client.health.return_value = {
         "ok": True,
         "_http_status": 200,
-        "data": {"database": "connected", "app_version": "0.3.14", "frontend_version": "0.3.14"},
+        "data": {"database": "connected", "app_version": "0.3.15", "frontend_version": "0.3.15"},
     }
     mock_client.members.return_value = {"ok": True, "data": {"items": []}}
 

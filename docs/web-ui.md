@@ -157,6 +157,9 @@ bash scripts/deploy_frontend.sh --base /home-bookshelf/
 | `/agent` Agent 连接信息页 | ✅ |
 | `/agent-authorization` Agent 授权管理（密码初始化 / 签发 Token；登录走 `/login`） | ✅ |
 | `/agent-access` 授权列表页 | ✅ |
+| `/llm-settings` 模型设置（多模态识图模型：enabled 开关、显示名称、Base URL、模型 ID、API Key 只回显末四位可清除、超时/最大 token/温度/识图精细度 auto-low-high，存本机数据库供批量入库封面识别） | ✅ |
+| `/batch-intake` 拍照批量入库核对工作台（新建批次 → 上传多图 → 模型识别（需先在「模型」页启用）→ 候选核对（编辑书名/副标题/作者/ISBN、拆分照片）→ 匹配已有书预览 → 勾选确认 → 执行入库 → 回执/失败重试；状态服务端持久化，刷新可恢复；重复执行不重复建书） | ✅ |
+| `/catalog-policy` 访问策略页（逐书可见级别 + C→B 预览） | ✅ |
 
 ### 概览图功能
 

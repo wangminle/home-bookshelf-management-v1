@@ -147,7 +147,7 @@ V0.2.5 起支持完整的 Owner 认证体系（Argon2id 密码 + HTTPS Cookie �
 
 ### 有 Web 书架页面吗？
 
-有。二期已实现 Vue 3 SPA Web UI，提供封面墙浏览、筛选、书籍详情、阅读统计仪表盘、书架概览图生成与导出。详见 [Web UI 部署指南](./web-ui.md)。
+有。二期已实现 Vue 3 SPA Web UI，提供封面墙浏览、筛选、书籍详情、阅读统计仪表盘、书架概览图生成与导出；另有 Owner 专属的批量入库工作台、模型设置（`/llm-settings`）、访问策略（`/catalog-policy`）与匿名共享书架（`/shared`）。详见 [Web UI 部署指南](./web-ui.md)。
 
 开发模式：
 ```bash

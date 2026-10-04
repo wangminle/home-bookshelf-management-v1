@@ -1,0 +1,379 @@
+{
+  "generated_at": "2026-10-02T23:38:02+08:00",
+  "chain_deadline_sec": 12.0,
+  "probes": [
+    {
+      "label": "三体·ISBN",
+      "kind": "isbn",
+      "value": "9787536692930",
+      "author": null,
+      "expect_title": "三体",
+      "providers": {
+        "nlc": {
+          "outcome": "timeout",
+          "elapsed_ms": 15026.9,
+          "title_returned": null,
+          "source": null,
+          "error": null,
+          "requests": [
+            {
+              "kind": "text",
+              "url": "https://opac.nlc.cn/F?func=find-b&find_code=ISB&request=9787536692930&local_base=NLC01&filter_code_1=WLN&filter_request_1=&filter_code_2=WYR&filter_request_2=&filter_code_3=WYR&filter_request_3=&filter_code_4=WFM&filter_request_4=&filter_code_5=WSL&filter_request_5=",
+              "status": null,
+              "elapsed_ms": 15026.7,
+              "error": "URLError: <urlopen error _ssl.c:1015: The handshake operation timed out>"
+            }
+          ]
+        },
+        "google_books": {
+          "outcome": "rate_limited",
+          "elapsed_ms": 1380.9,
+          "title_returned": null,
+          "source": null,
+          "error": null,
+          "requests": [
+            {
+              "kind": "json",
+              "url": "https://www.googleapis.com/books/v1/volumes?q=isbn%3A9787536692930&maxResults=3&printType=books",
+              "status": 429,
+              "elapsed_ms": 1380.5,
+              "error": "HTTPError: HTTP Error 429: Too Many Requests"
+            }
+          ]
+        },
+        "openlibrary": {
+          "outcome": "ok",
+          "elapsed_ms": 2350.2,
+          "title_returned": "三体",
+          "source": "openlibrary",
+          "error": null,
+          "requests": [
+            {
+              "kind": "json",
+              "url": "https://openlibrary.org/api/books?bibkeys=ISBN:9787536692930&format=json&jscmd=data",
+              "status": 200,
+              "elapsed_ms": 2349.6,
+              "error": null
+            }
+          ]
+        }
+      },
+      "chain": {
+        "elapsed_ms": 10222.1,
+        "deadline_sec": 12.0,
+        "deadline_hit": false,
+        "outcome": "ok",
+        "source": "openlibrary",
+        "title_returned": "三体",
+        "error": null
+      }
+    },
+    {
+      "label": "活着·ISBN",
+      "kind": "isbn",
+      "value": "9787506365437",
+      "author": null,
+      "expect_title": "活着",
+      "providers": {
+        "nlc": {
+          "outcome": "timeout",
+          "elapsed_ms": 15001.8,
+          "title_returned": null,
+          "source": null,
+          "error": null,
+          "requests": [
+            {
+              "kind": "text",
+              "url": "https://opac.nlc.cn/F?func=find-b&find_code=ISB&request=9787536692930&local_base=NLC01&filter_code_1=WLN&filter_request_1=&filter_code_2=WYR&filter_request_2=&filter_code_3=WYR&filter_request_3=&filter_code_4=WFM&filter_request_4=&filter_code_5=WSL&filter_request_5=",
+              "status": null,
+              "elapsed_ms": 15003.1,
+              "error": "URLError: <urlopen error _ssl.c:1015: The handshake operation timed out>"
+            },
+            {
+              "kind": "text",
+              "url": "https://opac.nlc.cn/F?func=find-b&find_code=ISB&request=9787506365437&local_base=NLC01&filter_code_1=WLN&filter_request_1=&filter_code_2=WYR&filter_request_2=&filter_code_3=WYR&filter_request_3=&filter_code_4=WFM&filter_request_4=&filter_code_5=WSL&filter_request_5=",
+              "status": null,
+              "elapsed_ms": 15001.6,
+              "error": "URLError: <urlopen error _ssl.c:1015: The handshake operation timed out>"
+            }
+          ]
+        },
+        "google_books": {
+          "outcome": "rate_limited",
+          "elapsed_ms": 2350.4,
+          "title_returned": null,
+          "source": null,
+          "error": null,
+          "requests": [
+            {
+              "kind": "json",
+              "url": "https://www.googleapis.com/books/v1/volumes?q=isbn%3A9787506365437&maxResults=3&printType=books",
+              "status": 429,
+              "elapsed_ms": 2349.7,
+              "error": "HTTPError: HTTP Error 429: Too Many Requests"
+            }
+          ]
+        },
+        "openlibrary": {
+          "outcome": "ok",
+          "elapsed_ms": 1464.2,
+          "title_returned": "活着",
+          "source": "openlibrary",
+          "error": null,
+          "requests": [
+            {
+              "kind": "json",
+              "url": "https://openlibrary.org/api/books?bibkeys=ISBN:9787506365437&format=json&jscmd=data",
+              "status": 200,
+              "elapsed_ms": 1463.8,
+              "error": null
+            }
+          ]
+        }
+      },
+      "chain": {
+        "elapsed_ms": 9541.2,
+        "deadline_sec": 12.0,
+        "deadline_hit": false,
+        "outcome": "ok",
+        "source": "openlibrary",
+        "title_returned": "活着",
+        "error": null
+      }
+    },
+    {
+      "label": "翦商·书名",
+      "kind": "title",
+      "value": "翦商",
+      "author": "李硕",
+      "expect_title": "翦商",
+      "providers": {
+        "nlc": {
+          "outcome": "timeout",
+          "elapsed_ms": 15003.2,
+          "title_returned": null,
+          "source": null,
+          "error": null,
+          "requests": [
+            {
+              "kind": "text",
+              "url": "https://opac.nlc.cn/F?func=find-b&find_code=ISB&request=9787506365437&local_base=NLC01&filter_code_1=WLN&filter_request_1=&filter_code_2=WYR&filter_request_2=&filter_code_3=WYR&filter_request_3=&filter_code_4=WFM&filter_request_4=&filter_code_5=WSL&filter_request_5=",
+              "status": null,
+              "elapsed_ms": 15003.0,
+              "error": "URLError: <urlopen error _ssl.c:1015: The handshake operation timed out>"
+            },
+            {
+              "kind": "text",
+              "url": "https://opac.nlc.cn/F?func=find-b&find_code=WTP&request=%E7%BF%A6%E5%95%86%20%E6%9D%8E%E7%A1%95&local_base=NLC01&filter_code_1=WLN&filter_request_1=&filter_code_2=WYR&filter_request_2=&filter_code_3=WYR&filter_request_3=&filter_code_4=WFM&filter_request_4=&filter_code_5=WSL&filter_request_5=",
+              "status": null,
+              "elapsed_ms": 15002.9,
+              "error": "URLError: <urlopen error _ssl.c:1015: The handshake operation timed out>"
+            }
+          ]
+        },
+        "google_books": {
+          "outcome": "rate_limited",
+          "elapsed_ms": 1511.6,
+          "title_returned": null,
+          "source": null,
+          "error": null,
+          "requests": [
+            {
+              "kind": "json",
+              "url": "https://www.googleapis.com/books/v1/volumes?q=intitle%3A%22%E7%BF%A6%E5%95%86%22%2Binauthor%3A%22%E6%9D%8E%E7%A1%95%22&maxResults=3&printType=books",
+              "status": 429,
+              "elapsed_ms": 1511.2,
+              "error": "HTTPError: HTTP Error 429: Too Many Requests"
+            }
+          ]
+        },
+        "openlibrary": {
+          "outcome": "ok",
+          "elapsed_ms": 1221.1,
+          "title_returned": "翦商：殷周之变与华夏新生",
+          "source": "openlibrary",
+          "error": null,
+          "requests": [
+            {
+              "kind": "json",
+              "url": "https://openlibrary.org/search.json?title=%E7%BF%A6%E5%95%86&limit=1&author=%E6%9D%8E%E7%A1%95",
+              "status": 200,
+              "elapsed_ms": 1220.9,
+              "error": null
+            }
+          ]
+        }
+      },
+      "chain": {
+        "elapsed_ms": 2542.7,
+        "deadline_sec": 12.0,
+        "deadline_hit": false,
+        "outcome": "ok",
+        "source": "openlibrary",
+        "title_returned": "翦商：殷周之变与华夏新生",
+        "error": null
+      }
+    },
+    {
+      "label": "小学问·书名",
+      "kind": "title",
+      "value": "小学问",
+      "author": null,
+      "expect_title": "小学问",
+      "providers": {
+        "nlc": {
+          "outcome": "timeout",
+          "elapsed_ms": 15002.8,
+          "title_returned": null,
+          "source": null,
+          "error": null,
+          "requests": [
+            {
+              "kind": "text",
+              "url": "https://opac.nlc.cn/F?func=find-b&find_code=WTP&request=%E7%BF%A6%E5%95%86%20%E6%9D%8E%E7%A1%95&local_base=NLC01&filter_code_1=WLN&filter_request_1=&filter_code_2=WYR&filter_request_2=&filter_code_3=WYR&filter_request_3=&filter_code_4=WFM&filter_request_4=&filter_code_5=WSL&filter_request_5=",
+              "status": null,
+              "elapsed_ms": 15003.4,
+              "error": "URLError: <urlopen error _ssl.c:1015: The handshake operation timed out>"
+            },
+            {
+              "kind": "text",
+              "url": "https://opac.nlc.cn/F?func=find-b&find_code=WTP&request=%E5%B0%8F%E5%AD%A6%E9%97%AE&local_base=NLC01&filter_code_1=WLN&filter_request_1=&filter_code_2=WYR&filter_request_2=&filter_code_3=WYR&filter_request_3=&filter_code_4=WFM&filter_request_4=&filter_code_5=WSL&filter_request_5=",
+              "status": null,
+              "elapsed_ms": 15002.7,
+              "error": "URLError: <urlopen error _ssl.c:1015: The handshake operation timed out>"
+            }
+          ]
+        },
+        "google_books": {
+          "outcome": "rate_limited",
+          "elapsed_ms": 2324.1,
+          "title_returned": null,
+          "source": null,
+          "error": null,
+          "requests": [
+            {
+              "kind": "json",
+              "url": "https://www.googleapis.com/books/v1/volumes?q=intitle%3A%22%E5%B0%8F%E5%AD%A6%E9%97%AE%22&maxResults=3&printType=books",
+              "status": 429,
+              "elapsed_ms": 2323.6,
+              "error": "HTTPError: HTTP Error 429: Too Many Requests"
+            }
+          ]
+        },
+        "openlibrary": {
+          "outcome": "no_result",
+          "elapsed_ms": 1219.7,
+          "title_returned": null,
+          "source": null,
+          "error": null,
+          "requests": [
+            {
+              "kind": "json",
+              "url": "https://openlibrary.org/search.json?title=%E5%B0%8F%E5%AD%A6%E9%97%AE&limit=1",
+              "status": 200,
+              "elapsed_ms": 1219.6,
+              "error": null
+            }
+          ]
+        }
+      },
+      "chain": {
+        "elapsed_ms": 8002.4,
+        "deadline_sec": 12.0,
+        "deadline_hit": false,
+        "outcome": "no_result",
+        "source": null,
+        "title_returned": null,
+        "error": null
+      }
+    },
+    {
+      "label": "节气手帖·书名",
+      "kind": "title",
+      "value": "节气手帖",
+      "author": null,
+      "expect_title": "节气手帖",
+      "providers": {
+        "nlc": {
+          "outcome": "timeout",
+          "elapsed_ms": 15002.0,
+          "title_returned": null,
+          "source": null,
+          "error": null,
+          "requests": [
+            {
+              "kind": "text",
+              "url": "https://opac.nlc.cn/F?func=find-b&find_code=WTP&request=%E5%B0%8F%E5%AD%A6%E9%97%AE&local_base=NLC01&filter_code_1=WLN&filter_request_1=&filter_code_2=WYR&filter_request_2=&filter_code_3=WYR&filter_request_3=&filter_code_4=WFM&filter_request_4=&filter_code_5=WSL&filter_request_5=",
+              "status": null,
+              "elapsed_ms": 15003.4,
+              "error": "URLError: <urlopen error _ssl.c:1015: The handshake operation timed out>"
+            },
+            {
+              "kind": "text",
+              "url": "https://opac.nlc.cn/F?func=find-b&find_code=WTP&request=%E8%8A%82%E6%B0%94%E6%89%8B%E5%B8%96&local_base=NLC01&filter_code_1=WLN&filter_request_1=&filter_code_2=WYR&filter_request_2=&filter_code_3=WYR&filter_request_3=&filter_code_4=WFM&filter_request_4=&filter_code_5=WSL&filter_request_5=",
+              "status": null,
+              "elapsed_ms": 15001.9,
+              "error": "URLError: <urlopen error _ssl.c:1015: The handshake operation timed out>"
+            }
+          ]
+        },
+        "google_books": {
+          "outcome": "rate_limited",
+          "elapsed_ms": 1153.6,
+          "title_returned": null,
+          "source": null,
+          "error": null,
+          "requests": [
+            {
+              "kind": "json",
+              "url": "https://www.googleapis.com/books/v1/volumes?q=intitle%3A%22%E8%8A%82%E6%B0%94%E6%89%8B%E5%B8%96%22&maxResults=3&printType=books",
+              "status": 429,
+              "elapsed_ms": 1153.3,
+              "error": "HTTPError: HTTP Error 429: Too Many Requests"
+            }
+          ]
+        },
+        "openlibrary": {
+          "outcome": "no_result",
+          "elapsed_ms": 2071.2,
+          "title_returned": null,
+          "source": null,
+          "error": null,
+          "requests": [
+            {
+              "kind": "json",
+              "url": "https://openlibrary.org/search.json?title=%E8%8A%82%E6%B0%94%E6%89%8B%E5%B8%96&limit=1",
+              "status": 200,
+              "elapsed_ms": 2071.1,
+              "error": null
+            }
+          ]
+        }
+      },
+      "chain": {
+        "elapsed_ms": 8004.4,
+        "deadline_sec": 12.0,
+        "deadline_hit": false,
+        "outcome": "no_result",
+        "source": null,
+        "title_returned": null,
+        "error": null
+      }
+    }
+  ],
+  "summary": {
+    "by_provider_outcome": {
+      "nlc": {
+        "timeout": 5
+      },
+      "google_books": {
+        "rate_limited": 5
+      },
+      "openlibrary": {
+        "ok": 3,
+        "no_result": 2
+      }
+    },
+    "total_probes": 5
+  }
+}

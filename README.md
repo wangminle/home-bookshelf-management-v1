@@ -17,6 +17,8 @@
 - **副本与购买记录**：多副本管理、购买价格/渠道/订单号、花费统计
 - **阅读追踪**：5 态进度（想读/在读/读完/弃读/放弃）、每日阅读日志、连续天数、读书笔记
 - **Web UI**：Vue 3 SPA 封面墙浏览、筛选、详情页、阅读统计仪表盘、书架概览图生成与导出
+- **拍照批量入库工作台**：Web 上传多图 → 模型识别 → 候选核对（含副标题/拆分）→ 匹配已有书 → 确认执行 → 回执重试，状态服务端持久化可恢复
+- **多模态模型识别**：Owner 在 `/llm-settings` 配置兼容 OpenAI 的识图模型，看封面读出书名/作者，供批量入库与单本 `--image` 识别使用
 - **附件**：书籍/副本/成员/笔记可挂链接、文件、Markdown
 - **成员与 IM 绑定**：家庭成员 + 渠道白名单（飞书/Telegram 等）鉴权
 - **识别与诊断**：封面/条码识别、`doctor` 自检
@@ -27,7 +29,7 @@
 home-bookshelf-management-v1/
 ├── backend/              FastAPI 后端
 │   ├── app/
-│   │   ├── api/v1/       路由（books/copies/intake/progress/purchases/notes/reading-logs/attachments/custom-fields/stats/members/recognize/files/health + web_auth/agent_access/agent_discovery/agent_skills）
+│   │   ├── api/v1/       路由（books/copies/intake/progress/purchases/notes/reading-logs/attachments/custom-fields/stats/members/recognize/files/health + web_auth/agent_access/agent_discovery/agent_skills/intake_workflow/llm_settings/catalog_visibility/public_catalog）
 │   │   ├── auth.py       渠道白名单鉴权（统一鉴权权威实现为 auth_context.py）
 │   │   ├── services/     业务逻辑（intake/metadata/reading/cover_recognition/storage…）
 │   │   ├── models/       SQLAlchemy 2.0 模型
@@ -37,7 +39,7 @@ home-bookshelf-management-v1/
 │   ├── tests/            pytest 回归
 │   ├── install.sh / install.bat
 │   └── requirements.txt
-├── frontend/             Vue 3 SPA（封面墙 / 详情 / 统计 / 概览图）
+├── frontend/             Vue 3 SPA（封面墙 / 详情 / 统计 / 概览图 / 批量入库工作台 / 模型设置 / 访问策略 / 共享书架）
 ├── cli/                  Typer CLI（命令 bookshelf）
 ├── deploy/               docker-compose / systemd / backup.sh
 ├── skills/               Agent 技能（9 个）
@@ -129,6 +131,8 @@ bash scripts/deploy_frontend.sh --base /home-bookshelf/
 - **Copies & purchases**: multiple copies, price/channel/order tracking, spending stats
 - **Reading tracking**: 5-state progress (unread/reading/finished/abandoned/dropped), daily logs, streaks, notes
 - **Web UI**: Vue 3 SPA with cover-wall browsing, filters, book details, reading stats dashboard, shelf overview export
+- **Photo batch-intake workbench**: upload multiple covers on the Web → model recognition → candidate review (subtitle/split) → match existing books → confirm & execute → receipt/retry; state persisted server-side and resumable
+- **Multimodal model recognition**: the owner configures an OpenAI-compatible vision model in `/llm-settings` to read title/author from covers, used by batch intake and single-book `--image` recognition
 - **Attachments**: link/file/markdown on books, copies, members, notes
 - **Members & IM binding**: family members + channel whitelist (Feishu/Telegram) for auth
 - **Recognition & diagnostics**: cover/barcode recognition, `doctor` self-check
@@ -139,7 +143,7 @@ bash scripts/deploy_frontend.sh --base /home-bookshelf/
 home-bookshelf-management-v1/
 ├── backend/              FastAPI backend
 │   ├── app/
-│   │   ├── api/v1/       routes (books/copies/intake/progress/purchases/notes/reading-logs/attachments/custom-fields/stats/members/recognize/files/health + web_auth/agent_access/agent_discovery/agent_skills)
+│   │   ├── api/v1/       routes (books/copies/intake/progress/purchases/notes/reading-logs/attachments/custom-fields/stats/members/recognize/files/health + web_auth/agent_access/agent_discovery/agent_skills/intake_workflow/llm_settings/catalog_visibility/public_catalog)
 │   │   ├── auth.py       channel whitelist auth (authoritative unified auth lives in auth_context.py)
 │   │   ├── services/     business logic (intake/metadata/reading/cover_recognition/storage…)
 │   │   ├── models/       SQLAlchemy 2.0 models
@@ -149,7 +153,7 @@ home-bookshelf-management-v1/
 │   ├── tests/            pytest regressions
 │   ├── install.sh / install.bat
 │   └── requirements.txt
-├── frontend/             Vue 3 SPA (cover wall / details / stats / overview)
+├── frontend/             Vue 3 SPA (cover wall / details / stats / overview / batch-intake workbench / model settings / catalog policy / shared shelf)
 ├── cli/                  Typer CLI (command: bookshelf)
 ├── deploy/               docker-compose / systemd / backup.sh
 ├── skills/               Agent skills (9)

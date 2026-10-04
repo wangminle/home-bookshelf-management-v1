@@ -9,7 +9,7 @@ from app import db as db_module
 from app.auth_context import AuthContext, require_scope, resolve_body_member, verify_csrf
 from app.db import get_db
 from app.schemas.book import ApiResponse
-from app.schemas.intake import IntakeOut, IntakeRequest
+from app.schemas.intake import IntakeOut, IntakeRequest, IntakeWarningOut
 from app.services.intake import IntakeInput, IntakeResult, intake_book
 from app.utils.db_errors import ConflictError
 from app.utils.operation_log import log_and_commit
@@ -20,6 +20,17 @@ router = APIRouter(prefix="/books", tags=["books"])
 
 
 def _build_intake_response(result: IntakeResult) -> tuple[IntakeOut, int]:
+    warnings = None
+    if result.warnings:
+        warnings = [
+            IntakeWarningOut(
+                code=w.code,
+                message=w.message,
+                field=w.field,
+                detail=w.detail,
+            )
+            for w in result.warnings
+        ]
     data = IntakeOut(
         action=result.action,
         book=book_to_out(result.book),
@@ -29,6 +40,7 @@ def _build_intake_response(result: IntakeResult) -> tuple[IntakeOut, int]:
         created_copy=result.created_copy,
         created_purchase=result.created_purchase,
         already_exists=result.already_exists,
+        warnings=warnings,
     )
     status_code = 200 if result.already_exists else 201
     return data, status_code
@@ -40,7 +52,11 @@ def _run_intake_in_thread(
     channel: str | None,
     isbn: str | None,
     title: str | None,
+    subtitle: str | None,
     author: str | None,
+    authors: list[str] | None,
+    field_policy: str,
+    confirmed_fields: list[str] | None,
     image_path: Path | None,
     price: float | None,
     purchase_channel: str | None,
@@ -53,12 +69,16 @@ def _run_intake_in_thread(
             IntakeInput(
                 isbn=isbn,
                 title=title,
+                subtitle=subtitle,
                 author=author,
+                authors=authors,
                 image_path=image_path,
                 price=price,
                 channel=purchase_channel,
                 location=location,
                 member_id=member_id,
+                field_policy=field_policy,
+                confirmed_fields=confirmed_fields,
             ),
         )
         log_and_commit(
@@ -66,7 +86,12 @@ def _run_intake_in_thread(
             action="book.intake",
             member_id=member_id,
             channel=channel,
-            payload={"book_id": result.book.id, "action": result.action, "isbn_detected": result.isbn_detected},
+            payload={
+                "book_id": result.book.id,
+                "action": result.action,
+                "isbn_detected": result.isbn_detected,
+                "warning_codes": [w.code for w in result.warnings] if result.warnings else [],
+            },
         )
         data, status_code = _build_intake_response(result)
         return data.model_dump(), status_code
@@ -77,7 +102,11 @@ async def intake(
     response: Response,
     isbn: str | None = Form(default=None),
     title: str | None = Form(default=None),
+    subtitle: str | None = Form(default=None),
     author: str | None = Form(default=None),
+    authors: list[str] | None = Form(default=None),
+    field_policy: str = Form(default="default"),
+    confirmed_fields: list[str] | None = Form(default=None),
     price: float | None = Form(default=None),
     channel: str | None = Form(default=None),
     location: str | None = Form(default=None),
@@ -87,6 +116,8 @@ async def intake(
     _csrf: None = Depends(verify_csrf),
     db: Session = Depends(get_db),
 ) -> ApiResponse:
+    if field_policy not in ("default", "prefer_confirmed"):
+        raise HTTPException(status_code=400, detail=f"未知的字段策略: {field_policy}")
     resolved_member_id = resolve_body_member(ctx, member_id, db=db)
     image_path: Path | None = None
     temp_file: Path | None = None
@@ -106,7 +137,11 @@ async def intake(
             channel=ctx.channel,
             isbn=isbn,
             title=title,
+            subtitle=subtitle,
             author=author,
+            authors=authors,
+            field_policy=field_policy,
+            confirmed_fields=confirmed_fields,
             image_path=image_path,
             price=price,
             purchase_channel=channel,
@@ -142,11 +177,15 @@ def intake_json(
             IntakeInput(
                 isbn=payload.isbn,
                 title=payload.title,
+                subtitle=payload.subtitle,
                 author=payload.author,
+                authors=payload.authors,
                 price=payload.price,
                 channel=payload.channel,
                 location=payload.location,
                 member_id=resolved_member_id,
+                field_policy=payload.field_policy,
+                confirmed_fields=payload.confirmed_fields,
             ),
         )
     except ValueError as exc:
@@ -161,7 +200,12 @@ def intake_json(
         action="book.intake",
         member_id=resolved_member_id,
         channel=ctx.channel,
-        payload={"book_id": result.book.id, "action": result.action, "isbn_detected": result.isbn_detected},
+        payload={
+            "book_id": result.book.id,
+            "action": result.action,
+            "isbn_detected": result.isbn_detected,
+            "warning_codes": [w.code for w in result.warnings] if result.warnings else [],
+        },
     )
     data, status_code = _build_intake_response(result)
     response.status_code = status_code

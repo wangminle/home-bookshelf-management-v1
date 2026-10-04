@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "source_dir": "/photos/books-20260930",
+  "created_at": "2026-09-30T10:00:00+08:00",
+  "updated_at": "2026-09-30T18:00:00+08:00",
+  "entries": [
+    {
+      "file": "IMG_0001.jpg",
+      "title": "翦商",
+      "author": "李硕",
+      "isbn": null,
+      "price": null,
+      "channel": null,
+      "location": null,
+      "member_id": null,
+      "status": "imported",
+      "note": null,
+      "result": {
+        "outcome": "created",
+        "book_id": 10,
+        "action": "created_new",
+        "message": "已入库《翦商》"
+      }
+    },
+    {
+      "file": "IMG_0002.jpg",
+      "title": "活在此刻",
+      "author": null,
+      "isbn": null,
+      "price": null,
+      "channel": null,
+      "location": null,
+      "member_id": null,
+      "status": "imported",
+      "note": "同书第二张封面照片",
+      "result": {
+        "outcome": "created",
+        "book_id": 67,
+        "action": "created_new",
+        "message": "已入库《活在此刻》"
+      }
+    },
+    {
+      "file": "IMG_0003.jpg",
+      "title": "小学问",
+      "author": null,
+      "isbn": "9787508684059",
+      "price": null,
+      "channel": null,
+      "location": null,
+      "member_id": null,
+      "status": "confirmed",
+      "note": null,
+      "result": null
+    },
+    {
+      "file": "IMG_0004.jpg",
+      "title": null,
+      "author": null,
+      "isbn": null,
+      "price": null,
+      "channel": null,
+      "location": null,
+      "member_id": null,
+      "status": "pending",
+      "note": null,
+      "result": null
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+[
+  {
+    "id": "user-sim-001",
+    "file": "sim_01_normal.png",
+    "task": "cover_title_author",
+    "difficulty": "normal",
+    "group": "g-sim-001",
+    "verified": false,
+    "isbn_visible": false,
+    "authors_on_cover": true,
+    "expected": {"title": "星港手记", "author": "陈予安", "isbn": null}
+  },
+  {
+    "id": "user-sim-002",
+    "file": "sim_02_vertical.png",
+    "task": "cover_title_author",
+    "difficulty": "vertical",
+    "group": "g-sim-002",
+    "verified": false,
+    "isbn_visible": false,
+    "authors_on_cover": true,
+    "expected": {"title": "南风辞", "author": "林晚", "isbn": null}
+  },
+  {
+    "id": "user-sim-003",
+    "file": "sim_03_blurry.png",
+    "task": "cover_title_author",
+    "difficulty": "blurry",
+    "group": "g-sim-003",
+    "verified": false,
+    "isbn_visible": false,
+    "authors_on_cover": true,
+    "expected": {"title": "纸上星图", "author": "周衡", "isbn": null}
+  },
+  {
+    "id": "user-sim-004",
+    "file": "sim_04_art_font.png",
+    "task": "cover_title_author",
+    "difficulty": "art_font",
+    "group": "g-sim-004",
+    "verified": false,
+    "isbn_visible": false,
+    "authors_on_cover": true,
+    "note": "多作者样例：封面署双作者",
+    "expected": {"title": "雾中灯塔", "author": "陈予安、林晚", "isbn": null}
+  },
+  {
+    "id": "user-sim-005",
+    "file": "sim_05_angle_isbn.png",
+    "task": "cover_title_author",
+    "difficulty": "angle",
+    "group": "g-sim-005",
+    "verified": false,
+    "isbn_visible": true,
+    "authors_on_cover": true,
+    "note": "倾斜样例且封面印有 ISBN，评 ISBN 准确率/召回",
+    "expected": {"title": "拾光的人", "author": "周衡", "isbn": "9787553820217"}
+  },
+  {
+    "id": "user-sim-006",
+    "file": "sim_06_normal_g2.png",
+    "task": "cover_title_author",
+    "difficulty": "normal",
+    "group": "g-sim-004",
+    "verified": false,
+    "isbn_visible": false,
+    "authors_on_cover": true,
+    "note": "与 sim_004 同书（同组 g-sim-004）的不同照片：分组切分时不得跨集泄漏",
+    "expected": {"title": "雾中灯塔", "author": "陈予安、林晚", "isbn": null}
+  }
+]

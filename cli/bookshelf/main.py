@@ -3,7 +3,7 @@ from __future__ import annotations
 import functools
 import json
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import typer
 
@@ -54,6 +54,7 @@ def add_book(
     isbn: Optional[str] = typer.Option(None, "--isbn", help="ISBN-10/13"),
     title: Optional[str] = typer.Option(None, "--title", help="书名"),
     author: Optional[str] = typer.Option(None, "--author", help="作者"),
+    authors: Optional[List[str]] = typer.Option(None, "--authors", help="作者数组（可重复传入，多作者完整保留）"),
     image: Optional[Path] = typer.Option(None, "--image", dir_okay=False, help="书封/条码图片（支持 ~ 路径）"),
     price: Optional[float] = typer.Option(None, "--price", help="购买价格"),
     channel: Optional[str] = typer.Option(None, "--channel", help="购买渠道"),
@@ -61,11 +62,12 @@ def add_book(
     member_id: Optional[int] = typer.Option(None, "--member-id", help="家庭成员 ID"),
     json_output: bool = typer.Option(True, "--json/--no-json", help="JSON 输出"),
 ):
-    """入库：支持 ISBN / 图片 / 书名+作者"""
+    """入库：支持 ISBN / 图片 / 书名+作者（--authors 传多作者数组）"""
     result = client.add(
         isbn=isbn,
         title=title,
         author=author,
+        authors=authors,
         image=_expand_image(image, "--image"),
         price=price,
         channel=channel,

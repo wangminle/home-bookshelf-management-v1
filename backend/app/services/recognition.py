@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.utils.book_helpers import canonical_isbn13, is_valid_isbn, normalize_isbn
@@ -14,6 +15,26 @@ _RECOGNIZE_TIMEOUT_SEC = 15.0
 # 识别前把图片长边缩到此像素以内：pyzbar 对超大图既慢又易漏检，
 # 缩到 1600px 在保持条码可读的同时显著降低 decode 耗时。
 _MAX_DECODE_DIM = 1600
+
+# BI-02（契约 §2）：扫描结局码，与 warnings[].code 对应关系——
+# ok→无警告；not_found→barcode_not_found；timeout→barcode_decode_timeout；
+# unavailable→barcode_dependency_unavailable。
+SCAN_OK = "ok"
+SCAN_NOT_FOUND = "not_found"
+SCAN_TIMEOUT = "timeout"
+SCAN_UNAVAILABLE = "unavailable"
+
+
+@dataclass
+class BarcodeScanResult:
+    """结构化条码扫描结局：入库据此降级并生成警告，而不是丢失原因。
+
+    图片损坏仍抛 ValueError（不以降级掩盖上传错误，契约 §4.1）。
+    """
+
+    isbn: str | None = None
+    outcome: str = SCAN_NOT_FOUND
+    message: str = ""
 
 
 def _decode_isbns(image_path: Path) -> list[str]:
@@ -40,14 +61,16 @@ def _decode_isbns(image_path: Path) -> list[str]:
         return results
 
 
-def recognize_isbn_from_image(image_path: Path) -> str | None:
+def scan_isbn_from_image(image_path: Path) -> BarcodeScanResult:
+    """扫描条码并返回结构化结局（BI-02）。依赖不可用不再抛异常，由调用方降级。"""
     try:
         from PIL import Image  # noqa: F401
         from pyzbar.pyzbar import decode  # noqa: F401
-    except ImportError as exc:
-        raise RuntimeError(
-            "ISBN 条码识别需要安装 pyzbar 和 Pillow，且系统需安装 zbar 库（macOS: brew install zbar）"
-        ) from exc
+    except ImportError:
+        return BarcodeScanResult(
+            outcome=SCAN_UNAVAILABLE,
+            message="ISBN 条码识别需要安装 pyzbar 和 Pillow，且系统需安装 zbar 库（macOS: brew install zbar）",
+        )
 
     # BUG-149：用线程池给 pyzbar.decode 套硬超时。
     # 线程无法被强杀，但 future.result(timeout) 会让主线程立即返回 None，
@@ -65,9 +88,31 @@ def recognize_isbn_from_image(image_path: Path) -> str | None:
         logger.warning(
             "ISBN 条码识别超时（%ss），放弃：%s", _RECOGNIZE_TIMEOUT_SEC, image_path
         )
-        return None
+        return BarcodeScanResult(
+            outcome=SCAN_TIMEOUT,
+            message=f"ISBN 条码识别超时（{_RECOGNIZE_TIMEOUT_SEC}s），已放弃",
+        )
     except OSError as exc:
         raise ValueError(f"无法识别图片文件：{exc}") from exc
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
-    return results[0] if results else None
+    if results:
+        return BarcodeScanResult(isbn=results[0], outcome=SCAN_OK, message="")
+    return BarcodeScanResult(
+        outcome=SCAN_NOT_FOUND, message="图片中未发现可解码的 ISBN 条码"
+    )
+
+
+def recognize_isbn_from_image(image_path: Path) -> str | None:
+    """兼容入口：独立识别接口（/recognize/isbn）继续如实报告能力故障。
+
+    依赖不可用抛 RuntimeError（API 层映射 503）——入库降级不意味着识别能力正常。
+    """
+    result = scan_isbn_from_image(image_path)
+    if result.outcome == SCAN_UNAVAILABLE:
+        raise RuntimeError(result.message)
+    if result.outcome == SCAN_TIMEOUT:
+        return None
+    if result.outcome == SCAN_NOT_FOUND:
+        return None
+    return result.isbn

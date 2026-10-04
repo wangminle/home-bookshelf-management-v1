@@ -12,6 +12,21 @@ DEFAULT_TIMEOUT = httpx.Timeout(5.0, read=30.0)
 INTAKE_TIMEOUT = httpx.Timeout(5.0, read=90.0)
 
 
+class ApiOutcomeUnknownError(RuntimeError):
+    """请求可能已被服务端受理、仅回执丢失（契约 §7 结果未知）。
+
+    与"确定未提交"的连接失败（ConnectError/DNS/拒连）不同：本类错误
+    **禁止自动重发**——重复提交会产生重复写入（副本/购买等）；须先经
+    reconcile / 书目查询核对服务端真实状态后，再显式决定。
+    覆盖场景：连接建立后读写阶段失败（ReadError/RemoteProtocolError）、
+    2xx 响应体不可解析等。仍继承 RuntimeError，既有 except 不受影响。
+    """
+
+
+class ApiTimeoutError(ApiOutcomeUnknownError):
+    """读/写超时：回执未知的一类（见 ApiOutcomeUnknownError）。"""
+
+
 class BookshelfClient:
     def __init__(self, base_url: str | None = None, timeout: httpx.Timeout | float | None = None):
         self.base_url = (base_url or os.environ.get("BOOKSHELF_API_URL", DEFAULT_API_URL)).rstrip("/")
@@ -56,14 +71,46 @@ class BookshelfClient:
         try:
             with httpx.Client(timeout=request_timeout) as client:
                 resp = client.request(method, self._url(path), headers=headers or None, **kwargs)
+        except (httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+            # 连接未建立/未拿到连接：请求确定未送达，可安全重试
+            raise RuntimeError(f"连接 API 超时：{self.base_url}（{method} {path}，未建立连接）") from exc
         except httpx.TimeoutException as exc:
-            raise RuntimeError(f"连接 API 超时：{self.base_url}（{method} {path}）") from exc
+            # 读/写阶段超时（BI-04 契约 §7）：请求可能已被受理，回执未知
+            raise ApiTimeoutError(
+                f"连接 API 超时：{self.base_url}（{method} {path}）——回执未知，"
+                f"核对后再决定是否重试"
+            ) from exc
+        except (httpx.ReadError, httpx.RemoteProtocolError, httpx.WriteError,
+                httpx.DecodingError) as exc:
+            # 连接已建立后的读写/协议失败：请求可能已被服务端受理，仅回执
+            # 丢失——与"确定未提交"的连接失败不同，必须归类结果未知待核对，
+            # 不得由 retry-failed 自动重发（重复写入风险，BUG-261）
+            raise ApiOutcomeUnknownError(
+                f"回执丢失（可能已提交）：{self.base_url}（{method} {path}，"
+                f"{exc.__class__.__name__}）——请求可能已被受理，核对后再决定是否重试"
+            ) from exc
         except httpx.HTTPError as exc:
+            # 连接失败/DNS/拒连等：请求确定未提交，可安全重试
             raise RuntimeError(f"无法连接 API：{self.base_url}（{exc.__class__.__name__}）") from exc
+
+        # 写请求收到 5xx 不能证明未提交：后端可能已 commit，随后序列化失败，
+        # 或网关丢失成功回执。无论错误体是否为 JSON，均先暂停自动重发。
+        if method.upper() not in ("GET", "HEAD", "OPTIONS") and resp.status_code >= 500:
+            raise ApiOutcomeUnknownError(
+                f"回执丢失（可能已提交）：{self.base_url}（{method} {path}，"
+                f"[HTTP {resp.status_code}]）——服务端/网关失败不能证明未提交，核对后再决定是否重试"
+            )
 
         try:
             payload = resp.json()
         except Exception as exc:
+            if resp.status_code < 400:
+                # 2xx 但响应体不可解析：服务端很可能已处理请求（写入已发生），
+                # 仅回执无法读取——归类结果未知，禁止自动重发（BUG-261）
+                raise ApiOutcomeUnknownError(
+                    f"回执丢失（可能已提交）：{self.base_url}（{method} {path}，"
+                    f"HTTP {resp.status_code} 响应体不可解析）——核对后再决定是否重试"
+                ) from exc
             raise RuntimeError(f"API 返回非 JSON（{resp.status_code}）: {resp.text[:200]}") from exc
 
         if resp.status_code >= 400:
@@ -181,26 +228,34 @@ class BookshelfClient:
         isbn: str | None = None,
         title: str | None = None,
         author: str | None = None,
+        authors: list[str] | None = None,
         image: Path | None = None,
         price: float | None = None,
         channel: str | None = None,
         location: str | None = None,
         member_id: int | None = None,
+        field_policy: str | None = None,
+        confirmed_fields: list[str] | None = None,
     ) -> dict[str, Any]:
         if image:
             with image.open("rb") as f:
                 files = {"image": (image.name, f, "application/octet-stream")}
-                data = {k: str(v) for k, v in {
+                data: dict[str, Any] = {k: str(v) for k, v in {
                     "isbn": isbn, "title": title, "author": author,
                     "price": price, "channel": channel, "location": location,
-                    "member_id": member_id,
+                    "member_id": member_id, "field_policy": field_policy,
                 }.items() if v is not None}
+                if authors:
+                    data["authors"] = authors  # httpx 多值 → 重复表单字段
+                if confirmed_fields:
+                    data["confirmed_fields"] = confirmed_fields
                 return self._request("POST", "/books/intake", data=data, files=files, timeout=INTAKE_TIMEOUT)
 
         body = {k: v for k, v in {
-            "isbn": isbn, "title": title, "author": author,
+            "isbn": isbn, "title": title, "author": author, "authors": authors,
             "price": price, "channel": channel, "location": location,
-            "member_id": member_id,
+            "member_id": member_id, "field_policy": field_policy,
+            "confirmed_fields": confirmed_fields,
         }.items() if v is not None}
         return self._request("POST", "/books/intake/json", json=body, timeout=INTAKE_TIMEOUT)
 
@@ -310,6 +365,13 @@ def emit(payload: dict[str, Any], as_json: bool) -> None:
             print(f"  ID: {book.get('id')}  《{book.get('title')}》  {authors}")
             if book.get("isbn13"):
                 print(f"  ISBN: {book.get('isbn13')}")
+        # BI-02：结构化警告（条码降级/元数据缺失等），code 与批量报告一致
+        for warning in data.get("warnings") or []:
+            line = f"  ⚠ [{warning.get('code')}] {warning.get('message')}"
+            detail = warning.get("detail") or {}
+            if detail:
+                line += f"（{json.dumps(detail, ensure_ascii=False)}）"
+            print(line)
         if data.get("status"):
             extra = []
             if data.get("current_page") is not None:

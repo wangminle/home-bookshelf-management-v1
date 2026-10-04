@@ -84,6 +84,9 @@ ENDPOINT_REGISTRY: list[EndpointSpec] = [
     EndpointSpec("PATCH", "/agent-access/grants/1", None, "L4", "管理（owner web 专用）", behavior_probe=False),
     EndpointSpec("DELETE", "/agent-access/grants/1", None, "L4", "管理（owner web 专用）", behavior_probe=False),
     EndpointSpec("POST", "/agent-access/tokens", None, "L4", "管理（owner web 专用）", behavior_probe=False),
+    # 多模态模型接口配置：仅 Owner Web 会话，密钥不回显
+    EndpointSpec("GET", "/api/v1/settings/llm", None, "L4", "管理（owner web 专用）", behavior_probe=False),
+    EndpointSpec("PUT", "/api/v1/settings/llm", None, "L4", "管理（owner web 专用）", behavior_probe=False),
 ]
 
 

@@ -30,6 +30,19 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/llm-settings',
+      name: 'llm-settings',
+      component: () => import('@/views/LlmSettingsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      // 拍照批量入库核对工作台（PLN-012 M3）：页面内部再做 Owner 校验
+      path: '/batch-intake',
+      name: 'batch-intake',
+      component: () => import('@/views/BatchIntakeView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       // 访问策略页（权限阶段 4）：Owner 管理逐书可见级别与 C→B 预览
       path: '/catalog-policy',
       name: 'catalog-policy',

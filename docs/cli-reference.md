@@ -42,11 +42,12 @@
 ## `add`
 
 ```bash
-bookshelf add [--isbn ISBN] [--title 书名] [--author 作者] [--image 路径]
-              [--price 价格] [--channel 渠道] [--location 位置] [--member-id ID]
+bookshelf add [--isbn ISBN] [--title 书名] [--author 作者] [--authors 作者]...
+              [--image 路径] [--price 价格] [--channel 渠道] [--location 位置] [--member-id ID]
 ```
 
 至少提供 ISBN、图片或书名之一。`--image` 支持 `~` 前缀（自动展开为家目录）。
+`--authors` 可重复传入（`--authors 甲 --authors 乙`），多作者完整保留。
 
 ## `find` / `show`
 
@@ -90,7 +91,7 @@ bookshelf reading-log --book-id ID --date YYYY-MM-DD
 ## `member` / `bind`
 
 ```bash
-bookshelf member --name 名称 [--role owner|member|guest] [--avatar 路径]
+bookshelf member --name 名称 [--role owner|member] [--avatar 路径]
 bookshelf bind --member-id ID --channel 渠道名 --external-user-id 外部ID
 ```
 
@@ -116,6 +117,12 @@ bookshelf auth status
   会返回更明确的中文错误而不是裸 traceback：JSON 模式输出
   `{"ok": false, "error": "..."}` 单文档、文本模式向 stderr 输出一行错误，
   均以退出码 `1` 结束
+- 写命令（`add`/`purchase`/`note`/`progress`/`reading-log`）报「回执丢失（可能已提交）」
+  （`ApiOutcomeUnknownError`/`ApiTimeoutError`，见 `cli/bookshelf/client.py`）时——
+  覆盖连接建立后的读/写超时、post-connect 读写/协议错误、2xx 响应体不可解析、
+  以及写请求的任意 5xx——**请求可能已被服务端提交**，不要盲目重试：先用
+  `find`/`show` 或批量脚本的 `reconcile` 核对服务端真实状态再决定。只有
+  「确定未建立连接」的连接失败/连接超时（DNS、拒连等）才可安全重试
 - `GET /api/v1/health` 已要求认证（`members:read`）：无凭证时 `health`/`doctor` 自动回退 `GET /api/v1/public-health` 验证可达性，并以警告提示诊断细节不可用（数据库状态显示「未知」而非误报异常）。监控脚本请直接打 `public-health`，不要再对 `/health` 期望 200。数据库断开时 `/health` 返回 503 + 诊断体，`doctor` 会正确报告「数据库未连接」并给出处置建议（检查 `DATABASE_URL` / 迁移），不会误诊为 API 不可达
 - `doctor` 会读取 health 响应（无凭证走 `public-health`，持 Token 走 `/health`，两者均携带）的 `frontend_version` / `app_version`，不一致时警告 static 漂移
 

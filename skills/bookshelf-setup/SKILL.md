@@ -2,7 +2,7 @@
 name: bookshelf-setup
 description: 家庭书架初始化技能。当用户说「第一次使用」「初始化书架」「怎么配置」「连接不上」「setup」时使用。引导完成 API 连通、Google Books Key、Agent 对接与成员渠道绑定。
 scopes: []
-version: "0.2.5"
+version: "0.2.6"
 ---
 
 # 书架初始化（bookshelf-setup）
@@ -113,7 +113,7 @@ bookshelf doctor
 
 2. 默认可能有「默认用户」（ID=1）。如需区分多位家庭成员，先创建新成员：
    ```bash
-   bookshelf member --name "你" --role owner     # role 可选 owner / member / guest
+   bookshelf member --name "你" --role owner     # role 可选 owner / member
    ```
    > 空库首次直接 `bookshelf bind --member-id 1 ...` 会自动创建默认 owner，无需先手动建成员。
 

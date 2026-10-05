@@ -50,17 +50,17 @@ Agent 访问以下公开端点（无需认证）：
 ```bash
 # 1. 读 Skills 索引，拿到当前 bundle 版本和下载地址
 curl http://<服务器>/agent/skills/index.json
-# 响应含 bundle_version（如 0.2.5）与 archive_url；下载没有 latest.zip，只有带版本号的包
+# 响应含 bundle_version（如 0.2.6）与 archive_url；下载没有 latest.zip，只有带版本号的包
 
-# 2. 按索引里的版本下载（以 0.2.5 为例）
-curl -O http://<服务器>/agent/skills/download/0.2.5.zip
+# 2. 按索引里的版本下载（以 0.2.6 为例）
+curl -O http://<服务器>/agent/skills/download/0.2.6.zip
 curl -O http://<服务器>/agent/skills/SHA256SUMS
 
-# 3. 校验完整性（SHA256SUMS 里的文件名是 skills-0.2.5.zip，与下载文件对应）
+# 3. 校验完整性（SHA256SUMS 里的文件名是 skills-0.2.6.zip，与下载文件对应）
 shasum -a 256 -c SHA256SUMS
 
 # 4. 解压：bundle 内含顶层 skills/ 目录，解到 Agent 根目录（避免 skills/skills 嵌套）
-unzip skills-0.2.5.zip -d ~/.agent/
+unzip skills-0.2.6.zip -d ~/.agent/
 ```
 
 Skills 包含 9 个技能：

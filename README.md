@@ -18,7 +18,7 @@
 - **阅读追踪**：5 态进度（想读/在读/读完/弃读/放弃）、每日阅读日志、连续天数、读书笔记
 - **Web UI**：Vue 3 SPA 封面墙浏览、筛选、详情页、阅读统计仪表盘、书架概览图生成与导出
 - **拍照批量入库工作台**：Web 上传多图 → 模型识别 → 候选核对（含副标题/拆分）→ 匹配已有书 → 确认执行 → 回执重试，状态服务端持久化可恢复
-- **多模态模型识别**：Owner 在 `/llm-settings` 配置兼容 OpenAI 的识图模型，看封面读出书名/作者，供批量入库与单本 `--image` 识别使用
+- **多模态模型识别**：Owner 在 `/llm-settings` 配置兼容 OpenAI 的识图模型，看封面读出书名/作者，供拍照批量入库工作台使用；单本 `--image` 入库走 zbar 条码扫描，不依赖识图模型
 - **附件**：书籍/副本/成员/笔记可挂链接、文件、Markdown
 - **成员与 IM 绑定**：家庭成员 + 渠道白名单（飞书/Telegram 等）鉴权
 - **识别与诊断**：封面/条码识别、`doctor` 自检
@@ -105,6 +105,8 @@ bash scripts/deploy_frontend.sh --base /home-bookshelf/
 | `bootstrap` | 发现系统契约（manifest / Skills 索引 / public-health，无需认证） |
 | `auth status` | 检查当前 Agent 授权状态（需 `BOOKSHELF_TOKEN`） |
 
+- **结果未知保护**：写命令遇 5xx/超时回执丢失时报「可能已提交」且**不自动重发**，先用 `find`/`show` 或批量脚本 `reconcile` 核对服务端状态（详见 [CLI 参考](docs/cli-reference.md)）
+
 ### Skills（Agent 技能）
 
 `skills/` 目录提供 9 个技能：`book-intake` · `book-query` · `bookshelf-bootstrap` · `bookshelf-setup` · `cover-eval` · `note-taker` · `purchase-logger` · `reading-tracker` · `shelf-report`。把该目录加入 Agent（OpenClaw / Hermes）的技能路径即可调用。
@@ -132,7 +134,7 @@ bash scripts/deploy_frontend.sh --base /home-bookshelf/
 - **Reading tracking**: 5-state progress (unread/reading/finished/abandoned/dropped), daily logs, streaks, notes
 - **Web UI**: Vue 3 SPA with cover-wall browsing, filters, book details, reading stats dashboard, shelf overview export
 - **Photo batch-intake workbench**: upload multiple covers on the Web → model recognition → candidate review (subtitle/split) → match existing books → confirm & execute → receipt/retry; state persisted server-side and resumable
-- **Multimodal model recognition**: the owner configures an OpenAI-compatible vision model in `/llm-settings` to read title/author from covers, used by batch intake and single-book `--image` recognition
+- **Multimodal model recognition**: the owner configures an OpenAI-compatible vision model in `/llm-settings` to read title/author from covers, used by the photo batch-intake workbench; single-book `--image` intake uses zbar barcode scanning, not the vision model
 - **Attachments**: link/file/markdown on books, copies, members, notes
 - **Members & IM binding**: family members + channel whitelist (Feishu/Telegram) for auth
 - **Recognition & diagnostics**: cover/barcode recognition, `doctor` self-check
@@ -217,6 +219,8 @@ See [Path Alias Deployment](docs/web-ui.md#路径别名部署path-alias). The st
 | `health` | API status |
 | `bootstrap` | Discover the system contract (manifest / skills index / public-health, no auth) |
 | `auth status` | Check current Agent authorization status (needs `BOOKSHELF_TOKEN`) |
+
+- **Outcome-unknown protection**: on 5xx/timeouts with a lost receipt, write commands report "possibly committed" and **never auto-retry** — verify server state with `find`/`show` or the batch script's `reconcile` first (see [CLI reference](docs/cli-reference.md))
 
 ### Skills (Agent)
 

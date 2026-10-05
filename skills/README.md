@@ -27,6 +27,7 @@ Agent 能力层：每个 Skill 描述**何时触发、如何调用 CLI、如何�
 4. **用户确认**：入库、消歧、识别存疑时先确认再执行
 5. **单一职责**：入库用 book-intake，查询用 book-query，评测视觉模型用 cover-eval，不要混用命令
 6. **统一鉴权**：业务端点（读+写）统一走 AuthContext 鉴权：Agent Bearer Token（按 Grant scope 校验）/ Web 会话 / 已绑定渠道头三选一，无凭证 401；CLI 设置 BOOKSHELF_TOKEN 或 BOOKSHELF_CHANNEL/BOOKSHELF_EXTERNAL_USER_ID 后自动注入，不必手工拼头；可选 CHANNEL_SIGNING_SECRET 开启渠道头 HMAC 签名
+7. **结果未知保护**：写请求（add/purchase/note/progress/reading-log/bind）超时、5xx 或回执丢失时结果未知（可能已提交），**禁止自动重发**；先 `find`/`show` 核对服务端是否已写入，再显式决定补发或放弃。读请求（find/show/stats）5xx 属确定未提交，可检查服务后重试
 
 ## 本地模拟对话
 
@@ -43,7 +44,8 @@ Agent：→ book-query → bookshelf find --keyword 三体
 Agent：→ book-query find → reading-tracker progress --book-id N --page 50
 
 用户：评测一下当前视觉模型能不能识书封
-Agent：→ cover-eval → 看 tests/eval/covers → 填 predictions.json → python3 scripts/eval_cover_recognition.py compare
+Agent：→ cover-eval → 看 tests/eval/covers（真实集 tests/eval/user-set/）→ 填 predictions.json → python3 scripts/eval_cover_recognition.py compare
+      （--yes 自动入库门控只认 scripts/run_cover_model_eval.py 产出的报告：book_level_accuracy_verified ≥ 0.75 + 四重身份比对，见 cover-eval 技能）
 ```
 
 ## 环境变量
@@ -64,15 +66,15 @@ bookshelf doctor          # 首次初始化诊断（推荐）
 bookshelf health
 bookshelf member --name "你" --role owner          # 新建家庭成员（需要多成员时）
 bookshelf bind --member-id 1 --channel feishu --external-user-id ou_xxx   # 空库首次 member_id=1 会自动创建默认 owner
-bookshelf add --isbn ... [--price ... --channel ...]
+bookshelf add --isbn ... [--price ... --channel ... --location ... --member-id ...]
 bookshelf add --image ...
-bookshelf add --title ... --author ...
+bookshelf add --title ... --author ...   # 多作者：--authors "甲" --authors "乙"（可重复传入）
 bookshelf find --keyword ... [--author ...]
 bookshelf show --id ...
-bookshelf progress --book-id ... [--page ... --status ... --rating ...]
+bookshelf progress --book-id ... [--page ... --percent ... --status ... --rating ... --to-read/--no-to-read]
 bookshelf reading-log --book-id ... --date YYYY-MM-DD [--pages ... --minutes ...]
-bookshelf purchase --book-id ... --price ... [--original-price ... --channel ...]
-bookshelf note --book-id ... --content "..."
+bookshelf purchase --book-id ... --price ... [--original-price ... --channel ... --order-no ... --date ... --notes ...]
+bookshelf note --book-id ... --content "..." [--type excerpt/review/thought --page ... --chapter ...]
 bookshelf stats
 bookshelf recognize --image ...
 ```

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { sessionRole } from '@/stores/session'
 import { lastError, extractApiErrorMessage } from '@/stores/api'
 
@@ -12,7 +12,8 @@ import { lastError, extractApiErrorMessage } from '@/stores/api'
  */
 const BASE = `${import.meta.env.BASE_URL}api/v1`
 
-interface Photo { id: number; photo_id: string; role: string; image_url: string }
+interface PhotoWarning { code: string; message: string }
+interface Photo { id: number; photo_id: string; role: string; image_url: string; warnings?: PhotoWarning[] | null }
 interface Candidate {
   id: number
   version: number
@@ -24,6 +25,7 @@ interface Candidate {
   photo_ids: string[]
   match_book_id: number | null
   match_diff: Record<string, { candidate: unknown; existing: unknown }> | null
+  conflicts?: { message?: string } & Record<string, unknown> | null
 }
 interface Execution {
   id: number
@@ -48,6 +50,8 @@ const items = ref<{ id: number; title: string; status: string }[]>([])
 const current = ref<WorkItem | null>(null)
 const newTitle = ref('')
 const selected = ref<Set<number>>(new Set())
+/** 候选 ID → 用户显式勾选「强制关联此书」。仅勾选后确认才携带 force_link。 */
+const forceLink = ref<Set<number>>(new Set())
 interface EditState {
   title: string
   subtitle: string
@@ -57,6 +61,12 @@ interface EditState {
   fingerprint: string
 }
 const editing = ref<Record<number, EditState>>({})
+
+/** BUG-289 纵深防御：任务被后端算成 failed、但回执里仍有 executing 命令（租约未过期）时，
+ * 恢复执行入口不能消失——只要还有在跑的命令就允许安全续跑。 */
+const hasRunningExecution = computed(() =>
+  (current.value?.executions ?? []).some((e) => e.status === 'executing'),
+)
 
 async function api(path: string, options?: RequestInit) {
   // BUG-249：FormData 请求不能带 JSON Content-Type，否则浏览器不会生成 multipart boundary，
@@ -84,6 +94,7 @@ async function open(id: number) {
   loading.value = true
   current.value = null
   selected.value = new Set()
+  forceLink.value = new Set()
   try {
     const item = (await api(`/intake-workflow/work-items/${id}`)) as WorkItem
     current.value = item
@@ -269,6 +280,13 @@ function toggle(c: Candidate) {
   selected.value = next
 }
 
+function toggleForceLink(c: Candidate) {
+  const next = new Set(forceLink.value)
+  if (next.has(c.id)) next.delete(c.id)
+  else next.add(c.id)
+  forceLink.value = next
+}
+
 async function confirmSelected() {
   if (!current.value || selected.value.size === 0) return
   busy.value = 'confirm'
@@ -280,6 +298,7 @@ async function confirmSelected() {
     // 确认，保证"所见即所存"；保存失败（如 ISBN 校验位错误）则中止确认并提示，
     // 不得再出现"页面显示新值、实际确认旧值"的成功假象。
     let savedCount = 0
+    const savedIds = new Set<number>()
     for (const id of ids) {
       const c = current.value.candidates.find((x) => x.id === id)
       if (!c || c.status === 'rejected' || !hasUnsavedEdit(c)) continue
@@ -288,10 +307,37 @@ async function confirmSelected() {
         body: JSON.stringify(editPayload(editOf(c))),
       })
       savedCount++
+      savedIds.add(id)
+    }
+    // BUG-254：候选含 ISBN 归属冲突时后端硬拒绝，只有用户显式勾选
+    // 「强制关联此书」才在 resolutions 中携带该候选的 force_link。
+    const resolutions: Record<string, string> = {}
+    for (const id of ids) if (forceLink.value.has(id)) resolutions[String(id)] = 'force_link'
+    // BUG-290：字段修改会使后端清空 match_book_id/conflicts（BUG-272），保存前
+    // 勾选的「强制关联」目标不能沿用——重新预览匹配并核对目标书是否仍与用户
+    // 所批一致；目标变化或不再命中时中止确认交回人工核对，否则确认虽成功、
+    // 执行却以 isbn_ownership_conflict 失败。
+    const savedForceIds = ids.filter((id) => forceLink.value.has(id) && savedIds.has(id))
+    if (savedForceIds.length > 0) {
+      await api(`/intake-workflow/work-items/${itemId}/preview-matches`, { method: 'POST' })
+      const fresh = (await api(`/intake-workflow/work-items/${itemId}`)) as WorkItem
+      for (const id of savedForceIds) {
+        const before = current.value.candidates.find((c) => c.id === id)
+        const after = fresh.candidates.find((c) => c.id === id)
+        const approvedBook = (before?.conflicts?.book_id as number | undefined) ?? before?.match_book_id ?? null
+        if (!after || !after.match_book_id || after.match_book_id !== approvedBook) {
+          await open(itemId)
+          throw new Error(`候选 #${id} 的修改已保存，但字段变更后匹配目标已变化（或不再命中），请重新核对后再确认`)
+        }
+        if (!after.conflicts) delete resolutions[String(id)]
+      }
     }
     await api(`/intake-workflow/work-items/${itemId}/confirm`, {
       method: 'POST',
-      body: JSON.stringify({ candidate_ids: ids }),
+      body: JSON.stringify({
+        candidate_ids: ids,
+        ...(Object.keys(resolutions).length ? { resolutions } : {}),
+      }),
     })
     await open(itemId)
     notice.value = savedCount > 0
@@ -397,16 +443,28 @@ onMounted(async () => {
         <button class="btn primary" :disabled="busy !== '' || selected.size === 0" @click="confirmSelected">
           确认选中（{{ selected.size }}）
         </button>
-        <button class="btn primary" :disabled="busy !== '' || current.status !== 'confirmed'" @click="execute">
+        <button v-if="current.status === 'confirmed'" class="btn primary" :disabled="busy !== ''" @click="execute">
           {{ busy === 'execute' ? '执行中…' : '执行入库' }}
+        </button>
+        <button
+          v-else-if="current.status === 'executing' || (current.status === 'failed' && hasRunningExecution)"
+          class="btn primary"
+          :disabled="busy !== ''"
+          title="任务停在执行中（如进程中断）：点击后按回执/查重安全恢复续跑，不会重复建书"
+          @click="execute"
+        >
+          {{ busy === 'execute' ? '恢复中…' : '恢复执行（安全恢复中断的执行，不会重复建书）' }}
         </button>
       </div>
       <p v-if="notice" class="notice" role="status">{{ notice }}</p>
 
       <div v-if="current.photos.length" class="photos">
-        <figure v-for="p in current.photos" :key="p.id" :data-photo-id="p.photo_id">
+        <figure v-for="p in current.photos" :key="p.id" :data-photo-id="p.photo_id" :class="{ warned: p.warnings && p.warnings.length }">
           <img :src="`${BASE}${p.image_url}`" :alt="`照片 ${p.photo_id}`" loading="lazy" />
           <figcaption>{{ p.photo_id }} · {{ p.role }}</figcaption>
+          <ul v-if="p.warnings && p.warnings.length" class="photo-warnings" :data-warnings="p.photo_id">
+            <li v-for="(w, i) in p.warnings" :key="`${p.photo_id}-${i}`">{{ w.code }}：{{ w.message }}</li>
+          </ul>
         </figure>
       </div>
 
@@ -437,8 +495,21 @@ onMounted(async () => {
         </div>
         <div class="cand-actions">
           <button class="btn" :disabled="busy !== '' || c.status === 'executed' || c.status === 'rejected'" @click="saveCandidate(c)">保存（版本 +1）</button>
-          <button class="btn" :disabled="busy !== '' || c.status === 'rejected' || c.photo_ids.length < 2" @click="splitCandidate(c)">拆分照片</button>
+          <button class="btn" :disabled="busy !== '' || c.status === 'rejected' || c.status === 'executed' || c.photo_ids.length < 2" @click="splitCandidate(c)">拆分照片</button>
         </div>
+
+        <p v-if="c.conflicts" class="conflict-warn" :data-conflict="c.id">
+          ⚠ {{ c.conflicts.message || '该候选存在归属冲突，须人工解决' }}
+          <label class="force-link">
+            <input
+              type="checkbox"
+              :checked="forceLink.has(c.id)"
+              :disabled="c.status === 'executed' || c.status === 'rejected'"
+              @change="toggleForceLink(c)"
+            />
+            强制关联此书
+          </label>
+        </p>
 
         <p v-if="c.match_book_id" class="match" :class="{ conflict: c.match_diff && Object.keys(c.match_diff).length }">
           命中已有书 #{{ c.match_book_id }}
@@ -490,9 +561,12 @@ onMounted(async () => {
 .upload { position: relative; overflow: hidden; }
 .upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .photos { display: flex; flex-wrap: wrap; gap: 10px; }
-.photos figure { margin: 0; text-align: center; }
+.photos figure { margin: 0; text-align: center; max-width: 140px; }
+.photos figure.warned img { border-color: #a05a00; }
 .photos img { width: 92px; height: 130px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); }
 .photos figcaption { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.photo-warnings { margin: 4px 0 0; padding: 4px 6px; list-style: none; background: #fdf3e3; border: 1px solid #e0b25a; border-radius: 4px; font-size: 11px; color: #8a4b00; text-align: left; }
+.photo-warnings li { margin: 2px 0; }
 .candidate { border: 1px solid var(--border); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 /* BUG-282：软删除（重建取代）候选仅作追溯展示，与当前可操作候选区分 */
 .candidate.rejected { opacity: 0.55; background: var(--card-bg); }
@@ -502,6 +576,8 @@ onMounted(async () => {
 .cand-actions { display: flex; gap: 8px; }
 .match { margin: 0; font-size: 13px; }
 .match.conflict { color: #a05a00; }
+.conflict-warn { margin: 0; padding: 6px 8px; background: #fdf3e3; border: 1px solid #e0b25a; border-radius: 6px; font-size: 13px; color: #8a4b00; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.force-link { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; }
 .receipts table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .receipts th, .receipts td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .err { color: #a03030; font-size: 12px; max-width: 340px; }

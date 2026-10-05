@@ -272,6 +272,7 @@ backend/.venv/bin/python scripts/run_cover_model_eval.py \
 `result.error_code`（失败/结果未知时）：`missing_input` / `file_missing` / `invalid_isbn` /
 `image_corrupted` / `barcode_dependency_unavailable` / `isbn_ownership_conflict` / `bad_request` /
 `conflict` / `unauthorized` / `forbidden` / `service_unavailable` / `timeout`（=结果未知）/
+`receipt_lost`（=结果未知：连接建立后读写失败/协议错误/2xx 不可解析，须核对后决定是否重试）/
 `network_error` / `unknown`。
 
 ## 常见问题

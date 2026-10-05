@@ -22,7 +22,17 @@
   一并 superseded 退出流程（BUG-282）；
 - 执行汇总只统计当前有效版本命令（旧版本标记 superseded），且 completed 还需
   无遗留待核对候选（BUG-267/274）；单命令重试后按同一口径重算任务状态
-  （BUG-283）。
+  （BUG-283）；仍有 executing 命令（含租约未过期的中断执行）时任务保持
+  executing 而非 failed（BUG-289），否则前端恢复入口消失。
+- 上传落盘路径含随机后缀且失败只清理本批文件（BUG-284）：并发上传同一
+  photo_id 时，失败方回滚不得删除成功方引用的文件；撞唯一约束转 409 语义；
+- 重建候选跳过已确认/已执行候选（及识别重建时人工编辑过的待核对候选，
+  version>1 或证据来源为 user，BUG-285/286）所引用的照片——同一照片不得同
+  时属于保留候选与新候选；重建与确认先锁任务行，使归属读取和写入互斥
+  （BUG-285）；确认时校验照片未被其他已确认/已执行候选或本批候选占用；
+  识别全局能力故障（禁用/未配置/鉴权失败）如实报错且不触发重建；
+- 已执行候选不可拆分（BUG-287，与"不可编辑"对齐），否则已完成命令因版本
+  失格把任务永久锁成 failed。
 """
 from __future__ import annotations
 
@@ -168,8 +178,10 @@ def add_photos(
         suffix = Path(str(up.get("filename") or "")).suffix or ".jpg"
         if not _SUFFIX_RE.fullmatch(suffix):
             suffix = ".jpg"
-        # 解析后的最终路径必须留在本任务照片目录内（防御纵深）
-        abs_path = (root / f"{pid}{suffix}").resolve()
+        # 解析后的最终路径必须留在本任务照片目录内（防御纵深）。
+        # BUG-284：文件名加随机后缀，每次上传落盘路径独立——并发请求同时
+        # 上传同一 photo_id 时不再共享路径，失败方的清理不会删除成功方的文件。
+        abs_path = (root / f"{pid}.{uuid.uuid4().hex[:8]}{suffix}").resolve()
         if not abs_path.is_relative_to(root):
             raise WorkflowError(f"照片 {pid} 路径越界，已拒绝")
         role = up.get("role") if up.get("role") in ("cover", "barcode", "other") else "unknown"
@@ -198,6 +210,17 @@ def add_photos(
         # BUG-265：提交也在清理保护范围内——提交失败时数据库无照片记录，
         # 已落盘文件必须全部回滚清理，不得留下无记录的孤儿文件
         db.commit()
+    except IntegrityError as exc:
+        # BUG-284：并发上传同一 photo_id 时两方都可能通过上面的存在性检查，
+        # 后提交方在唯一约束 uq_intake_photo_pid 上失败。回滚并只清理本批自己
+        # 写入的文件（路径含随机后缀，与他人文件不共享），成功方的记录与文件
+        # 不受影响；转为 409 语义业务错误而非 500。
+        for path in written:
+            with contextlib.suppress(OSError):
+                path.unlink(missing_ok=True)
+        db.rollback()
+        raise WorkflowError(
+            "photo_id 已存在（并发上传冲突），请更换 photo_id 后重试") from exc
     except Exception:
         # 批量中途失败（含部分写入与提交失败）：回滚本批写入并清理已落盘
         # 文件。清理尽力而为：单个 unlink 失败不得跳过回滚，也不掩盖原始异常。
@@ -246,20 +269,91 @@ class RecognitionInput:
     source: str = "vision"  # vision | user
 
 
+def _is_user_authored(cand: IntakeCandidate) -> bool:
+    """候选是否含人工输入：版本 > 1（经编辑/重关联），或任一字段证据来源为 user。
+
+    BUG-286：仅看 version 不够——拆分出的新候选版本为 1，却继承了人工字段；
+    手工构建接口直接保存的 source=user 候选也是 v1。证据来源随拆分继承，
+    因此作为保护判据。
+    """
+    if cand.version > 1:
+        return True
+    evidence = _json_loads(cand.evidence, {})
+    return isinstance(evidence, dict) and any(
+        isinstance(v, dict) and v.get("source") == "user" for v in evidence.values())
+
+
+def _lock_work_item(db: Session, work_item_id: int) -> None:
+    """对同任务的确认/重建加事务写锁，关闭归属检查之后的并发窗口。"""
+    db.flush()
+    result = db.execute(
+        update(IntakeWorkItem).execution_options(synchronize_session=False)
+        .where(IntakeWorkItem.id == work_item_id)
+        .values(status=IntakeWorkItem.status))
+    if result.rowcount != 1:
+        db.rollback()
+        raise WorkflowError(f"任务 {work_item_id} 不存在")
+    # 清除锁前 ORM 缓存；默认 READ COMMITTED 下后续读取看到已提交内容。
+    db.expire_all()
+
+
+def _claimed_photo_ids(db: Session, work_item_id: int, *, exclude_candidate_id: int | None = None) -> set[str]:
+    """已确认/已执行候选占用的 photo_id 集合（BUG-285 归属校验共用）。
+
+    直查 photo_ids 列、不经 ORM 身份缓存；调用方在任务写锁内读取，
+    尚未 flush 的本批归属由确认函数单独记录。
+    """
+    stmt = select(IntakeCandidate.photo_ids).where(
+        IntakeCandidate.work_item_id == work_item_id,
+        IntakeCandidate.status.in_(("confirmed", "executed")))
+    if exclude_candidate_id is not None:
+        stmt = stmt.where(IntakeCandidate.id != exclude_candidate_id)
+    claimed: set[str] = set()
+    for raw in db.scalars(stmt):
+        claimed.update(_json_loads(raw, []))
+    return claimed
+
+
 def build_candidates(
     db: Session,
     work_item_id: int,
     recognized: dict[str, RecognitionInput | dict],
+    *,
+    protect_edited: bool = False,
 ) -> list[IntakeCandidate]:
     """按配对建议把照片组成候选：相同 SHA → 相同 ISBN → 相同归一化书名。
 
     建议仅供核对：内容哈希只证明照片相同；书名相似不自动合并版本/卷册，
     全部候选都进入 pending_review 由 Owner 处置。
+    protect_edited（识别重建路径）：人工编辑过的待核对候选（version > 1，
+    或任一业务字段证据来源为 user）视为已被人工修正，保留不取代，其照片
+    也不参与重新分组。
     """
-    photos = db.scalars(select(IntakePhoto).where(
+    _lock_work_item(db, work_item_id)
+    all_photos = db.scalars(select(IntakePhoto).where(
         IntakePhoto.work_item_id == work_item_id)).fetchall()
-    if not photos:
+    if not all_photos:
         raise WorkflowError("任务没有照片，先上传")
+
+    # BUG-285：已确认/已执行候选保留其照片归属——重建不得把这些照片再分组
+    # 进新待核对候选，否则同一照片同时属于旧确认候选与新候选，确认执行新书
+    # 时同一照片会被建成两本不同的书。
+    claimed_pids: set[str] = set()
+    protected_ids: set[int] = set()
+    for keep in db.scalars(select(IntakeCandidate).where(
+            IntakeCandidate.work_item_id == work_item_id,
+            IntakeCandidate.status.in_(("confirmed", "executed")))):
+        claimed_pids.update(_json_loads(keep.photo_ids, []))
+    if protect_edited:
+        # BUG-286：识别重跑不得清空用户已保存的人工候选（版本 > 1 即经人工
+        # 编辑，或证据来源为 user——拆分/手工构建产生的 v1 候选走后者）
+        for keep in db.scalars(select(IntakeCandidate).where(
+                IntakeCandidate.work_item_id == work_item_id,
+                IntakeCandidate.status == "pending_review")):
+            if _is_user_authored(keep):
+                protected_ids.add(keep.id)
+                claimed_pids.update(_json_loads(keep.photo_ids, []))
+    photos = [p for p in all_photos if p.photo_id not in claimed_pids]
 
     def _as_input(value) -> RecognitionInput:
         if isinstance(value, RecognitionInput):
@@ -271,9 +365,12 @@ def build_candidates(
 
     groups: list[list[IntakePhoto]] = []
     by_sha: dict[str, list[IntakePhoto]] = {}
-    for photo in photos:
+    # BUG-291：警告属于照片本身——对本轮识别的全部照片更新（失败写入、成功
+    # 清除）；受保护/已归属照片只是不参与候选分组，不得连警告更新一并跳过。
+    for photo in all_photos:
         rec = _as_input(recognized.get(photo.photo_id, RecognitionInput()))
         photo.warnings = json.dumps(rec.warnings or [], ensure_ascii=False)
+    for photo in photos:
         by_sha.setdefault(photo.sha256, []).append(photo)
 
     # 1) 相同内容照片同组
@@ -323,6 +420,14 @@ def build_candidates(
                 groups.remove(group)
                 break
 
+    # BUG-285：任务锁内保留写入前的照片归属复验；复验本身不能替代事务互斥。
+    overlap = {p.photo_id for p in photos} & _claimed_photo_ids(db, work_item_id)
+    if overlap:
+        db.rollback()
+        raise WorkflowError(
+            f"候选归属已变更（并发确认/执行）：照片 {sorted(overlap)} 已存在于"
+            "其他已确认/已执行候选，请刷新后重试")
+
     # 清掉该任务既有 pending_review 候选（重建建议；已确认/已执行候选保留）。
     # BUG-268：被历史 ChangeSet/Decision 引用的 pending 候选不得物理删除（FK 约束），
     # 标记 rejected 软删除，重建不再触发 FOREIGN KEY constraint failed。
@@ -330,6 +435,8 @@ def build_candidates(
         IntakeCandidate.work_item_id == work_item_id,
         IntakeCandidate.status == "pending_review")).fetchall()
     for old in stale_pending:
+        if old.id in protected_ids:
+            continue  # BUG-286：人工编辑过的候选不被识别重建取代
         referenced = (
             db.scalar(select(IntakeChangeSet.id).where(
                 IntakeChangeSet.candidate_id == old.id).limit(1)) is not None
@@ -467,6 +574,11 @@ def split_candidate(db: Session, candidate_id: int, *, photo_ids_to_new: list[st
     cand = db.get(IntakeCandidate, candidate_id)
     if cand is None:
         raise WorkflowError(f"候选 {candidate_id} 不存在")
+    if cand.status == "executed":
+        # BUG-287：与 update_candidate 对齐——已执行候选的确认回执已绑定
+        # 当前版本与照片关联，拆分会使已完成命令永久失格（stale_confirmation），
+        # 任务被重算为 failed 且无法恢复。
+        raise WorkflowError("已执行的候选不可拆分")
     if cand.status == "rejected":
         # BUG-282：软删除候选不可拆分（照片归属重建后的新候选）
         raise WorkflowError("已被重建取代的候选不可拆分；请拆分重建后的新候选")
@@ -499,6 +611,11 @@ def recognize_photos(db: Session, work_item_id: int) -> dict:
     """
     from app.services import vision as vision_module
 
+    # BUG-286：这类错误意味着"所有照片都不可能识别成功"（全局能力故障），
+    # 与单张照片损坏/超时等局部失败区分开。
+    global_errors = {vision_module.ERR_DISABLED, vision_module.ERR_NOT_CONFIGURED,
+                     vision_module.ERR_UNAUTHORIZED}
+
     photos = db.scalars(select(IntakePhoto).where(
         IntakePhoto.work_item_id == work_item_id)).fetchall()
     if not photos:
@@ -521,7 +638,16 @@ def recognize_photos(db: Session, work_item_id: int) -> dict:
             readable={k: f.readable for k, f in c.fields.items()},
             warnings=c.warnings, source="vision",
         )
-    candidates = build_candidates(db, work_item_id, recognized)
+    if (len(failures) == len(photos)
+            and all(f["error_code"] in global_errors for f in failures)):
+        # 全局能力故障：如实报错且不触发候选重建——否则用户已保存的人工候选
+        # 会被清掉而接口仍返回成功。
+        first = failures[0]
+        raise WorkflowError(
+            f"视觉识别不可用（{first['error_code']}）：{first['message']}；"
+            "既有候选已保留，请恢复模型配置后重试")
+    # protect_edited：单张失败等局部场景仍重建候选，但不得覆盖人工编辑过的候选
+    candidates = build_candidates(db, work_item_id, recognized, protect_edited=True)
     return {
         "photos_total": len(photos),
         "failures": failures,
@@ -667,7 +793,10 @@ def confirm_candidates(
     BUG-254：候选带未解决的 ISBN 归属冲突时拒绝确认——须经明确人工解决
     （resolutions={candidate_id: "force_link"} 显式强制关联，或修改候选字段
     后重新预览确认），不因已有 match_book_id 自动放行。
+    BUG-285 纵深防御：确认时校验所选候选的照片未被其他已确认/已执行候选
+    占用（排除自身），并发归属冲突与同一确认批次内的照片重叠都拒绝（409）。
     """
+    _lock_work_item(db, work_item_id)
     item = get_work_item(db, work_item_id)
     if item.status in ("executing", "completed"):
         raise WorkflowError(f"任务状态 {item.status} 不可确认")
@@ -679,6 +808,7 @@ def confirm_candidates(
     except (TypeError, ValueError) as exc:
         raise WorkflowError(f"resolutions 的键必须是候选 ID（整数）: {exc}") from exc
     executions: list[IntakeCommandExecution] = []
+    batch_claimed: set[str] = set()
     for cid in candidate_ids:
         cand = db.get(IntakeCandidate, cid)
         if cand is None or cand.work_item_id != work_item_id:
@@ -693,6 +823,20 @@ def confirm_candidates(
             continue
         if not (cand.title or cand.isbn):
             raise WorkflowError(f"候选 {cid} 缺书名且缺 ISBN，无法确认入库")
+
+        # BUG-285：照片归属校验（与 build_candidates 的提交时复验互补）——
+        # 所选候选的照片不得已被其他已确认/已执行候选占用（排除自身；同批
+        # 先前刚确认的候选也计入，防同一确认请求内照片重叠）。与 BUG-254 的
+        # ISBN 归属冲突不同：这里校验的是照片归属。
+        photo_ids = _json_loads(cand.photo_ids, [])
+        claimed = _claimed_photo_ids(db, work_item_id, exclude_candidate_id=cand.id)
+        taken = set(photo_ids) & (claimed | batch_claimed)
+        if taken:
+            db.rollback()  # 拒绝整批，不能留下半批确认/决策/命令。
+            raise WorkflowError(
+                f"候选归属冲突（并发确认）：照片 {sorted(taken)} 已存在于其他"
+                "已确认/已执行候选，请刷新后重试")
+        batch_claimed.update(photo_ids)
 
         # BUG-254：确认现算 ISBN 归属冲突（用当前候选值，不轻信预览时的存储值）。
         # 已有人工解决标记仅对同一目标书生效；否则须显式 force_link。
@@ -843,7 +987,12 @@ def _recompute_work_item_status(db: Session, work_item_id: int) -> str:
     valid = [e for e in executions if _is_current_version(e)]
     completed = sum(1 for e in valid if e.status == "completed")
     pending_left = any(c.status == "pending_review" for c in candidates)
-    if valid and completed == len(valid) and not pending_left:
+    if any(e.status == "executing" for e in valid):
+        # BUG-289：仍有命令处于 executing（如租约未到期的中断执行，被执行器按设计
+        # 跳过）时，任务必须保持 executing——判成 failed 会让前端“恢复执行”入口
+        # 消失，而该命令又不是 failed、没有重试按钮；租约过期后无从恢复。
+        item.status = "executing"
+    elif valid and completed == len(valid) and not pending_left:
         item.status = "completed"
     elif completed == 0:
         item.status = "failed"

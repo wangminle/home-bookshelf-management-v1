@@ -146,6 +146,7 @@ export BOOKSHELF_EXTERNAL_USER_ID=ou_xxxxxxxx
 
 - 日常用法 → [使用指南](./user-guide.md)  
 - 命令一览 → [CLI 参考](./cli-reference.md)  
+- 拍照批量入库 → [批量导入](./batch-import.md) 与 Web UI「批量入库」页  
 - 常驻部署 → [部署](./deployment.md)  
 - 接 Agent → [接入 Agent](./agent-setup.md)  
 - 卡住了 → [FAQ](./faq.md)  

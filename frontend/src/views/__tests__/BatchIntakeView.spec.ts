@@ -446,4 +446,310 @@ describe('BatchIntakeView', () => {
     // 勾选按钮全部禁用 → 确认按钮不可用
     expect(wrapper.get('.actions .btn.primary').attributes('disabled')).toBeDefined()
   })
+
+  /** 缺陷1：进程中断后任务停在 executing，页面须提供「恢复执行」入口（同一 execute 接口）。 */
+  it('executing 任务提供恢复执行按钮并调用同一 execute 接口', async () => {
+    stubFetch((url, options) => {
+      if (String(url).endsWith('/execute') && (options as RequestInit | undefined)?.method === 'POST') {
+        return { status: 'partial' }
+      }
+      if (url.includes('/work-items/1')) return snapshot('executing')
+      return { items: [{ id: 1, title: '客厅书架', status: 'executing' }] }
+    })
+    const wrapper = mount(BatchIntakeView)
+    await flushPromises()
+    await wrapper.get('.item-list li .link').trigger('click')
+    await flushPromises()
+    const resumeBtn = wrapper.findAll('.actions .btn').find((b) => b.text().includes('恢复执行'))
+    expect(resumeBtn).toBeTruthy()
+    expect((resumeBtn!.element as HTMLButtonElement).disabled).toBe(false)
+    await resumeBtn!.trigger('click')
+    await flushPromises()
+    const fetchMock = vi.mocked(fetch)
+    expect(fetchMock.mock.calls.some(([u, o]) => String(u).endsWith('/execute') && (o as RequestInit | undefined)?.method === 'POST')).toBe(true)
+    expect(wrapper.text()).toContain('执行完成：部分完成')
+  })
+
+  /** BUG-289 纵深防御：任务被后端算成 failed 但回执中仍有 executing 命令（租约未过期）时，
+   * 恢复执行入口不能消失，仍走同一 execute 接口；无 executing 命令的 failed 任务则走既有重试按钮。 */
+  it('failed 任务但存在 executing 命令时仍显示恢复执行并调用 execute 接口', async () => {
+    const snap = {
+      ...snapshot('failed'),
+      executions: [{ id: 9, status: 'executing', book_id: null, error_code: null, error: null }],
+    }
+    stubFetch((url, options) => {
+      if (String(url).endsWith('/execute') && (options as RequestInit | undefined)?.method === 'POST') {
+        return { status: 'partial' }
+      }
+      if (url.includes('/work-items/1')) return snap
+      return { items: [{ id: 1, title: '客厅书架', status: 'failed' }] }
+    })
+    const wrapper = mount(BatchIntakeView)
+    await flushPromises()
+    await wrapper.get('.item-list li .link').trigger('click')
+    await flushPromises()
+    const resumeBtn = wrapper.findAll('.actions .btn').find((b) => b.text().includes('恢复执行'))
+    expect(resumeBtn).toBeTruthy()
+    expect((resumeBtn!.element as HTMLButtonElement).disabled).toBe(false)
+    await resumeBtn!.trigger('click')
+    await flushPromises()
+    const fetchMock = vi.mocked(fetch)
+    expect(fetchMock.mock.calls.some(([u, o]) => String(u).endsWith('/execute') && (o as RequestInit | undefined)?.method === 'POST')).toBe(true)
+    expect(wrapper.text()).toContain('执行完成：部分完成')
+  })
+
+  /** 缺陷1补充：failed 且无 executing 命令时不显示恢复按钮，回执行内重试入口不受影响。 */
+  it('failed 且无 executing 命令时不显示恢复按钮', async () => {
+    const snap = {
+      ...snapshot('failed'),
+      executions: [{ id: 9, status: 'failed', book_id: null, error_code: 'not_found', error: '目标书目不存在' }],
+    }
+    stubFetch((url) => {
+      if (url.includes('/work-items/1')) return snap
+      return { items: [{ id: 1, title: '客厅书架', status: 'failed' }] }
+    })
+    const wrapper = mount(BatchIntakeView)
+    await flushPromises()
+    await wrapper.get('.item-list li .link').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('恢复执行')
+    expect(wrapper.get('.receipts tbody tr .btn').text()).toContain('重试')
+  })
+
+  /** 缺陷1补充：confirmed 任务不出现恢复按钮，只显示执行入库。 */
+  it('confirmed 任务显示执行入库而非恢复按钮', async () => {
+    stubFetch((url) => {
+      if (url.includes('/work-items/1')) return snapshot('confirmed')
+      return { items: [{ id: 1, title: '客厅书架', status: 'confirmed' }] }
+    })
+    const wrapper = mount(BatchIntakeView)
+    await flushPromises()
+    await wrapper.get('.item-list li .link').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('执行入库')
+    expect(wrapper.text()).not.toContain('恢复执行')
+  })
+
+  /** 缺陷2：候选含 ISBN 归属冲突时展示冲突信息；勾选「强制关联此书」后 confirm 携带 resolutions。 */
+  it('冲突候选展示冲突提示，勾选后 confirm 请求体含 force_link resolutions', async () => {
+    const snap = snapshot()
+    snap.candidates[0].conflicts = {
+      type: 'isbn_ownership',
+      message: 'ISBN 9787506365437 已归属《许三观卖血记》(#3)，与候选《活着》不一致',
+      resolved: null,
+    }
+    let confirmBody: Record<string, unknown> | null = null
+    stubFetch((url, options) => {
+      if (String(url).endsWith('/confirm') && (options as RequestInit | undefined)?.method === 'POST') {
+        confirmBody = JSON.parse(String((options as RequestInit).body))
+        return { executions: [{ id: 9 }] }
+      }
+      if (url.includes('/work-items/1')) return snap
+      return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
+    })
+    const wrapper = mount(BatchIntakeView)
+    await flushPromises()
+    await wrapper.get('.item-list li .link').trigger('click')
+    await flushPromises()
+    // 冲突提示醒目展示
+    const warn = wrapper.get('[data-candidate="11"] .conflict-warn')
+    expect(warn.text()).toContain('ISBN 9787506365437')
+    expect(warn.text()).toContain('强制关联此书')
+    // 默认不勾选：确认不带 resolutions
+    await wrapper.get('[data-candidate="11"] input[type="checkbox"]').setValue(true)
+    await wrapper.get('.actions .btn.primary').trigger('click')
+    await flushPromises()
+    expect(confirmBody).toEqual({ candidate_ids: [11] })
+  })
+
+  it('勾选「强制关联此书」后 confirm 请求体携带该候选的 force_link', async () => {
+    const snap = snapshot()
+    snap.candidates[0].conflicts = { message: 'ISBN 归属冲突：候选与既有书 #3 书名/作者不一致' }
+    let confirmBody: Record<string, unknown> | null = null
+    stubFetch((url, options) => {
+      if (String(url).endsWith('/confirm') && (options as RequestInit | undefined)?.method === 'POST') {
+        confirmBody = JSON.parse(String((options as RequestInit).body))
+        return { executions: [{ id: 9 }] }
+      }
+      if (url.includes('/work-items/1')) return snap
+      return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
+    })
+    const wrapper = mount(BatchIntakeView)
+    await flushPromises()
+    await wrapper.get('.item-list li .link').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-candidate="11"] input[type="checkbox"]').setValue(true) // 选中候选
+    await wrapper.get('.conflict-warn input[type="checkbox"]').setValue(true) // 勾选强制关联
+    await wrapper.get('.actions .btn.primary').trigger('click')
+    await flushPromises()
+    expect(confirmBody).toEqual({ candidate_ids: [11], resolutions: { 11: 'force_link' } })
+  })
+
+  /** 缺陷3：照片逐条 warnings（识别失败/字段异常/ISBN 校验失败等）须可见。 */
+  it('照片 warnings 以列表展示且视觉可区分，无警告不渲染警告区', async () => {
+    const snap = snapshot()
+    snap.photos = [
+      { id: 1, photo_id: 'p0001', role: 'cover', image_url: '/intake-workflow/photos/1/image',
+        warnings: [{ code: 'recognition_failed', message: '识别服务超时' }] },
+      { id: 2, photo_id: 'p0002', role: 'back', image_url: '/intake-workflow/photos/2/image', warnings: [] },
+    ]
+    stubFetch((url) => {
+      if (url.includes('/work-items/1')) return snap
+      return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
+    })
+    const wrapper = mount(BatchIntakeView)
+    await flushPromises()
+    await wrapper.get('.item-list li .link').trigger('click')
+    await flushPromises()
+    const warnList = wrapper.get('[data-warnings="p0001"]')
+    expect(warnList.text()).toContain('recognition_failed')
+    expect(warnList.text()).toContain('识别服务超时')
+    // 有警告的照片视觉区分（warned class），无警告的不渲染警告列表
+    expect(wrapper.get('[data-photo-id="p0001"].warned').exists()).toBe(true)
+    expect(wrapper.find('[data-warnings="p0002"]').exists()).toBe(false)
+    expect(wrapper.find('[data-photo-id="p0002"].warned').exists()).toBe(false)
+  })
+
+  /** 缺陷4：executed 候选即将被服务端拒绝拆分，前端同步禁用拆分按钮。 */
+  it('executed 候选禁用拆分照片按钮', async () => {
+    const snap = snapshot()
+    snap.candidates[0].status = 'executed'
+    snap.candidates[0].photo_ids = ['p0001', 'p0002']
+    stubFetch((url) => {
+      if (url.includes('/work-items/1')) return snap
+      return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
+    })
+    const wrapper = mount(BatchIntakeView)
+    await flushPromises()
+    await wrapper.get('.item-list li .link').trigger('click')
+    await flushPromises()
+    const splitBtn = wrapper.get('[data-candidate="11"] .cand-actions .btn:nth-child(2)')
+    expect(splitBtn.text()).toContain('拆分照片')
+    expect((splitBtn.element as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  /** BUG-290：勾选「强制关联」后修改字段的确认流程三段。 */
+  function conflictedSnapshot() {
+    const snap = snapshot()
+    snap.candidates[0] = {
+      ...snap.candidates[0],
+      match_book_id: 3,
+      match_diff: { title: { candidate: '活着', existing: '许三观卖血记' } },
+      conflicts: { code: 'isbn_ownership_conflict', message: 'ISBN 已绑定《许三观卖血记》', book_id: 3, existing_title: '许三观卖血记' },
+    } as typeof snap.candidates[0] & { conflicts: unknown }
+    return snap
+  }
+
+  async function openEditCheckForce(wrapper: ReturnType<typeof mount>) {
+    await wrapper.get('.item-list li .link').trigger('click')
+    await flushPromises()
+    // 修改书名（制造未保存修改）并勾选候选与「强制关联此书」
+    await wrapper.get('[data-candidate="11"] [data-field="title"]').setValue('活着（改）')
+    await wrapper.get('[data-candidate="11"] input[type="checkbox"]').setValue(true)
+    await wrapper.get('[data-candidate="11"] .force-link input').setValue(true)
+    await wrapper.get('.actions .btn.primary').trigger('click')
+    await flushPromises()
+  }
+
+  it('强制关联后修改字段：重新预览目标变化时中止确认并提示重新核对', async () => {
+    let snapshotCalls = 0
+    stubFetch((url, options) => {
+      if (String(url).endsWith('/candidates/11') && (options as RequestInit)?.method === 'PATCH') {
+        return { ...conflictedSnapshot().candidates[0], title: '活着（改）', version: 2 }
+      }
+      if (String(url).endsWith('/preview-matches') && (options as RequestInit | undefined)?.method === 'POST') {
+        return { matches: [] }
+      }
+      if (String(url).endsWith('/work-items/1/confirm')) {
+        throw new Error('不应在目标变化时确认')
+      }
+      if (url.includes('/work-items/1')) {
+        snapshotCalls += 1
+        // 第 1 次初始快照冲突指向 #3；保存后的核对快照命中另一本书 #7
+        return snapshotCalls === 1 ? conflictedSnapshot() : {
+          ...conflictedSnapshot(),
+          candidates: [{
+            ...conflictedSnapshot().candidates[0],
+            match_book_id: 7,
+            conflicts: { code: 'isbn_ownership_conflict', message: '冲突', book_id: 7 },
+          }],
+        }
+      }
+      return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
+    })
+    const wrapper = mount(BatchIntakeView)
+    await flushPromises()
+    await openEditCheckForce(wrapper)
+
+    const fetchMock = vi.mocked(fetch)
+    // 保存 → 重新预览 → 未发确认
+    expect(fetchMock.mock.calls.some(([u, o]) => String(u).endsWith('/candidates/11') && (o as RequestInit | undefined)?.method === 'PATCH')).toBe(true)
+    expect(fetchMock.mock.calls.some(([u, o]) => String(u).endsWith('/preview-matches') && (o as RequestInit | undefined)?.method === 'POST')).toBe(true)
+    expect(fetchMock.mock.calls.some(([u, o]) => String(u).endsWith('/confirm') && (o as RequestInit | undefined)?.method === 'POST')).toBe(false)
+    expect(lastError.value).toContain('匹配目标已变化')
+    // 中止后界面刷新为新匹配（#7），交回人工核对
+    expect(wrapper.text()).toContain('#7')
+  })
+
+  it('强制关联后修改字段：目标一致时携带 force_link 确认', async () => {
+    stubFetch((url, options) => {
+      if (String(url).endsWith('/candidates/11') && (options as RequestInit)?.method === 'PATCH') {
+        return { ...conflictedSnapshot().candidates[0], title: '活着（改）', version: 2 }
+      }
+      if (String(url).endsWith('/preview-matches') && (options as RequestInit | undefined)?.method === 'POST') {
+        return { matches: [] }
+      }
+      if (String(url).endsWith('/work-items/1/confirm')) {
+        return { executions: [{ id: 9 }] }
+      }
+      if (url.includes('/work-items/1')) return conflictedSnapshot()
+      return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
+    })
+    const wrapper = mount(BatchIntakeView)
+    await flushPromises()
+    await openEditCheckForce(wrapper)
+
+    const confirmCall = vi.mocked(fetch).mock.calls.find(
+      ([u, o]) => String(u).endsWith('/work-items/1/confirm') && (o as RequestInit | undefined)?.method === 'POST',
+    )
+    expect(confirmCall).toBeTruthy()
+    expect(JSON.parse(String((confirmCall![1] as RequestInit).body))).toEqual({
+      candidate_ids: [11],
+      resolutions: { 11: 'force_link' },
+    })
+    expect(wrapper.text()).toContain('已保存 1 条修改并确认 1 条')
+  })
+
+  it('强制关联后修改字段：冲突消解时去掉 force_link 直接确认', async () => {
+    let snapshotCalls = 0
+    stubFetch((url, options) => {
+      if (String(url).endsWith('/candidates/11') && (options as RequestInit)?.method === 'PATCH') {
+        return { ...conflictedSnapshot().candidates[0], title: '活着（改）', version: 2 }
+      }
+      if (String(url).endsWith('/preview-matches') && (options as RequestInit | undefined)?.method === 'POST') {
+        return { matches: [] }
+      }
+      if (String(url).endsWith('/work-items/1/confirm')) {
+        return { executions: [{ id: 9 }] }
+      }
+      if (url.includes('/work-items/1')) {
+        snapshotCalls += 1
+        if (snapshotCalls === 1) return conflictedSnapshot()
+        // 修改后冲突消解：仍命中 #3 但无归属冲突
+        const resolved = conflictedSnapshot()
+        resolved.candidates[0] = { ...resolved.candidates[0], conflicts: null } as typeof resolved.candidates[0]
+        return resolved
+      }
+      return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
+    })
+    const wrapper = mount(BatchIntakeView)
+    await flushPromises()
+    await openEditCheckForce(wrapper)
+
+    const confirmCall = vi.mocked(fetch).mock.calls.find(
+      ([u, o]) => String(u).endsWith('/work-items/1/confirm') && (o as RequestInit | undefined)?.method === 'POST',
+    )
+    expect(confirmCall).toBeTruthy()
+    expect(JSON.parse(String((confirmCall![1] as RequestInit).body))).toEqual({ candidate_ids: [11] })
+  })
 })

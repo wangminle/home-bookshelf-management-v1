@@ -21,7 +21,7 @@ bookshelf add --isbn 9787... --location "客厅书架A"   # 同时登记实体�
 - 系统会按 ISBN 与规范化书名查重；已存在会提示「已在书架」。  
 - **不会默认创建副本**；只有传了 `--location` 才会登记一条实体副本。  
 - ISBN 会校验校验位；错误校验位会被拒绝。  
-- 批量入库（一次拍一批封面）见 [批量导入](./batch-import.md)：Owner 可在 Web UI「批量入库」页操作，或走 Agent+CLI 脚本路径。
+- 批量入库（一次拍一批封面）见 [批量导入](./batch-import.md)：Owner 可在 Web UI「批量入库」页操作，或走 Agent+CLI 脚本路径。使用前需先在 Web UI「模型」页（`/llm-settings`）启用并配置识图模型，否则「模型识别」不可用（后端直接拒绝，按钮亦有提示）。
 
 ---
 

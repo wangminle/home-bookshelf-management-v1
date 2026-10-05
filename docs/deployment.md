@@ -135,6 +135,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir .
 
 完整示例见 `backend/.env.example`、`deploy/.env.example`。
 
+## 视觉识图模型配置
+
+0.4.0 的拍照批量入库封面识别**不走环境变量**：配置存本机数据库，由 Owner 在 Web UI「模型」页（`/llm-settings`）设置，包括 enabled 开关、显示名称、Base URL、模型 ID、API Key、超时、最大 token、温度、识图精细度（auto/low/high）。启用时强制要求 `base_url` + `model_id` + `api_key` 三项齐全（`llm_settings.py:79`，否则保存被拒）。API Key 只存库不回显，响应仅返回末四位提示（`····xxxx`），可显式清除后重新填写。
+
 ## 匿名共享书架（C 模式）
 
 权限阶段 1 起，可信家庭局域网内的访客无需登录即可在 `/shared` 浏览脱敏书目

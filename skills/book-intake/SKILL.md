@@ -2,7 +2,7 @@
 name: book-intake
 description: 家庭藏书入库技能。当用户发送书封照片、ISBN、或说「买了本书/入库/加书」时使用。调用 bookshelf CLI 完成识别、元数据补全与落库。
 scopes: [books:write, files:read]
-version: "0.2.5"
+version: "0.2.6"
 ---
 
 # 藏书入库（book-intake）
@@ -59,13 +59,19 @@ bookshelf add --isbn 9787506365437
 
 ```bash
 bookshelf add --title "活着" --author "余华"
+# 多作者完整保留：--authors 可重复传入
+bookshelf add --title "三体全集" --authors "刘慈欣" # --authors "编者甲" --authors "编者乙"
 ```
 
 ### 4. 入库同时记购买
 
 ```bash
-bookshelf add --isbn 9787506365437 --price 38 --channel 当当
+bookshelf add --isbn 9787506365437 --price 38 --channel 当当 \
+  --location "客厅书架 A" --member-id 1
 ```
+
+- `--location`：存放位置；`--member-id`：归属家庭成员 ID
+- 不带 `--price/--channel` 时仅入库不记购买
 
 ## 元数据来源（Agent 无需手动选择）
 
@@ -99,7 +105,8 @@ bookshelf add --isbn 9787506365437 --price 38 --channel 当当
 | `recognize` 未找到条码 | 请用户补 ISBN，或描述封面文字后 `--title --author` 入库 |
 | API 400 / 422 | 转述错误，提示补 ISBN/书名/更清晰照片；ISBN 校验位错误请用户核对 ISBN |
 | API 403 | 渠道身份未绑定/与 member_id 不一致，提示先 `bind` 或核对成员（Web UI 走 Owner 会话认证；`X-UI-Client` 头已无授权含义） |
-| API 503 | 后端或识别服务不可用，稍后重试 |
+| API 503 / 读请求（find/show/stats）5xx | 服务端或识别服务不可用，读请求确定未提交；检查服务恢复后重试 |
+| 写请求（add/purchase/note/progress/reading-log/bind）API 5xx、读写超时、回执丢失 | **结果未知（可能已提交）**，禁止自动重发；先 `find`/`show` 核对服务端是否已写入，再显式决定补发或放弃 |
 | 重复入库 | 告知已存在，询问是否记购买/加副本 |
 
 ## 禁止事项
@@ -108,3 +115,5 @@ bookshelf add --isbn 9787506365437 --price 38 --channel 当当
 - 不要在用户未确认时批量入库多本
 - 识别结果存疑时先确认再 `add`
 - 要评测视觉模型识书能力时转 **cover-eval**，不要把评测集当入库清单
+
+> 拍照批量入库走 Web UI「批量入库」页（Owner 专属），CLI 无对应入口。

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 960" role="img" aria-labelledby="svg-title svg-desc">
-  <title id="svg-title">家庭图书管理系统 · 内部业务流转</title>
-  <desc id="svg-desc">历史架构：从 IM 经 Agent、Skills、CLI 到 FastAPI 与 SQLite 的内部业务流转图</desc>
+  <title id="svg-title">家庭图书管理系统 · 早期业务流转（历史架构）</title>
+  <desc id="svg-desc">历史架构：从 IM 经 Agent、Skills、CLI 到 FastAPI 与 SQLite 的早期业务流转图。图中表数量、冷启动与接入流程不代表当前实现，当前架构与权限以 design/plans 中的现行规划为准。2026-10-06 补充历史标识，保留原图链路。</desc>
 
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
@@ -23,8 +23,9 @@
 
   <rect width="1280" height="960" fill="#FAFBFC"/>
 
-  <text x="640" y="42" text-anchor="middle" class="title">家庭图书管理系统 &#183; 内部业务流转</text>
+  <text x="640" y="42" text-anchor="middle" class="title">家庭图书管理系统 &#183; 早期业务流转（历史架构）</text>
   <text x="640" y="66" text-anchor="middle" class="subtitle">数据链路：IM &#8594; Agent + Skills &#8594; bookshelf CLI &#8594; FastAPI &#8594; SQLite</text>
+  <text x="640" y="86" text-anchor="middle" class="subtitle">历史快照：表数量、冷启动与接入流程不代表当前实现；当前架构与权限以 design/plans 为准</text>
 
   <text x="40" y="108" class="layer-label">用户层</text>
   <g>

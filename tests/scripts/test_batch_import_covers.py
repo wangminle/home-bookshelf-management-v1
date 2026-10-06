@@ -167,7 +167,8 @@ def test_run_imports_confirmed_only_and_classifies(tmp_path, capsys):
     assert statuses == {"a.jpg": "imported", "b.jpg": "imported", "c.jpg": "recognized", "d.jpg": "skip"}
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["summary"] == {"photos_total": 4, "total": 2, "created": 1, "exists": 1,
+    # BUG-248：total 与 entries 条数同口径（含 skipped）
+    assert report["summary"] == {"photos_total": 4, "total": 4, "created": 1, "exists": 1,
                                  "failed": 0, "outcome_unknown": 0, "skipped": 2}
     assert report["run_id"].startswith("run-")  # BI-04：运行标识入报告
     by_file = {e["file"]: e for e in report["entries"]}
@@ -429,13 +430,33 @@ def test_run_report_marks_historical_failed_as_skipped(tmp_path):
 
     assert rc == 0 and len(fake.calls) == 1  # 只提交 confirmed 的 c
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["summary"] == {"photos_total": 3, "total": 1, "created": 1, "exists": 0,
+    assert report["summary"] == {"photos_total": 3, "total": 3, "created": 1, "exists": 0,
                                  "failed": 0, "outcome_unknown": 0, "skipped": 2}
     by_file = {e["file"]: e["outcome"] for e in report["entries"]}
     assert by_file == {"a.jpg": "skipped", "b.jpg": "skipped", "c.jpg": "created"}
     # 清单里 b 保持历史 failed 状态不被本次 run 改写
     saved = {e["file"]: e for e in json.loads(manifest.read_text(encoding="utf-8"))["entries"]}
     assert saved["b.jpg"]["status"] == "failed" and "上次网络错误" in saved["b.jpg"]["result"]["error"]
+
+
+def test_run_report_total_matches_entries_count(tmp_path):
+    """BUG-248：summary.total 与 entries 条数同口径（含 skipped 与预检失败）。"""
+    covers = make_covers(tmp_path, ["a.jpg", "b.jpg", "c.jpg", "d.jpg"])
+    manifest = write_manifest(tmp_path / "m.json", covers, [
+        entry("a.jpg", "confirmed", title="三体"),
+        entry("b.jpg", "confirmed"),                    # 缺识别键 → 预检失败
+        entry("c.jpg", "recognized", title="活着"),      # 非目标状态 → skipped
+        entry("d.jpg", "skip"),
+    ])
+    fake = FakeClient(behavior={"三体": created_resp(5)})
+    rc = bic.cmd_run(run_args(manifest, tmp_path / "r.json"), client=fake)
+
+    assert rc == 1  # 预检失败计入 failed
+    report = json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))
+    summary = report["summary"]
+    assert summary["total"] == len(report["entries"]) == 4
+    assert summary["total"] == (summary["created"] + summary["exists"] + summary["failed"]
+                                + summary["outcome_unknown"] + summary["skipped"])
 
 
 # ── BI-04：结果未知、逐条落盘、run_id、历史报告 ──

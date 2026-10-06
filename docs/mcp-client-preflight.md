@@ -165,6 +165,8 @@ CLI 添加：`claude mcp add --transport http bookshelf http://<host>:<port>/mcp
 
 ## 自动化验证结论（2026-08-22 复核；2026-08-26 SDK conformance 回填；2026-08-27 Task 5.6 增补与复审修复；2026-09-17 BUG-231 深冻增补）
 
+> 历史验证记录，非当前版本的新验收：以下测试数量对应当时记录。2026-10-06 仅修订报告引用说明，未重新运行这些测试。
+
 - `backend/tests/mcp/`：114 项全绿（含 BUG-208～216 修复回归与 Task 5.6
   专项：输入契约封闭、discover instructions、`_meta` 稳定错误码、
   v2 摘要档契约、anyOf 声明面拒绝混合形态（空结果合法）、空白筛选值 Schema/运行时
@@ -177,7 +179,8 @@ CLI 添加：`claude mcp add --transport http bookshelf http://<host>:<port>/mcp
   未知参数（member_id）明确拒绝、Cursor 翻页、不存在书目、越权 Grant 拒绝、
   撤销后失效、限流 429、隐私哨兵零命中、REST/MCP 一致性、精确路径、错误协议、
   通知静默、Mcp-Name 头；
-- 报告：`design/achievements/mcp-sdk-conformance-report-20260826.json`。
+- 早期原始报告：[2026-08-26 SDK conformance JSON](../design/achievements/mcp-sdk-conformance-report-20260826.json)，内容为 **18/18** 通过，仅支持当日早期验证结果，不能作为上述 v1/v2 各 **22/22** 的原始报告。
+- 后续 v1/v2 各 22/22 属于 2026-08-27 的历史复测记录，见[现行 MCP 设计与 WBS](../design/plans/家庭图书管理系统-MCP接口设计与WBS-20260821.md)中的 Task 5.6 验证说明及 `task-list.md` 的 CHK-098/CHK-099；目前归档索引未收录对应的后续原始 JSON 报告。后续重新验收应另存带日期与被测版本的新报告，保留 2026-08-26 文件。
 
 ## 封面 Resource（默认关闭，2026-08-22 新增）
 

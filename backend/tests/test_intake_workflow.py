@@ -145,16 +145,20 @@ def test_split_candidate_moves_photos_and_bumps_version(db_engine):
             "p0002": wf.RecognitionInput(title="三体"),
         })
         cand = s.scalars(select(IntakeCandidate)).first()
-        wf.confirm_candidates(s, item_id, [cand.id], decided_by_member_id=1)
-        assert cand.status == "confirmed"
 
         original, new = wf.split_candidate(s, cand.id, photo_ids_to_new=["p0002"])
-        assert original.status == "pending_review"  # 拆分使原确认失格
+        assert original.status == "pending_review"
         assert original.version == 2
         import json as _json
         assert _json.loads(original.photo_ids) == ["p0001"]
         assert _json.loads(new.photo_ids) == ["p0002"]
         assert new.version == 1 and new.status == "pending_review"
+
+    # BUG-294：已确认候选不可拆分（旧行为"拆分使确认失格"会把任务打成 failed）
+    with SessionLocal() as s:
+        wf.confirm_candidates(s, item_id, [new.id], decided_by_member_id=1)
+        with pytest.raises(WorkflowError, match="已确认"):
+            wf.split_candidate(s, new.id, photo_ids_to_new=["p0002"])
 
 
 def test_update_candidate_invalid_isbn_rejected(db_engine):

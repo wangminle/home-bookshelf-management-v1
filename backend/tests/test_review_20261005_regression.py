@@ -10,16 +10,19 @@
 """
 from __future__ import annotations
 
+import io
 import json
 import threading
 import urllib.error
 from datetime import timedelta
 from unittest.mock import patch
 
+import pytest
+from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from app.models import IntakeCandidate, IntakeCommandExecution
+from app.models import Book, IntakeCandidate, IntakeCommandExecution
 from app.services import intake_workflow as wf
 from app.services.metadata import http as metadata_http
 from app.services.vision import VisionServiceResult
@@ -33,27 +36,39 @@ def _item_with_photos(db_engine, n: int = 1) -> int:
     SessionLocal = _session(db_engine)
     with SessionLocal() as s:
         item = wf.create_work_item(s, title="复核回归")
-        wf.add_photos(s, item.id, [
-            {"photo_id": f"p{i}", "filename": f"{i}.jpg", "content": f"img-{i}".encode(), "role": "cover"}
-            for i in range(1, n + 1)
-        ])
+        photos = []
+        for i in range(1, n + 1):
+            image = io.BytesIO()
+            Image.new("RGB", (2, 2), (i, i, i)).save(image, format="PNG")
+            photos.append({"photo_id": f"p{i}", "filename": f"{i}.png",
+                           "content": image.getvalue(), "role": "cover"})
+        wf.add_photos(s, item.id, photos)
         return item.id
 
 
 # ── BUG-288 ──
 
-def test_error_message_masks_percent_encoded_secret():
+@pytest.mark.parametrize("echoed_secret", [
+    "synthetic%2Bsecret%2F2026%3D",
+    "synthetic%2bsecret%2f2026%3d",
+    "synthetic%2bsecret%2F2026%3D",
+    "synthetic+secret/2026=",
+])
+def test_error_message_masks_percent_encoded_secret(echoed_secret):
     url = "https://example.invalid/books?api_key=synthetic%2Bsecret%2F2026%3D&q=isbn"
+    echoed = "https://example.invalid/books?api_key=" + echoed_secret + "&q=isbn"
     events: list[dict] = []
     metadata_http.clear_response_listeners()
     metadata_http.add_response_listener(events.append)
     try:
         with patch.object(metadata_http.urllib.request, "urlopen",
-                          side_effect=urllib.error.URLError("failed request " + url)):
+                          side_effect=urllib.error.URLError("failed request " + echoed)):
             assert metadata_http.get_json(url) is None
     finally:
         metadata_http.clear_response_listeners()
+    assert len(events) == 1
     blob = json.dumps(events[0], ensure_ascii=False)
+    assert echoed_secret not in blob
     for leaked in ("synthetic%2Bsecret%2F2026%3D", "synthetic+secret/2026=",
                    "synthetic%2bsecret", "secret%2F2026"):
         assert leaked not in blob
@@ -98,7 +113,7 @@ def test_unexpired_lease_keeps_task_executing_and_recoverable(db_engine):
         s.commit()
         with patch("app.services.intake.fetch_metadata", return_value=None):
             result = wf.execute_work_item(s, item_id)
-        assert result["status"] == "completed"
+        assert result["status"] == "completed", result
 
 
 # ── BUG-286 ──
@@ -117,14 +132,16 @@ def test_split_candidate_inheriting_user_fields_survives_recognize(db_engine):
             "p2": wf.RecognitionInput(title="模型初稿"),
         })[0]
         wf.update_candidate(s, cand.id, title="人工修正书名", authors=["人工作者"])
-        original, split = wf.split_candidate(s, cand.id, photo_ids_to_new=["p2"])
+        _, split = wf.split_candidate(s, cand.id, photo_ids_to_new=["p2"])
         assert split.version == 1 and split.title == "人工修正书名"
+        assert json.loads(split.evidence)["title"]["source"] == "user"
         with _failing_vision():
             wf.recognize_photos(s, item_id)
         s.expire_all()
         live = {tuple(json.loads(c.photo_ids)): c for c in s.scalars(
             select(IntakeCandidate).where(IntakeCandidate.work_item_id == item_id))
             if c.status == "pending_review"}
+        assert set(live) == {("p1",), ("p2",)}
         assert live[("p1",)].title == "人工修正书名"
         assert live[("p2",)].title == "人工修正书名"  # 拆出候选未被空白候选替换
 
@@ -169,9 +186,17 @@ def test_confirm_and_rebuild_are_mutually_exclusive(db_engine):
         old_id = wf.build_candidates(s, item_id, {
             "p1": wf.RecognitionInput(title="并发书甲")})[0].id
 
-    confirm_started, confirm_finished = threading.Event(), threading.Event()
+    confirm_started = threading.Event()
+    attempting_lock = threading.Event()
+    confirm_finished = threading.Event()
     errors = []
     rejected = []
+    real_lock = wf._lock_work_item
+
+    def observed_lock(db, wid):
+        if threading.current_thread() is thread:
+            attempting_lock.set()
+        return real_lock(db, wid)
 
     def confirm_in_thread():
         try:
@@ -186,22 +211,28 @@ def test_confirm_and_rebuild_are_mutually_exclusive(db_engine):
             confirm_finished.set()
 
     thread = threading.Thread(target=confirm_in_thread)
-    with SessionLocal() as db:
-        real_scalars = db.scalars
-        calls = 0
+    with patch.object(wf, "_lock_work_item", side_effect=observed_lock):
+        try:
+            with SessionLocal() as db:
+                real_scalars = db.scalars
+                calls = 0
 
-        def interleaved(*args, **kwargs):
-            nonlocal calls
-            calls += 1
-            if calls == 3:  # 与复现一致：读完归属集合、准备清理 pending 时
-                thread.start()
-                assert confirm_started.wait(5)
-                assert not confirm_finished.wait(0.2)
-            return real_scalars(*args, **kwargs)
+                def interleaved(*args, **kwargs):
+                    nonlocal calls
+                    calls += 1
+                    if calls == 3:  # 与复现一致：读完归属集合、准备清理 pending 时
+                        thread.start()
+                        assert confirm_started.wait(5) and attempting_lock.wait(5)
+                        assert not confirm_finished.wait(0.2), "确认未等待重建释放任务锁"
+                    return real_scalars(*args, **kwargs)
 
-        with patch.object(db, "scalars", side_effect=interleaved):
-            wf.build_candidates(db, item_id, {"p1": wf.RecognitionInput(title="并发书丙")})
-    thread.join(30)
+                with patch.object(db, "scalars", side_effect=interleaved):
+                    new_id = wf.build_candidates(db, item_id, {
+                        "p1": wf.RecognitionInput(title="并发书丙")})[0].id
+        finally:
+            # 即使重建断言失败，也先关闭会话释放锁，再等待确认线程退出。
+            if thread.ident is not None:
+                thread.join(10)
     assert not thread.is_alive()
     assert not errors, errors
     assert len(rejected) == 1
@@ -211,3 +242,13 @@ def test_confirm_and_rebuild_are_mutually_exclusive(db_engine):
             IntakeCandidate.work_item_id == item_id)) if c.status != "rejected"]
         owners = [c for c in live if "p1" in json.loads(c.photo_ids)]
         assert len(owners) == 1, [(c.id, c.title, c.status) for c in live]
+        assert owners[0].id == new_id
+        wf.confirm_candidates(s, item_id, [new_id], decided_by_member_id=None)
+        with patch("app.services.intake.fetch_metadata", return_value=None):
+            result = wf.execute_work_item(s, item_id)
+        assert result["status"] == "completed"
+        assert len(result["executions"]) == 1
+        assert result["executions"][0]["result"]["photo_ids"] == ["p1"]
+        books = list(s.scalars(select(Book)))
+        assert [(b.id, b.title) for b in books] == [
+            (result["executions"][0]["book_id"], "并发书丙")]

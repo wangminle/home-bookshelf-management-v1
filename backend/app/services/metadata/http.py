@@ -63,13 +63,32 @@ def sanitize_url(url: str) -> str:
     ))
 
 
-def _secret_pattern(secret: str) -> str:
-    """逐字符匹配明文或 UTF-8 百分编码；仅编码的十六进制位忽略大小写。"""
+def _secret_pattern(secret: str, *, inner_hex: bool = False) -> str:
+    """逐字符匹配明文或 UTF-8 百分编码；仅编码的十六进制位忽略大小写。
+
+    明文形态（inner_hex=False）保持大小写敏感、编码形式只匹配单层
+    （test_bug288_encoding_regression 锁定该语义）。
+    inner_hex=True 用于本身就是编码串的密钥（查询串原始值）：每个字符的
+    编码形式允许 % 被反复再编码（% → %25 → %2525 → …），覆盖异常把
+    查询串多次再编码后的回显（BUG-296）；串内 %XX 三元组中处于十六进制位
+    的字母额外忽略大小写——再编码链路可能把内层十六进制文本小写化或混用
+    大小写，而明文密钥的大小写语义不受影响。
+    """
+    hex_positions: set[int] = set()
+    if inner_hex:
+        for triplet in re.finditer(r"%[0-9a-fA-F]{2}", secret):
+            hex_positions.update((triplet.start() + 1, triplet.start() + 2))
     parts = []
-    for char in secret:
-        encoded = "".join(f"(?i:%{byte:02x})" for byte in
+    for idx, char in enumerate(secret):
+        # inner_hex：% 的再编码是 %25；%(?:25)* 让单层/双层/更深回显都命中
+        percent = r"%(?:25)*" if inner_hex else "%"
+        encoded = "".join(f"(?i:{percent}{byte:02x})" for byte in
                           char.encode("utf-8", errors="surrogateescape"))
-        forms = [encoded, re.escape(char)]  # %25 优先于明文 %，避免只掩码编码前缀
+        if idx in hex_positions and char in "abcdefABCDEF":
+            plain = f"(?i:{char})"
+        else:
+            plain = re.escape(char)
+        forms = [encoded, plain]  # %25 优先于明文 %，避免只掩码编码前缀
         if char == " ":
             forms.append(r"\+")  # 表单编码中空格也可写成 +
         parts.append("(?:" + "|".join(forms) + ")")
@@ -80,7 +99,8 @@ def _error_message(exc: BaseException, url: str) -> str:
     """异常文本可能回显完整 URL，同样把其中的敏感参数值抹掉。"""
     msg = f"{exc.__class__.__name__}: {exc}"
     parts = urllib.parse.urlsplit(url)
-    secrets: set[str] = set()
+    # 值 → 是否按编码串处理（串内十六进制字母忽略大小写）
+    secrets: dict[str, bool] = {}
     for pair in parts.query.split("&"):
         raw_name, _, raw_value = pair.partition("=")
         name = urllib.parse.unquote_plus(raw_name).lower()
@@ -88,20 +108,28 @@ def _error_message(exc: BaseException, url: str) -> str:
             continue
         # 同时保护表单解码和 URL 解码的回显；surrogateescape 保留非法 UTF-8
         # 字节，避免 %FF 等原始写法因被替换字符吞掉而漏过脱敏。
-        secrets.update({
+        for decoded in (
             urllib.parse.unquote_plus(raw_value),
             urllib.parse.unquote(raw_value),
             urllib.parse.unquote_plus(raw_value, errors="surrogateescape"),
             urllib.parse.unquote(raw_value, errors="surrogateescape"),
-        })
+        ):
+            secrets.setdefault(decoded, False)
+        # BUG-296：raw_value 本身也必须入集合——异常若把查询串再编码
+        # （% 写成 %25，可反复多层）回显，只有解码值的编码形态匹配不到
+        # 再编码串；raw_value 按编码串处理：每个字符的编码形式允许任意
+        # 层 %25 嵌套，且内层十六进制字母被小写化/混用的回显同样命中。
+        secrets[raw_value] = True
     if not secrets:
         return msg
     # BUG-288：不枚举固定编码写法，每个字符的编码形式可独立变化。
     # 在原文本上收集所有命中（包括不同起点的重叠），合并区间后再掩码。
     # 依次替换或一次 alternation 都可能先吞掉另一密钥的开头、留下尾部。
     spans = []
-    for secret in secrets:
-        pattern = "(?=(" + _secret_pattern(secret) + "))"
+    for secret, inner_hex in secrets.items():
+        if not secret:
+            continue
+        pattern = "(?=(" + _secret_pattern(secret, inner_hex=inner_hex) + "))"
         spans.extend(match.span(1) for match in re.finditer(pattern, msg))
     if not spans:
         return msg

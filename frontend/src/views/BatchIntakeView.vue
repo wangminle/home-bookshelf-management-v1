@@ -495,7 +495,7 @@ onMounted(async () => {
         </div>
         <div class="cand-actions">
           <button class="btn" :disabled="busy !== '' || c.status === 'executed' || c.status === 'rejected'" @click="saveCandidate(c)">保存（版本 +1）</button>
-          <button class="btn" :disabled="busy !== '' || c.status === 'rejected' || c.status === 'executed' || c.photo_ids.length < 2" @click="splitCandidate(c)">拆分照片</button>
+          <button class="btn" :disabled="busy !== '' || c.status === 'rejected' || c.status === 'executed' || c.status === 'confirmed' || c.photo_ids.length < 2" @click="splitCandidate(c)">拆分照片</button>
         </div>
 
         <p v-if="c.conflicts" class="conflict-warn" :data-conflict="c.id">

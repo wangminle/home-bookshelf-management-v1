@@ -409,7 +409,11 @@ def cmd_run(args: argparse.Namespace, client: BookshelfClient | None = None) -> 
             "duration_seconds": round(time.monotonic() - started, 1),
             "summary": {
                 "photos_total": len(entries),
-                "total": len(todo) + len(preflight_failed),
+                # BUG-248：total 与 entries 条数同口径（含 skipped）——
+                # total == created+exists+failed+outcome_unknown+skipped。
+                # failed 含预检失败（缺识别键/缺文件，请求未发到接口）；
+                # 本轮实际提交数 = total-skipped-预检失败条数。
+                "total": len(todo) + len(preflight_failed) + skipped,
                 **summary,
                 "skipped": skipped,
             },

@@ -142,9 +142,13 @@ python3 scripts/batch_import_covers.py run --location "客厅书架A" --channel 
   已处理条目的回执不丢，重跑从未处理条目继续；
 - 每次运行有独立 `run_id`（写入报告与每个条目 `result.run_id`）；报告默认写
   `batch_report-<run时间戳>.json`，**重跑不覆写历史报告**（`--report` 可指定路径）；
-- 报告 `summary` 口径：`photos_total`（批次照片总数，含跳过）/ `total`（本次提交数）/
-  `created` / `exists` / `failed` / `outcome_unknown` / `skipped`；每行带 `error_code`
-  （稳定错误码，与 `warnings[].code` 同一套）与后端 `warnings`。
+- 报告 `summary` 口径：`photos_total`（批次照片总数，含跳过）/ `total`（报告 entries 条数，
+  含 skipped，恒等于 `created+exists+failed+outcome_unknown+skipped`）/ `created` / `exists` /
+  `failed` / `outcome_unknown` / `skipped`（非目标状态未提交）。注意 `failed` 含两类：
+  预检失败（缺 isbn/title 或封面文件缺失，条目直接标 failed，**请求未发到接口**）与
+  接口返回的失败；本轮实际提交数 = `total-skipped-本轮预检失败条数`（预检失败条数见运行
+  日志「预检失败 N」，其报告行 `error` 为「缺少 isbn 和 title，无法入库」或
+  「封面文件缺失: …」）。每行带 `error_code`（稳定错误码，与 `warnings[].code` 同一套）与后端 `warnings`。
 
 ### 结果未知（outcome_unknown）
 

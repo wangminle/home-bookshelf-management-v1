@@ -270,14 +270,15 @@ class RecognitionInput:
 
 
 def _is_user_authored(cand: IntakeCandidate) -> bool:
-    """候选是否含人工输入：版本 > 1（经编辑/重关联），或任一字段证据来源为 user。
+    """候选是否含人工输入：任一字段证据来源为 user。
 
     BUG-286：仅看 version 不够——拆分出的新候选版本为 1，却继承了人工字段；
     手工构建接口直接保存的 source=user 候选也是 v1。证据来源随拆分继承，
     因此作为保护判据。
+    BUG-292：version>1 也不能作为判据——拆分本身就会给原候选加版本，
+    只拆分未改字段的候选（证据仍是 vision）不是人工候选，重新识别应正常取代。
+    人工编辑必经 update_candidate，会把全部字段证据写成 source=user。
     """
-    if cand.version > 1:
-        return True
     evidence = _json_loads(cand.evidence, {})
     return isinstance(evidence, dict) and any(
         isinstance(v, dict) and v.get("source") == "user" for v in evidence.values())
@@ -325,9 +326,10 @@ def build_candidates(
 
     建议仅供核对：内容哈希只证明照片相同；书名相似不自动合并版本/卷册，
     全部候选都进入 pending_review 由 Owner 处置。
-    protect_edited（识别重建路径）：人工编辑过的待核对候选（version > 1，
-    或任一业务字段证据来源为 user）视为已被人工修正，保留不取代，其照片
-    也不参与重新分组。
+    protect_edited（识别重建路径）：人工编辑过的待核对候选（任一业务字段
+    证据来源为 user——编辑/拆分继承/手工构建都会产生）视为已被人工修正，
+    保留不取代，其照片也不参与重新分组；只拆分未改字段的候选不算人工候选
+    （BUG-292），仍参与重建。
     """
     _lock_work_item(db, work_item_id)
     all_photos = db.scalars(select(IntakePhoto).where(
@@ -345,8 +347,9 @@ def build_candidates(
             IntakeCandidate.status.in_(("confirmed", "executed")))):
         claimed_pids.update(_json_loads(keep.photo_ids, []))
     if protect_edited:
-        # BUG-286：识别重跑不得清空用户已保存的人工候选（版本 > 1 即经人工
-        # 编辑，或证据来源为 user——拆分/手工构建产生的 v1 候选走后者）
+        # BUG-286：识别重跑不得清空用户已保存的人工候选（证据来源为 user；
+        # 拆分/手工构建产生的 v1 人工候选同样受保护）。
+        # BUG-292：只拆分未改字段的候选证据仍是 vision，不在保护之列。
         for keep in db.scalars(select(IntakeCandidate).where(
                 IntakeCandidate.work_item_id == work_item_id,
                 IntakeCandidate.status == "pending_review")):
@@ -367,8 +370,12 @@ def build_candidates(
     by_sha: dict[str, list[IntakePhoto]] = {}
     # BUG-291：警告属于照片本身——对本轮识别的全部照片更新（失败写入、成功
     # 清除）；受保护/已归属照片只是不参与候选分组，不得连警告更新一并跳过。
+    # BUG-295：recognized 未提及的照片（局部识别/公开构建接口的部分输入）
+    # 不属于本轮识别范围，必须保留其既有警告，不得按空结果清空。
     for photo in all_photos:
-        rec = _as_input(recognized.get(photo.photo_id, RecognitionInput()))
+        if photo.photo_id not in recognized:
+            continue
+        rec = _as_input(recognized[photo.photo_id])
         photo.warnings = json.dumps(rec.warnings or [], ensure_ascii=False)
     for photo in photos:
         by_sha.setdefault(photo.sha256, []).append(photo)
@@ -561,9 +568,10 @@ def update_candidate(
     for field, value in (("title", cand.title), ("subtitle", cand.subtitle),
                          ("authors", _json_loads(cand.authors, [])),
                          ("isbn", cand.isbn)):
-        if field in evidence:
-            evidence[field] = {"value": value, "source": "user", "confidence": None,
-                               "readable": None}
+        # BUG-292：无条件写入——人工编辑必须把全部字段证据标为 user，
+        # _is_user_authored 只认证据来源，不再看版本号
+        evidence[field] = {"value": value, "source": "user", "confidence": None,
+                           "readable": None}
     cand.evidence = json.dumps(evidence, ensure_ascii=False)
     db.commit()
     return cand
@@ -579,6 +587,16 @@ def split_candidate(db: Session, candidate_id: int, *, photo_ids_to_new: list[st
         # 当前版本与照片关联，拆分会使已完成命令永久失格（stale_confirmation），
         # 任务被重算为 failed 且无法恢复。
         raise WorkflowError("已执行的候选不可拆分")
+    if cand.status == "confirmed":
+        # BUG-294：已确认候选的命令绑定了当前版本与照片集合；拆分会加版本并
+        # 退回待核对，旧命令随之失格——此时任务仍是 confirmed，页面继续提供
+        # 执行入口，点击即 stale_confirmation、任务被打成 failed。
+        # 调整分组的正确路径：先保存一次编辑（update_candidate 会把 confirmed
+        # 退回 pending_review），再拆分；重新识别重建会保留已确认候选，
+        # 不会把它们的照片拆出去，不能作为分组调整手段。
+        raise WorkflowError(
+            "已确认的候选不可拆分；如需调整照片分组，请先保存一次编辑"
+            "（候选退回待核对）后再拆分")
     if cand.status == "rejected":
         # BUG-282：软删除候选不可拆分（照片归属重建后的新候选）
         raise WorkflowError("已被重建取代的候选不可拆分；请拆分重建后的新候选")
@@ -587,6 +605,12 @@ def split_candidate(db: Session, candidate_id: int, *, photo_ids_to_new: list[st
     if not moving:
         raise WorkflowError("没有可拆出的照片")
     staying = [pid for pid in current if pid not in moving]
+    if not staying:
+        # BUG-293：拆走全部照片会留下无照片的待核对空壳——重建不会清除它，
+        # 真实候选执行后任务也永远凑不齐完成条件。
+        raise WorkflowError(
+            "不能把全部照片都拆出（原候选将没有照片）；如整组都不需要，"
+            "请直接重新识别或调整候选")
     new = IntakeCandidate(
         work_item_id=cand.work_item_id, version=1, status="pending_review",
         title=cand.title, subtitle=cand.subtitle, authors=cand.authors, isbn=cand.isbn,
@@ -594,8 +618,6 @@ def split_candidate(db: Session, candidate_id: int, *, photo_ids_to_new: list[st
     )
     db.add(new)
     cand.photo_ids = json.dumps(sorted(staying), ensure_ascii=False)
-    if cand.status == "confirmed":
-        cand.status = "pending_review"
     cand.version += 1
     db.commit()
     return cand, new

@@ -7,3 +7,22 @@
 | [frontend-evaluation-report.md](./frontend-evaluation-report.md) | 2026-08-09 Web UI 修复前综合评估及后续修复摘要 |
 | [frontend-audit-2026-08-09.md](./frontend-audit-2026-08-09.md) | 2026-08-09 两轮前端技术、可访问性和设计审计复盘 |
 
+## 临时脚本清理与正式回归入口（2026-10-06）
+
+三个临时脚本已清理，历史复核报告及当时的测试结果保留。后续验证由 pytest 自动收集正式用例，无需单独维护验收脚本。
+
+| 已清理脚本 | 正式测试与保留的检查 |
+| --- | --- |
+| `repro_pln012_recheck_20261003.py` | [test_chk110_regression.py](../../backend/tests/test_chk110_regression.py)：原 8 个隔离用例及后续事务、撤权与租约回归 |
+| `repro_intake_review_20261005.py` | [test_review_20261005_regression.py](../../backend/tests/test_review_20261005_regression.py)：以正确行为断言覆盖 BUG-285/286/288/289，替代旧脚本的缺陷存在断言 |
+| `verify_intake_review_20261005.py` | 四项验收并入上述正式测试；补齐密钥回显四种编码、拆分候选人工来源与照片集合、实际线程锁等待和并发后的唯一书目及回执 |
+
+BUG-285 的并发窗口与批内照片归属还由 [test_bug285_completion_regression.py](../../backend/tests/test_bug285_completion_regression.py) 覆盖；BUG-288 的编码组合由 [test_bug288_encoding_regression.py](../../backend/tests/test_bug288_encoding_regression.py) 覆盖。
+
+从仓库根目录运行：
+
+```bash
+python -m pytest backend/tests/test_chk110_regression.py backend/tests/test_review_20261005_regression.py backend/tests/test_bug285_completion_regression.py backend/tests/test_bug288_encoding_regression.py -q --tb=short
+```
+
+这些测试使用临时 SQLite 库、合成图片、虚构密钥和模拟网络；通过不代表真实模型、生产数据库或 PostgreSQL 已验收，也不关闭台账中的 BUG-292～296。

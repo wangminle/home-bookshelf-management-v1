@@ -19,6 +19,7 @@ from app.api.v1 import (
     reading_logs,
     recognize,
     stats,
+    storage,
 )
 
 api_router = APIRouter(prefix="/api/v1")
@@ -40,3 +41,4 @@ api_router.include_router(public_catalog.router)
 api_router.include_router(catalog_visibility.router)
 api_router.include_router(llm_settings.router)
 api_router.include_router(intake_workflow.router)
+api_router.include_router(storage.router)

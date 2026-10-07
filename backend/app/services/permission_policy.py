@@ -19,6 +19,7 @@ ALL_SCOPES: frozenset[str] = frozenset({
     "purchases:read", "purchases:write",
     "stats:read", "stats:household",
     "files:read", "members:read",
+    "locations:read",
 })
 
 # ── 角色能力集（基线 §5.1 角色能力表 → 现有 Scope 命名） ──
@@ -79,4 +80,5 @@ SCOPE_COMPAT_MAP: dict[str, str] = {
     "stats:household": "stats:aggregate",
     "members:read": "members:read_basic",
     "files:read": "files:read",
+    "locations:read": "locations:read",
 }

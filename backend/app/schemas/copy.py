@@ -23,6 +23,14 @@ class CopyCreate(BaseModel):
     condition: str | None = Field(default=None, max_length=50)
 
 
+class CopyPlacementOut(BaseModel):
+    """副本结构化位置（LOC-05）。仅回显登记原始值；路径文本由 LOC-08 填充。"""
+
+    shelf_id: int | None = None
+    cell_id: int | None = None
+    version: int = 1
+
+
 class CopyOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -38,3 +46,8 @@ class CopyOut(BaseModel):
     condition: str | None = None
     created_at: datetime
     updated_at: datetime
+    # LOC-05 输出隔离字段：仅 locations:read 主体的序列化结果中保留这些键
+    placement: CopyPlacementOut | None = None
+    # BUG-298：未定位/清除后仍须返回真实版本，不能以 placement=null 推断版本 1。
+    placement_version: int | None = None
+    location_display: str | None = None

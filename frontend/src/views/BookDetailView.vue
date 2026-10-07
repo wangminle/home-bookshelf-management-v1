@@ -4,8 +4,10 @@ import { useRouter, useRoute } from 'vue-router'
 import { useApiStore, coverUrl, safeUrl, attachmentUrl, lastError } from '@/stores/api'
 import { sessionRole } from '@/stores/session'
 import { useMembersStore } from '@/stores/members'
-import { READING_STATUSES, statusLabel } from '@/types/models'
-import type { BookDetail, Attachment } from '@/types/models'
+import { READING_STATUSES, statusLabel, copyStatusLabel, isInPlaceStatus } from '@/types/models'
+import type { BookDetail, Attachment, BookCopy } from '@/types/models'
+import CopyPlacementEditor from '@/components/CopyPlacementEditor.vue'
+import CopyProvisionForm from '@/components/CopyProvisionForm.vue'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -213,6 +215,41 @@ onMounted(loadDetail)
 watch(() => props.id, loadDetail)
 // 修复 4.3：切换成员后刷新详情页进度表（进度按成员展示）
 watch(() => members.selectedId, loadDetail)
+
+// ── 副本位置卡片（LOC-15） ──
+
+/** LOC-05 输出隔离：未授权主体的响应中 placement/location_display 键完全不出现 */
+function hasPlacementInfo(c: BookCopy): boolean {
+  return 'placement' in c
+}
+
+function copyOwnerName(c: BookCopy): string {
+  return members.members.find((m) => m.id === c.owner_member_id)?.name ?? ''
+}
+
+/** 「查看位置」链接：到格子带高亮 query，仅到书架不带（LOC-12 已支持） */
+function placementLink(c: BookCopy): string | null {
+  const shelfId = c.placement?.shelf_id
+  if (!shelfId) return null
+  const cellId = c.placement?.cell_id
+  return cellId ? `/storage/shelves/${shelfId}?cell=${cellId}` : `/storage/shelves/${shelfId}`
+}
+
+const editingPlacementCopyId = ref<number | null>(null)
+const showProvisionForm = ref(false)
+const copiesNotice = ref('')
+
+async function onPlacementSaved() {
+  editingPlacementCopyId.value = null
+  copiesNotice.value = '位置已保存'
+  await loadDetail()
+}
+
+async function onProvisionSaved(created: number) {
+  showProvisionForm.value = false
+  copiesNotice.value = `已补录 ${created} 册实体副本`
+  await loadDetail()
+}
 </script>
 
 <template>
@@ -361,27 +398,79 @@ watch(() => members.selectedId, loadDetail)
           </div>
         </div>
 
-        <!-- 副本 -->
+        <!-- 副本（LOC-15：位置卡片，同书多册分开展示） -->
         <div
           v-if="activeTab === 'copies'"
           id="panel-copies"
           role="tabpanel"
           aria-labelledby="tab-copies"
         >
-          <div v-if="book.copies.length" class="table-wrap">
-            <table class="data-table">
-              <thead><tr><th>位置</th><th>类型</th><th>状态</th><th>格式</th></tr></thead>
-              <tbody>
-                <tr v-for="c in book.copies" :key="c.id">
-                  <td>{{ c.location || '-' }}</td>
-                  <td>{{ c.copy_type }}</td>
-                  <td>{{ c.status }}</td>
-                  <td>{{ c.format || '-' }}</td>
-                </tr>
-              </tbody>
-            </table>
+          <div v-if="book.copies.length" class="copy-cards">
+            <div v-for="c in book.copies" :key="c.id" class="copy-card" :data-copy-id="c.id">
+              <div class="copy-head">
+                <strong>副本 #{{ c.id }}</strong>
+                <span class="badge">{{ c.copy_type === 'digital' ? '电子副本' : '实体副本' }}</span>
+                <span class="badge status">{{ copyStatusLabel(c.status) }}</span>
+                <span v-if="c.format" class="muted-text">{{ c.format }}</span>
+                <span v-if="copyOwnerName(c)" class="muted-text">归属 {{ copyOwnerName(c) }}</span>
+              </div>
+              <div class="copy-location">
+                <!-- 已授权（响应含 placement 键）的实体副本：四种位置文案 -->
+                <template v-if="c.copy_type === 'physical' && hasPlacementInfo(c)">
+                  <template v-if="c.placement && c.placement.shelf_id">
+                    <RouterLink :to="placementLink(c) ?? '/storage'" class="link-primary">查看位置</RouterLink>
+                    <span class="location-path">{{ c.location_display }}</span>
+                    <!-- 外借/遗失等：归属位置不等于当前在架（§5.3/§6.3） -->
+                    <p v-if="!isInPlaceStatus(c.status)" class="muted-text away-hint">
+                      {{ copyStatusLabel(c.status) }}：此处为归属位置，副本当前不在该处。
+                    </p>
+                  </template>
+                  <span v-else-if="c.location" class="location-path legacy">
+                    文字位置（未关联实体书架）：{{ c.location }}
+                  </span>
+                  <span v-else class="muted-text">位置未登记</span>
+                </template>
+                <template v-else-if="c.copy_type === 'digital'">
+                  <span class="muted-text">电子副本，不涉及实体位置</span>
+                </template>
+                <!-- 未授权主体（无 placement 键）：保持旧版展示 -->
+                <span v-else class="location-path">{{ c.location || '-' }}</span>
+              </div>
+              <div v-if="sessionRole === 'owner' && c.copy_type === 'physical' && hasPlacementInfo(c)" class="copy-actions">
+                <button
+                  type="button"
+                  class="btn"
+                  @click="editingPlacementCopyId = editingPlacementCopyId === c.id ? null : c.id"
+                >{{ editingPlacementCopyId === c.id ? '收起' : '编辑位置' }}</button>
+              </div>
+              <CopyPlacementEditor
+                v-if="editingPlacementCopyId === c.id"
+                :book-id="book.id"
+                :copy="c"
+                @saved="onPlacementSaved"
+                @close="editingPlacementCopyId = null"
+                @conflict="loadDetail"
+              />
+            </div>
           </div>
-          <p v-else class="muted-text">暂无副本记录</p>
+          <p v-else class="muted-text">尚未登记实体副本</p>
+
+          <div v-if="sessionRole === 'owner'" class="provision-entry">
+            <button
+              v-if="!showProvisionForm"
+              type="button"
+              class="btn"
+              @click="showProvisionForm = true"
+            >补录实体副本</button>
+            <CopyProvisionForm
+              v-else
+              :book-id="book.id"
+              @saved="onProvisionSaved"
+              @close="showProvisionForm = false"
+              @conflict="loadDetail"
+            />
+          </div>
+          <p v-if="copiesNotice" class="copies-notice" role="status">{{ copiesNotice }}</p>
         </div>
 
         <!-- 购买 -->
@@ -550,4 +639,23 @@ watch(() => members.selectedId, loadDetail)
 .visibility-row label { color: var(--text-muted, #5a6878); }
 .visibility-row select { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border, #d7dee8);
   background: var(--card-bg, #fff); color: inherit; }
+
+/* LOC-15：副本位置卡片 */
+.copy-cards { display: grid; gap: 10px; }
+.copy-card {
+  border: 1px solid var(--border, #e2e8f0); border-radius: 10px;
+  padding: 10px 14px; background: var(--card-bg, #fff);
+}
+.copy-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.badge {
+  font-size: 0.78rem; border: 1px solid var(--border, #d7dee8);
+  border-radius: 999px; padding: 1px 8px; color: var(--text-muted, #5a6878);
+}
+.badge.status { color: inherit; }
+.copy-location { margin-top: 6px; font-size: 0.92rem; display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.location-path.legacy { color: var(--text-muted, #5a6878); }
+.away-hint { width: 100%; margin: 2px 0 0; font-size: 0.85rem; color: #8a5a19; }
+.copy-actions { margin-top: 6px; }
+.provision-entry { margin-top: 12px; }
+.copies-notice { color: #1c6b48; }
 </style>

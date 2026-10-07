@@ -218,7 +218,7 @@ def get_book(
     看到自己 member_id 的记录（Web Owner 保持全量+代操作口径）。
     """
     try:
-        data = get_book_detail(db, book_id)
+        data = get_book_detail(db, book_id, include_placement=ctx.has_scope("locations:read"))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     # books:read 不隐含读进度/购买/笔记：缺对应 scope 的调用方不下发这些子资源

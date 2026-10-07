@@ -130,7 +130,7 @@ curl -H "Authorization: Bearer $BOOKSHELF_TOKEN" \
   http://<服务器>/api/v1/books
 ```
 
-可用 Scope（共 13 个）：
+可用 Scope（共 14 个）：
 
 | Scope | 风险 | 说明 |
 | --- | --- | --- |
@@ -147,6 +147,7 @@ curl -H "Authorization: Bearer $BOOKSHELF_TOKEN" \
 | `stats:household` | 高 | 查看全家统计 |
 | `files:read` | 低 | 读取附件 |
 | `members:read` | 低 | 查看成员列表 |
+| `locations:read` | 低 | 查看房间、书架、格子与副本位置 |
 
 ---
 

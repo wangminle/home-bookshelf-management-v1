@@ -62,6 +62,8 @@ function onMemberChange(e: Event) {
       <nav class="nav" aria-label="主导航">
         <template v-if="sessionAuthenticated === true">
           <RouterLink to="/">书架</RouterLink>
+          <!-- LOC-10：实体书架（房间/书架位置档案），与首页封面墙「书架」明确区分 -->
+          <RouterLink to="/storage">实体书架</RouterLink>
           <RouterLink to="/stats">统计</RouterLink>
           <RouterLink to="/overview">概览图</RouterLink>
           <!-- 授权中心/访问策略仅 Owner：Member 不显示管理入口（后端同样拒绝） -->

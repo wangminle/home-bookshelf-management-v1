@@ -76,6 +76,16 @@ class AuthContext:
                 detail=f"缺少所需 scope: {scope}",
             )
 
+    def has_scope(self, scope: str) -> bool:
+        """非抛异常的 scope 判定（LOC-05 输出隔离等按 scope 裁剪响应的场景）。
+
+        与 require_scope 同口径：Web Owner 短路放行；Web/Channel 按角色能力集，
+        Agent 按 Grant 授权 scope；匿名（空 scopes）一律 False。
+        """
+        if self.auth_type == "web" and self.is_owner:
+            return True
+        return scope in self.scopes
+
     def require_any_scope(self, *scopes: str) -> None:
         """检查是否拥有任一 scope。"""
         if self.auth_type == "web" and self.is_owner:

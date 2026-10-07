@@ -30,6 +30,7 @@ let inflightRequests = 0
  * 从响应体提取人可读的错误消息（BUG-096 规范化逻辑的公共实现）。
  * 兼容后端 { error } 与 FastAPI { detail: "..." } / 422 { detail: [{ msg }] }：
  * 数组 detail 若不规范化，直接 String() 会渲染成 [object Object]。
+ * 位置域（/storage）错误为结构化 detail { code, message }，取其 message。
  * 各视图自带 fetch 封装时也应复用本函数，保证错误文案一致。
  */
 export function extractApiErrorMessage(raw: unknown, status: number, fallback = '请求失败'): string {
@@ -37,11 +38,22 @@ export function extractApiErrorMessage(raw: unknown, status: number, fallback = 
   let msg = body?.error ?? body?.detail
   if (Array.isArray(msg)) {
     msg = msg.map((e: any) => e?.msg || JSON.stringify(e)).join('; ')
+  } else if (msg && typeof msg === 'object') {
+    msg = msg.message
   }
   if (typeof msg !== 'string' || !msg) {
     msg = fallback.includes(String(status)) ? fallback : `${fallback} (${status})`
   }
   return msg
+}
+
+/** 提取位置域结构化错误码（detail.code），无则返回 null */
+export function extractApiErrorCode(raw: unknown): string | null {
+  const detail = (raw as any)?.detail
+  if (detail && typeof detail === 'object' && typeof detail.code === 'string') {
+    return detail.code
+  }
+  return null
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {

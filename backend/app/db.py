@@ -25,6 +25,7 @@ def init_db() -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.covers_dir.mkdir(parents=True, exist_ok=True)
     settings.attachments_dir.mkdir(parents=True, exist_ok=True)
+    settings.shelf_photos_dir.mkdir(parents=True, exist_ok=True)
 
 
 def get_db() -> Generator[Session, None, None]:

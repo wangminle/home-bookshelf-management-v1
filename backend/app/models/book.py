@@ -5,9 +5,11 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     String,
     Text,
@@ -69,6 +71,24 @@ class Book(Base, TimestampUpdateMixin):
 
 class BookCopy(Base, TimestampUpdateMixin):
     __tablename__ = "book_copies"
+    __table_args__ = (
+        # 结构化位置（LOC-04，设计 §6.2）：cell 非空必须同带 shelf，
+        # 且 cell 必须属于该 shelf（复合 FK 锚定 shelf_cells(shelf_id, id)）；
+        # 仅实体副本可登记实体位置
+        CheckConstraint(
+            "placement_cell_id IS NULL OR placement_shelf_id IS NOT NULL",
+            name="ck_book_copies_placement_pair",
+        ),
+        CheckConstraint(
+            "placement_shelf_id IS NULL OR copy_type = 'physical'",
+            name="ck_book_copies_placement_physical",
+        ),
+        ForeignKeyConstraint(
+            ["placement_shelf_id", "placement_cell_id"],
+            ["shelf_cells.shelf_id", "shelf_cells.id"],
+            name="fk_book_copies_placement_cell",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     book_id: Mapped[int] = mapped_column(ForeignKey("books.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -81,6 +101,11 @@ class BookCopy(Base, TimestampUpdateMixin):
     status: Mapped[str] = mapped_column(String(20), default="in_shelf", server_default="in_shelf", nullable=False)
     condition: Mapped[str | None] = mapped_column(String(50))
     extra: Mapped[str | None] = mapped_column(Text)
+    placement_shelf_id: Mapped[int | None] = mapped_column(
+        ForeignKey("storage_shelves.id"), index=True)
+    placement_cell_id: Mapped[int | None] = mapped_column(index=True)
+    placement_version: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1", nullable=False)
 
     book: Mapped[Book] = relationship(back_populates="copies")
     owner: Mapped[Member | None] = relationship(back_populates="owned_copies")

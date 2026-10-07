@@ -29,7 +29,7 @@
 home-bookshelf-management-v1/
 ├── backend/              FastAPI 后端
 │   ├── app/
-│   │   ├── api/v1/       路由（books/copies/intake/progress/purchases/notes/reading-logs/attachments/custom-fields/stats/members/recognize/files/health + web_auth/agent_access/agent_discovery/agent_skills/intake_workflow/llm_settings/catalog_visibility/public_catalog）
+│   │   ├── api/v1/       路由（books/copies/intake/progress/purchases/notes/reading-logs/attachments/custom-fields/stats/members/recognize/files/health + web_auth/agent_access/agent_discovery/agent_skills/intake_workflow/llm_settings/catalog_visibility/public_catalog/storage）
 │   │   ├── auth.py       渠道白名单鉴权（统一鉴权权威实现为 auth_context.py）
 │   │   ├── services/     业务逻辑（intake/metadata/reading/cover_recognition/storage…）
 │   │   ├── models/       SQLAlchemy 2.0 模型
@@ -39,7 +39,7 @@ home-bookshelf-management-v1/
 │   ├── tests/            pytest 回归
 │   ├── install.sh / install.bat
 │   └── requirements.txt
-├── frontend/             Vue 3 SPA（封面墙 / 详情 / 统计 / 概览图 / 批量入库工作台 / 模型设置 / 访问策略 / 共享书架）
+├── frontend/             Vue 3 SPA（封面墙 / 详情 / 统计 / 概览图 / 批量入库工作台 / 模型设置 / 访问策略 / 共享书架 / 实体书架）
 ├── cli/                  Typer CLI（命令 bookshelf）
 ├── deploy/               docker-compose / systemd / backup.sh
 ├── skills/               Agent 技能（9 个）
@@ -145,7 +145,7 @@ bash scripts/deploy_frontend.sh --base /home-bookshelf/
 home-bookshelf-management-v1/
 ├── backend/              FastAPI backend
 │   ├── app/
-│   │   ├── api/v1/       routes (books/copies/intake/progress/purchases/notes/reading-logs/attachments/custom-fields/stats/members/recognize/files/health + web_auth/agent_access/agent_discovery/agent_skills/intake_workflow/llm_settings/catalog_visibility/public_catalog)
+│   │   ├── api/v1/       routes (books/copies/intake/progress/purchases/notes/reading-logs/attachments/custom-fields/stats/members/recognize/files/health + web_auth/agent_access/agent_discovery/agent_skills/intake_workflow/llm_settings/catalog_visibility/public_catalog/storage)
 │   │   ├── auth.py       channel whitelist auth (authoritative unified auth lives in auth_context.py)
 │   │   ├── services/     business logic (intake/metadata/reading/cover_recognition/storage…)
 │   │   ├── models/       SQLAlchemy 2.0 models
@@ -155,7 +155,7 @@ home-bookshelf-management-v1/
 │   ├── tests/            pytest regressions
 │   ├── install.sh / install.bat
 │   └── requirements.txt
-├── frontend/             Vue 3 SPA (cover wall / details / stats / overview / batch-intake workbench / model settings / catalog policy / shared shelf)
+├── frontend/             Vue 3 SPA (cover wall / details / stats / overview / batch-intake workbench / model settings / catalog policy / shared shelf / storage shelves)
 ├── cli/                  Typer CLI (command: bookshelf)
 ├── deploy/               docker-compose / systemd / backup.sh
 ├── skills/               Agent skills (9)

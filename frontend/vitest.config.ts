@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 export default defineConfig({
   plugins: [vue()],
   define: {
-    __APP_VERSION__: JSON.stringify('0.4.1'),
+    __APP_VERSION__: JSON.stringify('0.4.2'),
   },
   resolve: {
     alias: {

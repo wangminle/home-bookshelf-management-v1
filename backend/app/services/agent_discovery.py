@@ -23,7 +23,7 @@ from app.schemas.agent_discovery import (
     SkillsRef,
 )
 
-_APP_VERSION = "0.4.1"
+_APP_VERSION = "0.4.2"
 
 # WBS-0：公开能力目录--只描述"系统能做什么"，不包含业务数据。
 _CAPABILITIES = [
@@ -37,6 +37,7 @@ _CAPABILITIES = [
     Capability(id="purchases.manage", description="记录购买信息", authorization_required=True, required_scopes=["purchases:read", "purchases:write"], risk="write"),
     Capability(id="stats.view", description="查看授权成员统计", authorization_required=True, required_scopes=["stats:read"], risk="read"),
     Capability(id="files.download", description="下载授权范围附件", authorization_required=True, required_scopes=["files:read"], risk="read"),
+    Capability(id="storage.read", description="读取房间、书架、格子与副本登记位置", authorization_required=True, required_scopes=["locations:read"], risk="read"),
 ]
 
 
@@ -133,6 +134,7 @@ def build_bootstrap_md() -> str:
 | purchases.manage | 购买记录 | purchases:read/write | 写 |
 | stats.view | 统计 | stats:read | 读 |
 | files.download | 附件下载 | files:read | 读 |
+| storage.read | 位置结构 | locations:read | 读 |
 
 ## 接口发现
 

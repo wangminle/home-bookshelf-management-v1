@@ -17,6 +17,10 @@ async def lifespan(app: FastAPI):
     from app.services.skill_catalog import ensure_skills_bundle
 
     ensure_skills_bundle()
+    # LOC-09：位置文件回收启动恢复（进程中断留下的 pending/processing 任务）
+    from app.services.storage_photos import resume_gc_jobs
+
+    resume_gc_jobs()
     yield
 
 

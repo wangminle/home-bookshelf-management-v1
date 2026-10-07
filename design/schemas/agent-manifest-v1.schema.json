@@ -64,7 +64,8 @@
               "notes:read", "notes:write",
               "purchases:read", "purchases:write",
               "stats:read", "stats:household",
-              "files:read", "members:read"
+              "files:read", "members:read",
+              "locations:read"
             ]}
           },
           "risk": { "type": "string", "enum": ["read", "write", "delete"] }

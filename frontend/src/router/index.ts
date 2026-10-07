@@ -18,6 +18,25 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      // 实体书架（LOC-10）：房间/书架清单与建档；页面内 Owner 可写、Member 只读
+      path: '/storage',
+      name: 'storage',
+      component: () => import('@/views/StorageView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      // 书架详情（LOC-12）：照片管理、层格示意图、高亮定位与格子内容列表。
+      // props 映射路由参数与 ?cell=<id> 高亮 query，组件不直接依赖路由实例
+      path: '/storage/shelves/:id',
+      name: 'storage-shelf',
+      component: () => import('@/views/StorageShelfView.vue'),
+      props: (route) => ({
+        shelfId: Number(route.params.id),
+        cell: route.query.cell != null && route.query.cell !== '' ? Number(route.query.cell) : null,
+      }),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/stats',
       name: 'stats',
       component: () => import('@/views/StatsView.vue'),

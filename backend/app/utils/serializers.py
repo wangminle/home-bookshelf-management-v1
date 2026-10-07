@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from app.schemas.book import BookOut
-from app.schemas.copy import CopyOut
+from app.schemas.copy import CopyOut, CopyPlacementOut
 from app.schemas.note import NoteOut
 from app.schemas.purchase import PurchaseOut
 from app.schemas.reading import ProgressOut
@@ -36,8 +36,45 @@ def book_to_out(book, *, include_visibility: bool = False) -> BookOut:
     )
 
 
-def copy_to_out(copy) -> CopyOut:
-    return CopyOut.model_validate(copy)
+def copy_to_out(copy, *, include_placement: bool = False, db=None,
+                display_cache: dict | None = None) -> CopyOut:
+    """序列化副本。include_placement=True 时回显结构化位置原始值（LOC-05）。
+
+    LOC-08：有结构化定位且传入 db 时实时生成 location_display 路径文本
+    （display_cache 在批量序列化时共享去重）；无结构化定位时 location_display
+    回退旧 location 文字（LOC-02 冻结契约）。
+    """
+    out = CopyOut.model_validate(copy)
+    # BUG-298：版本独立于是否已定位；同时避免 from_attributes 带出未授权版本。
+    out.placement_version = copy.placement_version if include_placement else None
+    if include_placement:
+        if copy.placement_shelf_id is not None:
+            out.placement = CopyPlacementOut(
+                shelf_id=copy.placement_shelf_id,
+                cell_id=copy.placement_cell_id,
+                version=copy.placement_version,
+            )
+            if db is not None:
+                from app.services import storage_queries
+
+                out.location_display = storage_queries.build_location_display(
+                    db, copy.placement_shelf_id, copy.placement_cell_id,
+                    cache=display_cache)
+        else:
+            out.location_display = copy.location
+    return out
+
+
+def copy_to_dict(copy, *, include_placement: bool = False, db=None,
+                 display_cache: dict | None = None) -> dict:
+    """LOC-05 输出隔离：未授权主体的输出中所有位置相关键完全不出现。"""
+    data = copy_to_out(copy, include_placement=include_placement,
+                       db=db, display_cache=display_cache).model_dump()
+    if not include_placement:
+        data.pop("placement", None)
+        data.pop("placement_version", None)
+        data.pop("location_display", None)
+    return data
 
 
 def progress_to_out(progress) -> ProgressOut:
@@ -102,11 +139,14 @@ def member_bindings(raw: str | None) -> dict | None:
         return None
 
 
-def book_detail_to_dict(book, *, copies, progress_list, purchases, notes, attachments, tags, custom_fields) -> dict:
+def book_detail_to_dict(book, *, copies, progress_list, purchases, notes, attachments, tags, custom_fields,
+                        include_placement: bool = False, db=None) -> dict:
+    display_cache: dict = {}
     return {
         **book_to_out(book).model_dump(),
         "tags": tags,
-        "copies": [copy_to_out(c).model_dump() for c in copies],
+        "copies": [copy_to_dict(c, include_placement=include_placement,
+                                db=db, display_cache=display_cache) for c in copies],
         "reading_progress": [progress_to_out(p).model_dump() for p in progress_list],
         "purchase_records": [purchase_to_out(p).model_dump() for p in purchases],
         "reading_notes": [note_to_out(n).model_dump() for n in notes],

@@ -269,7 +269,7 @@ bash deploy/backup.sh
 - **Owner 密码**：首次部署后必须通过 `python -m app.admin owner-init-password` 或 Web UI 初始化。密码使用 Argon2id 存储。
 - **HTTPS 建议**：正式家庭数据环境的 Owner 登录、Token 签发和 Bearer 调用建议走 HTTPS。后端不强制拒绝 HTTP——HTTP 下功能均可用，区别仅在 HTTPS（含反向代理 `X-Forwarded-Proto: https`）时会话 Cookie 带 `Secure` 标志，HTTP 下不带。
 - **Agent Token**：Token 以 `hbs_at_` 前缀格式签发，SHA-256 哈希存储，仅签发时显示一次明文。可在 Web 授权中心随时撤销。
-- **Scope 限制**：每个 Agent Token 绑定特定 Scope（共 13 个），高风险操作（删除、跨成员统计）需单独授权。
+- **Scope 限制**：每个 Agent Token 绑定特定 Scope（共 14 个），高风险操作（删除、跨成员统计）需单独授权。
 - 不要把 `0.0.0.0:8000` 直接暴露到公网。
 - 若 Agent/Webhook 需要公网入口，使用反向代理（Nginx/Caddy）配置 HTTPS，并限制来源。
 

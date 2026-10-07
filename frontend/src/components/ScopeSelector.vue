@@ -35,6 +35,7 @@ const ALL_SCOPES: ScopeOption[] = [
   { value: 'stats:household', label: '家庭统计', risk: 'high', desc: '查看所有成员的统计数据' },
   { value: 'files:read', label: '读取附件', risk: 'low', desc: '下载图书附件和封面' },
   { value: 'members:read', label: '读取成员', risk: 'medium', desc: '查看家庭成员列表' },
+  { value: 'locations:read', label: '位置读取', risk: 'low', desc: '查看房间、书架、格子与副本位置' },
 ]
 
 const selected = computed({

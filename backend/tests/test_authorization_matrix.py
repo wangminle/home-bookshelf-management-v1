@@ -184,6 +184,14 @@ def test_read_scope_allows_get(client: TestClient):
     _logout(client)
 
 
+def test_locations_read_scope_grantable(client: TestClient):
+    """LOC-05：locations:read 可显式授予 Agent Token，并允许读书目详情。"""
+    member_id, token = _setup_agent(client, ["books:read", "locations:read"])
+    r = client.get("/api/v1/books", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    _logout(client)
+
+
 def test_no_write_scope_token_cannot_write(client: TestClient):
     """只有 books:read（无 books:write）的 Token 不能创建书籍。"""
     member_id, token = _setup_agent(client, ["books:read"])

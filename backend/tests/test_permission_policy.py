@@ -24,10 +24,10 @@ def test_member_role_scopes_exclude_owner_only_capabilities() -> None:
     assert permission_policy.MEMBER_ROLE_SCOPES < permission_policy.ALL_SCOPES
     assert "books:delete" not in permission_policy.MEMBER_ROLE_SCOPES
     assert "stats:household" not in permission_policy.MEMBER_ROLE_SCOPES
-    # Member 日常能力保留：书目维护、本人阅读/笔记/购买、本人统计、文件与成员名单
+    # Member 日常能力保留：书目维护、本人阅读/笔记/购买、本人统计、文件与成员名单、位置读取
     for scope in ("books:read", "books:write", "reading:read", "reading:write",
                   "notes:read", "notes:write", "purchases:read", "purchases:write",
-                  "stats:read", "files:read", "members:read"):
+                  "stats:read", "files:read", "members:read", "locations:read"):
         assert scope in permission_policy.MEMBER_ROLE_SCOPES
 
 
@@ -46,6 +46,8 @@ def test_role_scopes_unknown_role_fails_closed() -> None:
 def test_agent_grantable_scopes_subset_of_all() -> None:
     """Agent 可授予集合必须是全量 Scope 的子集；管理能力永不进入普通 Agent Scope。"""
     assert permission_policy.AGENT_GRANTABLE_SCOPES <= permission_policy.ALL_SCOPES
+    # LOC-05：位置读取为普通读能力，可显式授予 Agent（不自动追加到已有 Token）
+    assert "locations:read" in permission_policy.AGENT_GRANTABLE_SCOPES
     # 基线 §6.4：管理类能力不进入 Agent Scope（当前尚无这些 Scope，防御性约束）
     for scope in ("members:manage", "roles:manage", "auth:manage",
                   "agent_grants:approve", "agent_grants:manage",
@@ -57,6 +59,8 @@ def test_high_risk_scopes_definition() -> None:
     """高风险 Scope 分级：破坏性删除与跨成员家庭聚合（基线 §6.4/§11.2）。"""
     assert permission_policy.HIGH_RISK_SCOPES == {"books:delete", "stats:household"}
     assert permission_policy.HIGH_RISK_SCOPES <= permission_policy.ALL_SCOPES
+    # LOC-05：位置读取为低危读能力，不进入高风险集合
+    assert "locations:read" not in permission_policy.HIGH_RISK_SCOPES
 
 
 def test_scope_compat_map_is_total_over_all_scopes() -> None:
@@ -78,6 +82,7 @@ def test_scope_compat_map_expected_targets() -> None:
     # 名称不变的 Scope 保持恒等映射
     assert m["reading:read"] == "reading:read"
     assert m["files:read"] == "files:read"
+    assert m["locations:read"] == "locations:read"
 
 
 def test_agent_access_reexports_all_scopes() -> None:

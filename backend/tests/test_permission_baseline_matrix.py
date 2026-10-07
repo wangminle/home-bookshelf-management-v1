@@ -111,6 +111,15 @@ def test_registry_scopes_are_known_or_owner_only() -> None:
             )
 
 
+def test_locations_read_scope_matrix() -> None:
+    """LOC-05：locations:read 的角色/授予/风险预期矩阵。"""
+    assert "locations:read" in permission_policy.ALL_SCOPES
+    assert "locations:read" in permission_policy.OWNER_ROLE_SCOPES
+    assert "locations:read" in permission_policy.MEMBER_ROLE_SCOPES
+    assert "locations:read" in permission_policy.AGENT_GRANTABLE_SCOPES
+    assert "locations:read" not in permission_policy.HIGH_RISK_SCOPES
+
+
 # ── 测试世界：owner/member/渠道绑定/探针书 就绪 ──
 
 

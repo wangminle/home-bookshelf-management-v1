@@ -23,6 +23,7 @@
 | `files:read` | 下载授权范围附件 | 敏感 | `files:read` | 默认不授予 |
 | `members:read` | 查看家庭成员基本信息 | 中（L4 边缘；channel_bindings 仅 owner 可见） | `members:read_basic` | 默认不授予普通 Agent |
 | `stats:household` | 跨成员家庭统计 | **高** | `stats:aggregate` | 仅 Owner 可授予 |
+| `locations:read` | 查看房间、书架、格子与副本位置（LOC-05，2026-10-06） | 低（家庭内部精确位置，不自动授予） | `locations:read`（不重命名） | 可单独授予；书架照片内容另需 `files:read` |
 
 > 兼容映射集中维护于 `backend/app/services/permission_policy.py::SCOPE_COMPAT_MAP`（权限阶段 0 任务 4）：
 > 当前**不启用**任何运行时重命名；未来统一迁移时映射必须集中配置、版本化并测试，
@@ -108,6 +109,17 @@ Grant 风险分级：`HIGH_RISK_SCOPES = {books:delete, stats:household}`——�
 | `/auth/introspect` | GET | 无（需 Bearer Token） | agent | L0 | 无 | Token 自检 |
 | `/auth/logout` | POST | 无（已认证） | web | L0 | 无 | 登出 |
 | `/auth/session` | GET | 无（已认证） | web | L0 | 无 | 会话状态（阶段 2 起附 role/member_id/member_name） |
+| `/api/v1/storage/rooms`、`/storage/shelves`、`/storage/shelves/{id}`、`/storage/cells/{id}/copies`、`/storage/unlocated`、`/storage/shelves/{id}/photos` | GET | `locations:read` | agent/channel/web | L1/L2 | household_shared | **实体书架（LOC-05～08）**：结构、格子副本清单与三类未定位清单；位置字段仅授 `locations:read` 主体可见 |
+| `/api/v1/storage/photos/{id}/content` | GET | `locations:read` + `files:read` | agent/channel/web | L1 | household_shared | 书架照片二进制；双 Scope 同时校验 |
+| `/api/v1/storage/rooms`、`/storage/shelves` | POST | 无（owner web 专用） | owner/web | L2 | 全局 | **实体书架（LOC-06）**：建档；Owner Web + CSRF |
+| `/api/v1/storage/rooms/{id}`、`/storage/shelves/{id}` | PATCH | 无（owner web 专用） | owner/web | L2 | 全局 | 修改／归档／恢复；Owner Web + CSRF |
+| `/api/v1/storage/shelves/{id}/layout` | PUT | 无（owner web 专用） | owner/web | L2 | 全局 | 布局变更（稳定 ID + 版本校验，LOC-11） |
+| `/api/v1/storage/shelves/{id}/photos` | POST | 无（owner web 专用） | owner/web | L2 | 全局 | 照片上传（格式/像素/每架上限，LOC-09） |
+| `/api/v1/storage/photos/{id}` | PATCH/DELETE | 无（owner web 专用） | owner/web | L2 | 全局 | 主图切换／删除（删除走 GC 租约，LOC-09） |
+| `/api/v1/books/{book_id}/copies/{copy_id}/placement` | PATCH | 无（owner web 专用） | owner/web | L2 | 全局 | 单册分配／移动／清除位置（LOC-13，传期望 placement_version） |
+| `/api/v1/storage/placements/preview`、`/storage/placements` | POST | 无（owner web 专用） | owner/web | L2 | 全局 | 批量移动预览与原子提交（LOC-13，≤100 册，幂等 idempotency_key） |
+| `/api/v1/storage/copies` | POST | 无（owner web 专用） | owner/web | L2 | 全局 | 存量副本补录（LOC-14，先查已有副本，幂等 idempotency_key） |
+| `/api/v1/storage/operations/{idempotency_key}` | GET | 无（owner web 专用） | owner/web | L2 | 全局 | 幂等回执查询（LOC-07） |
 
 > 规划中但**未实现**的端点（勿依赖）：`GET /books/{id}/copies|progress|purchases|notes|reading-logs`（子资源读接口，数据经 `GET /books/{id}` 返回）、`PATCH /copies/{id}`、`DELETE /attachments/{id}`、`DELETE /custom-fields/{id}`、`GET /stats/household`、`POST /books/intake/photo`。
 
@@ -118,6 +130,7 @@ Agent Grant 不支持 `*` 或 `admin:*` 通配符。授权管理和系统配置�
 ## 资源归属规则
 
 - `books`、`book_copies`：家庭共享资源（L1/L2），获 `books:read` 的成员可查询。
+- `storage_rooms`、`storage_shelves`、`shelf_layers`、`shelf_cells`、`shelf_photos` 及 `book_copies` 的结构化 placement：家庭共享资源（L1/L2）；读需 `locations:read`（照片内容另需 `files:read`），结构化写入与补录仅 Owner Web 会话（实体书架 LOC-05～14）。无 `locations:read` 的主体读详情时位置字段被剔除，不自动扩权。
 - `reading_progress`、`reading_logs`、`reading_notes`、`purchase_records`：默认绑定 `member_id`（L3），Agent 只能访问 Grant 绑定成员的数据。
 - 附件继承父资源权限，不允许仅凭附件 ID 越权下载。
 - `stats:read` 只返回 Grant 绑定成员的统计；跨成员聚合必须另获 `stats:household`。

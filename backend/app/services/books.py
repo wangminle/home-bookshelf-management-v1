@@ -130,7 +130,7 @@ def update_book(db: Session, book_id: int, payload: BookUpdate) -> BookUpdateRes
     return BookUpdateResult(book=book, message=f"已更新《{book.title}》")
 
 
-def get_book_detail(db: Session, book_id: int) -> dict:
+def get_book_detail(db: Session, book_id: int, *, include_placement: bool = False) -> dict:
     book = db.get(Book, book_id)
     if not book:
         raise ValueError(f"书籍 ID {book_id} 不存在")
@@ -158,6 +158,8 @@ def get_book_detail(db: Session, book_id: int) -> dict:
         attachments=attachments,
         tags=list(tag_rows),
         custom_fields=custom_fields,
+        include_placement=include_placement,
+        db=db,
     )
 
 

@@ -46,13 +46,24 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   if (res.status === 401) {
     markSessionExpired()
   }
-  const body = await res.json().catch(() => ({}))
+  let body: Record<string, unknown> = {}
+  try {
+    body = await res.json()
+  } catch {
+    // HTTP 成功但回执截断：不能当成业务成功（BUG-299）。失败响应仍走原错误文案。
+    if (res.ok) {
+      throw new StorageApiError('响应无法解析，结果未确认', res.status, null)
+    }
+  }
   if (!res.ok || body.ok === false) {
     throw new StorageApiError(
       extractApiErrorMessage(body, res.status, '请求失败'),
       res.status,
       extractApiErrorCode(body),
     )
+  }
+  if (body.data == null) {
+    throw new StorageApiError('响应缺少回执，结果未确认', res.status, null)
   }
   return body.data as T
 }
@@ -64,6 +75,37 @@ export function newIdempotencyKey(): string {
     return c.randomUUID()
   }
   return `web-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
+}
+
+/**
+ * 补录幂等键按「书目 + 规范化载荷」跨组件实例保留（BUG-299）。
+ * 结果尚未确认（断网、超时、关闭重开）时，相同载荷必须复用原键，
+ * 否则服务端会当成新操作再建一批副本。载荷变化各记各的键：
+ * A→B→回到 A 仍用 A 的未确认键，不能只记住最近一次。
+ * 只有回执可解析且含有效字段后才忘掉该载荷的键；HTTP 成功但 JSON
+ * 截断或 data 为空仍视为结果未确认。
+ */
+const pendingProvisionKeys = new Map<string, string>()
+
+function provisionSignature(bookId: number, items: unknown): string {
+  return `${bookId}:${JSON.stringify(items)}`
+}
+
+export function reuseProvisionIdempotencyKey(bookId: number, items: unknown): string {
+  const sig = provisionSignature(bookId, items)
+  const existing = pendingProvisionKeys.get(sig)
+  if (existing) return existing
+  const key = newIdempotencyKey()
+  pendingProvisionKeys.set(sig, key)
+  return key
+}
+
+export function forgetProvisionIdempotencyKey(bookId: number, items: unknown): void {
+  pendingProvisionKeys.delete(provisionSignature(bookId, items))
+}
+
+export function resetProvisionIdempotencyKeys(): void {
+  pendingProvisionKeys.clear()
 }
 
 // ── 房间 ──

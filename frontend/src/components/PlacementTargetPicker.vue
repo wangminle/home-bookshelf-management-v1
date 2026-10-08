@@ -34,30 +34,51 @@ const cellId = ref<number | ''>('')
 
 const loadError = ref('')
 
+/** 级联请求代际：快速切换房间/书架时丢弃晚到的旧响应，防止覆盖当前选项 */
+let shelvesReqId = 0
+let detailReqId = 0
+
 async function onRoomChange() {
+  // 清空也要递增代际：return 放在递增之后，否则在途的旧书架/旧层格响应
+  // 仍与当前代际相同，会把已清空的选项写回来（BUG-304）。
+  const reqId = ++shelvesReqId
+  ++detailReqId
+  const requestedRoom = roomId.value
   shelves.value = []
   shelfDetail.value = null
   shelfId.value = ''
   layerId.value = ''
   cellId.value = ''
   emitTarget()
-  if (roomId.value === '') return
+  if (requestedRoom === '') return
   try {
-    shelves.value = (await listShelves(Number(roomId.value), false)).items
+    const items = (await listShelves(Number(requestedRoom), false)).items
+    if (reqId !== shelvesReqId || roomId.value !== requestedRoom) return
+    shelves.value = items
   } catch (e) {
+    if (reqId !== shelvesReqId || roomId.value !== requestedRoom) return
     loadError.value = e instanceof Error ? e.message : '加载书架失败'
   }
 }
 
 async function onShelfChange() {
+  const reqId = ++detailReqId
+  const requestedShelf = shelfId.value
+  const requestedRoom = roomId.value
   shelfDetail.value = null
   layerId.value = ''
   cellId.value = ''
   emitTarget()
-  if (shelfId.value === '') return
+  if (requestedShelf === '') return
   try {
-    shelfDetail.value = await getShelf(Number(shelfId.value))
+    const detail = await getShelf(Number(requestedShelf))
+    if (reqId !== detailReqId || shelfId.value !== requestedShelf) return
+    if (roomId.value !== requestedRoom) return
+    if (detail.id !== Number(requestedShelf)) return
+    if (requestedRoom !== '' && detail.room_id !== Number(requestedRoom)) return
+    shelfDetail.value = detail
   } catch (e) {
+    if (reqId !== detailReqId || shelfId.value !== requestedShelf) return
     loadError.value = e instanceof Error ? e.message : '加载书架结构失败'
   }
 }

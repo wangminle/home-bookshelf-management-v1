@@ -1,6 +1,6 @@
 # Web UI 部署指南
 
-家庭书架 Web UI 是一个 Vue 3 SPA，提供封面墙浏览、筛选、书籍详情、阅读统计、概览图导出，以及批量入库工作台（`/batch-intake`）、模型设置（`/llm-settings`）、访问策略（`/catalog-policy`）、Agent 授权管理（`/agent-authorization`）等管理页面。
+家庭书架 Web UI 是一个 Vue 3 SPA，提供封面墙浏览、筛选、书籍详情、阅读统计、概览图导出，以及批量入库工作台（`/batch-intake`）、模型设置（`/llm-settings`）、访问策略（`/catalog-policy`）、Agent 授权管理（`/agent-authorization`）、实体书架位置管理（`/storage`）等管理页面。
 
 ## 开发模式
 
@@ -160,6 +160,9 @@ bash scripts/deploy_frontend.sh --base /home-bookshelf/
 | `/llm-settings` 模型设置（多模态识图模型：enabled 开关、显示名称、Base URL、模型 ID、API Key 只回显末四位可清除、超时/最大 token/温度/识图精细度 auto-low-high，存本机数据库供批量入库封面识别） | ✅ |
 | `/batch-intake` 拍照批量入库核对工作台（Owner 专属，`v-if="sessionRole === 'owner'"`，后端全部端点 require_owner；新建批次 → 上传多图 → 模型识别（需先在「模型」页启用）→ 候选核对（编辑书名/副标题/作者/ISBN、拆分照片）→ 匹配已有书预览 → 勾选确认 → 执行入库 → 回执/失败重试；状态服务端持久化，刷新可恢复；重复执行不重复建书）。0.4.0 新增：① ISBN 归属冲突候选展示冲突书目，需显式勾选「强制关联此书」确认时才会携带 `resolutions` `force_link`，且修改字段后须重新核对匹配目标（后端会清空匹配结果）；② 中断任务的「恢复执行」入口（任务 executing 或 failed 且仍有 executing 命令时可用，安全续跑不重复建书）；③ 逐照片识别警告展示（识别失败/字段异常的 `code` + `message`，照片卡片下方黄条列出） | ✅ |
 | `/catalog-policy` 访问策略页（逐书可见级别 + C→B 预览） | ✅ |
+| `/storage` 实体书架管理页（Owner 建档/编辑/归档房间与书架，Member 只读；书架布局编辑器支持可变层格、带引用结构调整 409 引导；版本冲突自动刷新，刷新失败锁定表单直到手动重载成功） | ✅ |
+| `/storage/shelves/:id` 书架详情页（层格示意图、格子副本清单分页、书架照片上传/设主图/删除、`?cell=` 深链高亮；路由切换自动重载，加载失败不保留旧架可写界面） | ✅ |
+| 书籍详情页位置卡片（副本结构化位置展示与「查看位置」跳转；Owner 编辑/清除单册位置、补录实体副本；补录结果未确认时同载荷复用幂等键重试，不重复建册） | ✅ |
 
 ### 概览图功能
 

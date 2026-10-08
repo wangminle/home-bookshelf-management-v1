@@ -122,6 +122,32 @@ def resolve_photo_path(relative_path: str) -> Path | None:
     return target
 
 
+def _promote_staged(relative_path: str) -> bool:
+    """把 <最终路径>.staged 转正为最终文件；final 已在则清掉残留暂存。
+
+    覆盖「事务已 commit、replace 转正前中断」的窗口：同键重试与启动恢复
+    （promote_staged_uploads）都走这里，保证回执指向的照片内容最终可读。
+    两个同键请求可能同时看到 staged 存在再 replace：后到者会 FileNotFoundError。
+    此时重验 final，已被对方转正视为成功；真实文件系统失败不抛出，以免
+    幂等回执路径变成 500（BUG-301）。
+    """
+    final = settings.data_dir / relative_path
+    staged = Path(f"{final}.staged")
+    if final.is_file():
+        staged.unlink(missing_ok=True)
+        return True
+    try:
+        staged.replace(final)
+    except OSError:
+        if final.is_file():
+            staged.unlink(missing_ok=True)
+            return True
+        if staged.is_file():
+            logger.exception("照片暂存转正失败（留给下次恢复）: %s", relative_path)
+        return False
+    return final.is_file()
+
+
 def _photo_out(photo: ShelfPhoto) -> dict:
     return PhotoOut.model_validate(photo).model_dump(mode="json")
 
@@ -158,17 +184,19 @@ def upload_photo(
 ) -> dict:
     """上传书架照片：先解码重编码 → 写暂存 → 事务落库 → commit 后暂存转正。
 
-    事务失败/幂等重放仅清理本次暂存文件，绝不动既有照片文件。
+    暂存文件与最终路径同目录同名（最终名 + ``.staged``），commit 与转正之间
+    进程中断时，可由同键重试或启动恢复 promote_staged_uploads 确定性转正；
+    事务失败仅清理本次暂存文件，绝不动既有照片文件。
     """
     clean_bytes, mime, width, height = _decode_and_reencode(data)
     ext = {m: e for m, e in _ALLOWED_FORMATS.values()}[mime]
     shelf_dir = settings.shelf_photos_dir / str(shelf_id)
     shelf_dir.mkdir(parents=True, exist_ok=True)
-    staged = shelf_dir / f"tmp-{uuid.uuid4().hex}{ext}"
+    final_rel = f"shelf_photos/{shelf_id}/{uuid.uuid4().hex}{ext}"
+    staged = settings.data_dir / f"{final_rel}.staged"
     staged.write_bytes(clean_bytes)
 
     replayed = False
-    final_rel: str | None = None
     digest_payload = {
         "op": "storage.photo.upload",
         "shelf_id": shelf_id,
@@ -178,7 +206,7 @@ def upload_photo(
     }
 
     def fn(db: Session) -> dict:
-        nonlocal replayed, final_rel
+        nonlocal replayed
         begin = storage_tx.begin_operation(
             db, operator_member_id=operator_member_id,
             idempotency_key=idempotency_key, payload=digest_payload)
@@ -198,7 +226,6 @@ def upload_photo(
             .where(ShelfPhoto.shelf_id == shelf_id)) or 0
         if count >= MAX_PHOTOS_PER_SHELF:
             raise PhotoLimitExceeded()
-        final_rel = f"shelf_photos/{shelf_id}/{uuid.uuid4().hex}{ext}"
         # 契约修订（LOC-09）：架内首张照片无论请求值一律成为主图
         primary = bool(is_primary) or count == 0
         if primary:
@@ -228,10 +255,23 @@ def upload_photo(
         staged.unlink(missing_ok=True)
         raise
     if replayed:
-        # 重放已存回执：本次暂存文件不属于任何照片记录，仅清理本次文件
+        # 重放已存回执：原事务可能中断在「commit 后、转正前」，先补转正原文件。
+        # PhotoOut 不暴露磁盘路径，回执只有 photo_id，经 DB 行取 relative_path。
+        photo = result.get("photo") if isinstance(result, dict) else None
+        photo_id = photo.get("id") if isinstance(photo, dict) else None
+        if isinstance(photo_id, int):
+            row = db.get(ShelfPhoto, photo_id)
+            if row is not None:
+                _promote_staged(row.relative_path)
+        # 本次暂存文件不属于任何照片记录，仅清理本次文件
         staged.unlink(missing_ok=True)
     else:
-        staged.replace(settings.data_dir / final_rel)
+        try:
+            staged.replace(settings.data_dir / final_rel)
+        except OSError:
+            # 记录与回执已落库，转正失败留给同键重试/启动恢复，不视为上传失败
+            logger.exception("照片暂存转正失败（将由启动恢复/同键重试补转正）: %s",
+                             final_rel)
     return result
 
 
@@ -436,8 +476,59 @@ def process_gc_jobs(db: Session, *, limit: int = 50) -> dict:
     return summary
 
 
+# 无 DB 引用的暂存可能是另一个进程尚未提交的上传。不能凭一次引用快照
+# 立刻删除；短于此时长的无引用暂存保留，超时后才当崩溃残留清理（BUG-301）。
+STAGED_ORPHAN_GRACE_SECONDS = 24 * 3600
+
+
+def promote_staged_uploads(db: Session) -> dict:
+    """进程启动恢复：扫 shelf_photos 下所有 ``*.staged`` 暂存文件并处置。
+
+    - 仍被照片记录引用且最终文件缺失 → 转正（commit 后、replace 前中断的补偿）；
+    - 已被引用且 final 已在 → 删除残留暂存；
+    - 无引用但未超过宽限 → 保留（可能是其他实例尚未提交的上传）；
+    - 无引用且超过宽限 → 删除崩溃残留。
+    与 process_gc_jobs 一样幂等可重入，失败只记日志。
+    """
+    summary = {"staged": 0, "promoted": 0, "removed": 0, "kept": 0, "failed": 0}
+    base = settings.shelf_photos_dir
+    if not base.is_dir():
+        return summary
+    referenced = set(db.scalars(select(ShelfPhoto.relative_path)).all())
+    now = time.time()
+    for staged in base.rglob("*.staged"):
+        if not staged.is_file():
+            continue
+        summary["staged"] += 1
+        final = staged.with_name(staged.name[: -len(".staged")])
+        rel = f"shelf_photos/{final.relative_to(base).as_posix()}"
+        try:
+            if rel not in referenced and db.scalar(
+                select(ShelfPhoto.id).where(ShelfPhoto.relative_path == rel).limit(1)
+            ) is not None:
+                referenced.add(rel)
+            if rel in referenced and not final.is_file():
+                if _promote_staged(rel):
+                    summary["promoted"] += 1
+                else:
+                    summary["failed"] += 1
+            elif rel in referenced:
+                staged.unlink(missing_ok=True)
+                summary["removed"] += 1
+            elif now - staged.stat().st_mtime < STAGED_ORPHAN_GRACE_SECONDS:
+                summary["kept"] += 1
+            else:
+                staged.unlink(missing_ok=True)
+                summary["removed"] += 1
+        except OSError:
+            summary["failed"] += 1
+            logger.exception("书架照片暂存转正失败: %s", staged)
+    return summary
+
+
 def resume_gc_jobs() -> None:
-    """进程启动恢复：继续处理中断的回收任务。失败只记日志，不阻塞启动。
+    """进程启动恢复：先补转正中断的上传暂存，再继续处理中断的回收任务。
+    失败只记日志，不阻塞启动。
 
     SessionLocal 经模块属性引用：测试夹具按用例重绑 app.db.SessionLocal。
     """
@@ -445,11 +536,14 @@ def resume_gc_jobs() -> None:
 
     session = db_module.SessionLocal()
     try:
+        staged_summary = promote_staged_uploads(session)
+        if staged_summary["staged"]:
+            logger.info("书架照片暂存转正启动恢复: %s", staged_summary)
         summary = process_gc_jobs(session)
         if summary["processed"]:
             logger.info("位置文件回收启动恢复: %s", summary)
     except Exception:
-        logger.exception("位置文件回收启动恢复失败")
+        logger.exception("位置文件启动恢复失败")
     finally:
         session.close()
 
@@ -469,6 +563,9 @@ def orphan_audit(db: Session, *, older_than_hours: int = 24) -> list[dict]:
     orphans: list[dict] = []
     for path in base.rglob("*"):
         if not path.is_file():
+            continue
+        # .staged 暂存文件由 promote_staged_uploads 转正/清理，不列入孤儿
+        if path.name.endswith(".staged"):
             continue
         full_rel = f"shelf_photos/{path.relative_to(base).as_posix()}"
         if full_rel in referenced:

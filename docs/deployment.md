@@ -258,9 +258,30 @@ bash deploy/backup.sh
 
 脚本会对 SQLite 做 `.backup` 并打包 `data/`。请按家庭习惯配置 cron / 计划任务，并视需要拷到 NAS。
 
-若当前数据目录还没有 `covers/` / `attachments/`，脚本会跳过附件包并给出警告，但数据库备份仍会生成。
+附件包打包 `covers/`、`attachments/` 与 `shelf_photos/`（书架照片，0.4.3 起纳入）。若三类目录都不存在，脚本会跳过附件包并给出警告，但数据库备份仍会生成。
 
 恢复前请先停服务，再替换数据库与数据目录。
+
+### BUG-302：已有书架照片库的升级
+
+已经执行过旧版 `l3c4d5e6f7a8` 的 SQLite 库也需要运行前向迁移
+`m4d5e6f7a8b9`，不能只替换旧迁移文件。升级前备份数据库与照片，并停止所有写入实例；
+在后端运行目录中，使用应用同一个 Python 环境及 `DATABASE_URL` 执行：
+
+```bash
+python -m alembic upgrade head
+```
+
+本地应使用项目 `backend/.venv` 的 Python；容器使用镜像内 Python。LWA 的启动命令
+如果已经包含 `alembic upgrade head`，发布新代码后会运行这条迁移，但仍须按上述要求备份并停止旧实例写入。
+
+迁移会为旧照片表补上 `AUTOINCREMENT`，保留照片行、路径、外键和主图唯一索引，
+并从保留的幂等回执／审计记录恢复已删除照片的 ID 上界，避免照片表为空时从 1 重新分配。
+已有 `AUTOINCREMENT` 的表不会重建，原 `sqlite_sequence` 不会降低；PostgreSQL 不改表。
+照片文件不被迁移移动或删除。迁移用于阻止后续 ID 复用，不会自动恢复此前已经误删的照片。
+
+升级后应确认 `alembic_version` 已到新 head，且 SQLite 的 `shelf_photos` 建表 SQL 含
+`AUTOINCREMENT`。存量库回归见 [test_bug302_existing_database_migration.py](../backend/tests/test_bug302_existing_database_migration.py)。
 
 ---
 

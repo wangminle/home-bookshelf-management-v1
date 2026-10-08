@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import {
   StorageApiError,
   newIdempotencyKey,
@@ -29,6 +29,16 @@ const target = ref<PlacementTargetInput | null>(null)
 const keepLegacy = ref<boolean | null>(null)
 const busy = ref(false)
 const errorText = ref('')
+
+/**
+ * 模式切换时重置两个分支的隐藏状态：选择器因 v-if 重挂载显示为空，
+ * 若父级 target 保留旧值，保存会把副本移动到界面上未选中的旧位置；
+ * 清除分支的 keepLegacy 同理重置，避免残留上次选择。
+ */
+watch(mode, () => {
+  target.value = null
+  keepLegacy.value = null
+})
 
 async function submit() {
   if (busy.value) return

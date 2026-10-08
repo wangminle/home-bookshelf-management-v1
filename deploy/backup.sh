@@ -74,8 +74,9 @@ ARCHIVE_OK=0
 TAR_TARGETS=()
 [[ -d "${DATA_DIR}/covers" ]] && TAR_TARGETS+=(covers)
 [[ -d "${DATA_DIR}/attachments" ]] && TAR_TARGETS+=(attachments)
+[[ -d "${DATA_DIR}/shelf_photos" ]] && TAR_TARGETS+=(shelf_photos)
 if [[ ${#TAR_TARGETS[@]} -eq 0 ]]; then
-  echo "警告：${DATA_DIR} 下无 covers/attachments 目录，跳过附件包" >&2
+  echo "警告：${DATA_DIR} 下无 covers/attachments/shelf_photos 目录，跳过附件包" >&2
   ARCHIVE="(跳过)"
 else
   if tar -czf "${ARCHIVE}" -C "${DATA_DIR}" \

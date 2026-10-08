@@ -3,8 +3,9 @@ import { computed, ref } from 'vue'
 import { useMembersStore } from '@/stores/members'
 import {
   StorageApiError,
-  newIdempotencyKey,
+  forgetProvisionIdempotencyKey,
   provisionCopies,
+  reuseProvisionIdempotencyKey,
 } from '@/stores/storage'
 import type { PlacementTargetInput } from '@/stores/storage'
 import PlacementTargetPicker from '@/components/PlacementTargetPicker.vue'
@@ -33,18 +34,25 @@ async function submit() {
   if (busy.value || !canSubmit.value) return
   errorText.value = ''
   busy.value = true
+  const items = [{
+    book_id: props.bookId,
+    new_copies: {
+      count: Math.floor(count.value),
+      owner_member_id: Number(ownerMemberId.value),
+      target: target.value!,
+    },
+  }]
   try {
     const result = await provisionCopies({
-      idempotency_key: newIdempotencyKey(),
-      items: [{
-        book_id: props.bookId,
-        new_copies: {
-          count: Math.floor(count.value),
-          owner_member_id: Number(ownerMemberId.value),
-          target: target.value!,
-        },
-      }],
+      idempotency_key: reuseProvisionIdempotencyKey(props.bookId, items),
+      items,
     })
+    // 先确认回执再丢键。HTTP 201 但 JSON 截断时 result 不可用，丢掉原键会让
+    // 同载荷重试变成新的补录（BUG-299）。
+    if (typeof result?.created !== 'number') {
+      throw new Error('补录回执无法确认，请重试同一操作（不会另建副本）')
+    }
+    forgetProvisionIdempotencyKey(props.bookId, items)
     emit('saved', result.created)
   } catch (e) {
     if (e instanceof StorageApiError && e.code === 'PLACEMENT_CHANGED') {

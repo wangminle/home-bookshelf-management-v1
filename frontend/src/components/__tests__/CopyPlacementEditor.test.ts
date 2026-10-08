@@ -79,4 +79,15 @@ describe('CopyPlacementEditor：BUG-298 位置版本', () => {
     expect(wrapper.emitted('conflict')).toHaveLength(1)
     expect(wrapper.emitted('saved')).toBeUndefined()
   })
+
+  it('模式切换清空隐藏目标：选目标→切清除→切回设置后不得提交旧目标', async () => {
+    const wrapper = mountEditor({ placement_version: 2 })
+    await wrapper.get('[data-target]').trigger('click') // 选择 shelf 9 / cell 10
+    await wrapper.get('[data-field="mode-clear"]').setValue() // 切到清除（picker 卸载）
+    await wrapper.get('[data-field="mode-set"]').setValue() // 切回设置（picker 重挂载为空）
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(fetch).not.toHaveBeenCalled() // target 已被 watch 清空，阻止提交
+    expect(wrapper.get('[role="alert"]').text()).toContain('请先选择目标书架')
+  })
 })

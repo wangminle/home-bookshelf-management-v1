@@ -56,13 +56,14 @@ function cellCopiesPage(cellId: number) {
   return { cell_id: cellId, shelf_id: 11, location_display: '书房 · A 号书架', items, total: CELL_TOTALS[cellId] ?? 0 }
 }
 
-type FetchHandler = (url: string, options?: RequestInit) => { status?: number; body: unknown }
+type FetchResult = { status?: number; body: unknown }
+type FetchHandler = (url: string, options?: RequestInit) => FetchResult | Promise<FetchResult>
 
 function stubFetch(handler: FetchHandler) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, options?: RequestInit) => {
-      const result = handler(String(url), options)
+      const result = await handler(String(url), options)
       const status = result.status ?? 200
       return { ok: status >= 200 && status < 300, status, json: async () => result.body }
     }),
@@ -281,5 +282,75 @@ describe('StorageShelfView', () => {
     await wrapper.get('[data-photo-id="10"]').findAll('button').find((b) => b.text() === '设为主图')!.trigger('click')
     await flushPromises()
     expect(wrapper.get('.error-box').text()).toContain('已为你刷新最新数据')
+  })
+
+  it('路由复用组件时 shelfId 变化重新加载，不出现展示与写入对象不一致', async () => {
+    const detail22 = makeDetail({ id: 22, code: 'B01', name: 'B 号书架' })
+    stubFetch((url) => {
+      if (url.includes('/storage/shelves/22')) return { body: { ok: true, data: detail22 } }
+      if (url.includes('/storage/shelves/11')) return { body: { ok: true, data: makeDetail() } }
+      const cellMatch = url.match(/\/storage\/cells\/(\d+)\/copies/)
+      if (cellMatch) return { body: { ok: true, data: cellCopiesPage(Number(cellMatch[1])) } }
+      const photoMatch = url.match(/\/storage\/photos\/(\d+)/)
+      if (photoMatch) return { body: { ok: true, data: makePhoto(Number(photoMatch[1])) } }
+      throw new Error(`未预期的请求: ${url}`)
+    })
+    const wrapper = await mountView()
+    expect(wrapper.text()).toContain('A 号书架')
+
+    await wrapper.setProps({ shelfId: 22, cell: null })
+    await flushPromises()
+    expect(wrapper.text()).toContain('B 号书架')
+    expect(wrapper.text()).not.toContain('A 号书架')
+  })
+
+  it('快速切换格子时晚到的旧清单响应不覆盖当前格子', async () => {
+    let cell31Resolve!: (value: { status?: number; body: unknown }) => void
+    const cell31Pending = new Promise<{ status?: number; body: unknown }>((r) => { cell31Resolve = r })
+    stubFetch((url) => {
+      const cellMatch = url.match(/\/storage\/cells\/(\d+)\/copies/)
+      if (cellMatch) {
+        const id = Number(cellMatch[1])
+        // 详情加载用 limit=1 取计数，必须立即返回；只有点开格子的清单（limit=20）挂起
+        if (id === 31 && url.includes('limit=20')) return cell31Pending
+        return { body: { ok: true, data: { ...cellCopiesPage(32), items: [{ copy_id: 95, book_id: 9, book_title: '三十二格书', owner_member_id: null, owner_member_name: null, status: 'in_shelf', format: null, condition: null, location_display: '书房 · A 号书架 · 第 1 层 · 右格' }], total: 1 } } }
+      }
+      if (url.includes('/storage/shelves/11')) return { body: { ok: true, data: makeDetail() } }
+      const photoMatch = url.match(/\/storage\/photos\/(\d+)/)
+      if (photoMatch) return { body: { ok: true, data: makePhoto(Number(photoMatch[1])) } }
+      throw new Error(`未预期的请求: ${url}`)
+    })
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-cell-id="31"]').trigger('click') // A 格请求挂起
+    await wrapper.get('[data-cell-id="32"]').trigger('click') // B 格立即返回
+    await flushPromises()
+    expect(wrapper.text()).toContain('三十二格书')
+
+    cell31Resolve({ body: { ok: true, data: cellCopiesPage(31) } }) // A 格晚到（含「活着」）
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('活着')
+    expect(wrapper.text()).toContain('三十二格书')
+  })
+
+  it('新书架详情加载失败时不保留上一架的可写界面', async () => {
+    stubFetch((url) => {
+      if (url.includes('/storage/shelves/22')) {
+        return { status: 404, body: { detail: { code: 'NOT_FOUND', message: '书架22不可见' } } }
+      }
+      if (url.includes('/storage/shelves/11')) return { body: { ok: true, data: makeDetail() } }
+      const cellMatch = url.match(/\/storage\/cells\/(\d+)\/copies/)
+      if (cellMatch) return { body: { ok: true, data: cellCopiesPage(Number(cellMatch[1])) } }
+      throw new Error(`未预期的请求: ${url}`)
+    })
+    const wrapper = await mountView()
+    expect(wrapper.text()).toContain('A 号书架')
+    expect(wrapper.find('form.upload-form').exists()).toBe(true)
+
+    await wrapper.setProps({ shelfId: 22, cell: null })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('A 号书架')
+    expect(wrapper.find('form.upload-form').exists()).toBe(false)
+    expect(wrapper.text()).toContain('书架22不可见')
   })
 })

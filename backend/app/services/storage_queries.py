@@ -136,7 +136,11 @@ def shelf_stats(db: Session, shelf_id: int) -> dict:
 
 
 def rooms_stats(db: Session, room_ids: list[int]) -> dict[int, dict]:
-    """每房间聚合（两次查询：房间下架、按架聚合副本），不随房间数增长。"""
+    """每房间聚合（不随房间数增长）；books_involved 按房间 DISTINCT 去重。
+
+    各书架的 books_involved 已分别按书架 COUNT(DISTINCT)，同一书目分布在
+    同一房间多个书架时直接相加会重复计数，房间级须整体去重重算。
+    """
     if not room_ids:
         return {}
     shelf_rows = db.execute(
@@ -144,6 +148,13 @@ def rooms_stats(db: Session, room_ids: list[int]) -> dict[int, dict]:
         .where(StorageShelf.room_id.in_(room_ids))
     ).all()
     per_shelf = _placement_stats_by_shelf(db, [sid for sid, _ in shelf_rows])
+    room_books_rows = db.execute(
+        select(StorageShelf.room_id, func.count(func.distinct(BookCopy.book_id)))
+        .join(BookCopy, BookCopy.placement_shelf_id == StorageShelf.id)
+        .where(StorageShelf.room_id.in_(room_ids))
+        .group_by(StorageShelf.room_id)
+    ).all()
+    room_books = {rid: count for rid, count in room_books_rows}
     out: dict[int, dict] = {rid: _zero_stats() for rid in room_ids}
     for sid, rid in shelf_rows:
         stats = per_shelf.get(sid)
@@ -151,7 +162,11 @@ def rooms_stats(db: Session, room_ids: list[int]) -> dict[int, dict]:
             continue
         acc = out[rid]
         for key in acc:
+            if key == "books_involved":
+                continue
             acc[key] += stats[key]
+    for rid in room_ids:
+        out[rid]["books_involved"] = room_books.get(rid, 0)
     return out
 
 

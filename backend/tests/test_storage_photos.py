@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from io import BytesIO
 from pathlib import Path
 
@@ -530,3 +531,146 @@ def test_upload_to_archived_shelf_rejected(client: TestClient) -> None:
     r = _upload(client, shelf["id"], key="arch-p1")
     assert r.status_code == 409
     assert r.json()["detail"]["code"] == "LOCATION_ARCHIVED"
+
+
+# ── 转正恢复与照片 ID 不复用（补充复核缺陷修复回归） ──
+
+
+def _rel_of(db_session: Session, photo_id: int) -> str:
+    return db_session.get(ShelfPhoto, photo_id).relative_path
+
+
+def test_upload_replay_promotes_interrupted_staged(client: TestClient, db_session: Session) -> None:
+    """commit 后、转正前中断：同键重试先补转正原暂存文件，不留不可读照片。"""
+    shelf = _make_shelf(client)
+    r = _upload(client, shelf["id"], key="promo-1", caption="中断转正")
+    assert r.status_code == 201, r.text
+    photo = r.json()["data"]
+    final = settings.data_dir / _rel_of(db_session, photo["id"])
+    assert final.is_file()
+    # 模拟中断窗口：事务已提交、replace 未执行（final 退回 .staged）
+    staged = Path(f"{final}.staged")
+    final.rename(staged)
+
+    r2 = _upload(client, shelf["id"], key="promo-1", caption="中断转正")
+    assert r2.status_code == 201, r2.text
+    assert r2.json()["data"]["id"] == photo["id"]
+    assert final.is_file(), "同键重试应补转正中断的暂存文件"
+    assert not staged.exists()
+
+
+def test_promote_staged_uploads_recovers_and_cleans(client: TestClient, db_session: Session) -> None:
+    """启动恢复：被引用且 final 缺失的 .staged 转正；无引用残留清理；
+    orphan_audit 不把 .staged 当孤儿。"""
+    shelf = _make_shelf(client)
+    r = _upload(client, shelf["id"], key="promo-2")
+    assert r.status_code == 201
+    photo_id = r.json()["data"]["id"]
+    final = settings.data_dir / _rel_of(db_session, photo_id)
+    staged = Path(f"{final}.staged")
+    final.rename(staged)
+    # 无引用且已超过宽限的残留暂存（事务失败/崩溃遗留）才清理。
+    # 新鲜无引用暂存可能是其他实例尚未提交的上传，不得立刻删（BUG-301）。
+    orphan_staged = settings.shelf_photos_dir / str(shelf["id"]) / "deadbeef.jpg.staged"
+    orphan_staged.write_bytes(b"x")
+    stale = time.time() - storage_photos.STAGED_ORPHAN_GRACE_SECONDS - 60
+    os.utime(orphan_staged, (stale, stale))
+
+    summary = storage_photos.promote_staged_uploads(db_session)
+
+    assert summary["promoted"] == 1
+    assert summary["removed"] == 1
+    assert final.is_file()
+    assert not staged.exists() and not orphan_staged.exists()
+    assert client.get(f"/api/v1/storage/photos/{photo_id}/content").status_code == 200
+
+    staged.write_bytes(b"y")
+    orphans = storage_photos.orphan_audit(db_session)
+    assert all(not item["relative_path"].endswith(".staged") for item in orphans)
+
+
+def test_upload_replay_content_truly_missing_keeps_receipt(client: TestClient, db_session: Session) -> None:
+    """final 与 .staged 均缺失（文件真丢）：重试仍返回原回执且不崩溃。"""
+    shelf = _make_shelf(client)
+    r = _upload(client, shelf["id"], key="promo-3")
+    assert r.status_code == 201
+    photo_id = r.json()["data"]["id"]
+    (settings.data_dir / _rel_of(db_session, photo_id)).unlink()
+
+    r2 = _upload(client, shelf["id"], key="promo-3")
+    assert r2.status_code == 201
+    assert r2.json()["data"]["id"] == photo_id
+
+
+def test_photo_id_not_reused_after_delete(client: TestClient, db_session: Session) -> None:
+    """SQLite 默认 rowid 复用已删最大 ID 且新照片 version 重置为 1：迟到的
+    旧删除请求可误删新照片。AUTOINCREMENT 后 ID 单调不复用，旧请求只落 404。"""
+    shelf = _make_shelf(client)
+    r1 = _upload(client, shelf["id"], key="reuse-1")
+    assert r1.status_code == 201
+    old_id = r1.json()["data"]["id"]
+    old_version = r1.json()["data"]["version"]
+    rd = client.delete(f"/api/v1/storage/photos/{old_id}",
+                       params={"version": old_version, "idempotency_key": "reuse-del"})
+    assert rd.status_code == 200
+
+    r2 = _upload(client, shelf["id"], key="reuse-2")
+    assert r2.status_code == 201
+    new_id = r2.json()["data"]["id"]
+    assert new_id != old_id, "新照片不得复用已删除照片的 ID"
+
+    # 迟到的旧删除请求（旧 ID、version=1）：不得影响新照片
+    rlate = client.delete(f"/api/v1/storage/photos/{old_id}",
+                          params={"version": 1, "idempotency_key": "reuse-del-late"})
+    assert rlate.status_code == 404
+    photos = client.get(f"/api/v1/storage/shelves/{shelf['id']}").json()["data"]["photos"]
+    assert [p["id"] for p in photos] == [new_id]
+
+
+def test_promote_keeps_fresh_unreferenced_staged(client: TestClient, db_session: Session) -> None:
+    """尚无照片引用的新鲜暂存是其他实例可能尚未提交的上传，启动恢复不得删除。"""
+    shelf = _make_shelf(client)
+    fresh = settings.shelf_photos_dir / str(shelf["id"]) / "inflight.jpg.staged"
+    fresh.parent.mkdir(parents=True, exist_ok=True)
+    fresh.write_bytes(b"still-uploading")
+
+    summary = storage_photos.promote_staged_uploads(db_session)
+
+    assert fresh.is_file()
+    assert summary["kept"] == 1
+    assert summary["removed"] == 0
+
+
+def test_concurrent_promote_same_staged_both_succeed(db_session: Session, monkeypatch) -> None:
+    """两个同键恢复同时转正：后到的 replace 失败后重验 final，两边都算成功，不抛异常。"""
+    rel = "shelf_photos/9/race.jpg"
+    final = settings.data_dir / rel
+    final.parent.mkdir(parents=True, exist_ok=True)
+    staged = Path(f"{final}.staged")
+    staged.write_bytes(b"jpeg-bytes")
+    barrier = threading.Barrier(2)
+    original_is_file = Path.is_file
+
+    def staged_is_file(path: Path) -> bool:
+        result = original_is_file(path)
+        if path == staged and result:
+            barrier.wait(timeout=5)
+        return result
+
+    monkeypatch.setattr(Path, "is_file", staged_is_file)
+    outcomes: list[object] = []
+
+    def run() -> None:
+        try:
+            outcomes.append(storage_photos._promote_staged(rel))
+        except Exception as exc:  # noqa: BLE001 — 测试要捕获意外抛出
+            outcomes.append(exc)
+
+    threads = [threading.Thread(target=run) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+    assert outcomes == [True, True]
+    assert final.is_file()
+    assert not staged.exists()

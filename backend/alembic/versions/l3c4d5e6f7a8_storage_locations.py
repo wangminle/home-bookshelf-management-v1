@@ -87,6 +87,9 @@ def upgrade() -> None:
     op.create_index("ix_shelf_cells_layer_id", "shelf_cells", ["layer_id"])
     op.create_table(
         "shelf_photos",
+        # 照片有物理删除：SQLite 默认 rowid 复用会让新照片拿到已删除最大 ID，
+        # 携带旧版本号的迟到的删除请求即可误删新照片（version 也重置为 1）；
+        # AUTOINCREMENT 保证 ID 单调不复用（PostgreSQL 序列本身不复用，忽略该参数）。
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("shelf_id", sa.Integer(), sa.ForeignKey("storage_shelves.id"), nullable=False),
         sa.Column("relative_path", sa.String(500), nullable=False),
@@ -98,6 +101,7 @@ def upgrade() -> None:
         sa.Column("version", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=_TS),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=_TS),
+        sqlite_autoincrement=True,
     )
     op.create_index("ix_shelf_photos_shelf_id", "shelf_photos", ["shelf_id"])
     op.create_index(

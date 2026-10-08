@@ -113,6 +113,9 @@ class ShelfPhoto(Base, TimestampUpdateMixin):
             sqlite_where=text("is_primary = 1"),
             postgresql_where=text("is_primary"),
         ),
+        # 照片有物理删除：AUTOINCREMENT 防止 SQLite 复用已删除最大 ID，
+        # 否则迟到的旧删除请求可凭 (复用ID, 重置version) 误删新照片
+        {"sqlite_autoincrement": True},
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

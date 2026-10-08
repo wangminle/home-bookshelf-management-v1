@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import StorageView from '../StorageView.vue'
+import StorageRoomForm from '@/components/StorageRoomForm.vue'
 import { sessionRole } from '@/stores/session'
 import { lastError } from '@/stores/api'
 
@@ -67,13 +68,14 @@ function makeShelfDetail(over: Record<string, unknown> = {}) {
   }
 }
 
-type FetchHandler = (url: string, options?: RequestInit) => { status?: number; body: unknown }
+type FetchResult = { status?: number; body: unknown }
+type FetchHandler = (url: string, options?: RequestInit) => FetchResult | Promise<FetchResult>
 
 function stubFetch(handler: FetchHandler) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, options?: RequestInit) => {
-      const result = handler(String(url), options)
+      const result = await handler(String(url), options)
       const status = result.status ?? 200
       return {
         ok: status >= 200 && status < 300,
@@ -430,5 +432,132 @@ describe('StorageView', () => {
     expect(wrapper.text()).toContain('没有匹配')
     await wrapper.get('#storage-keyword').setValue('A 号书架')
     expect(wrapper.text()).toContain('A 号书架')
+  })
+
+  it('PLACEMENT_CHANGED 刷新后回填仍打开的编辑表单，重试提交最新版本', async () => {
+    let roomVersion = 3
+    const patches: Array<Record<string, unknown>> = []
+    stubFetch((url, options) => {
+      if (url.includes('/storage/rooms') && options?.method === 'PATCH') {
+        patches.push(JSON.parse(String(options.body)))
+        if (roomVersion === 3) {
+          roomVersion = 4 // 服务器侧已被并发推进；本次期望版本失效
+          return { status: 409, body: { ok: false, detail: { code: 'PLACEMENT_CHANGED', message: '版本冲突' } } }
+        }
+        return { body: { ok: true, data: makeRoom({ version: 4 }) } }
+      }
+      if (url.includes('/storage/rooms')) {
+        return { body: { ok: true, data: { items: [makeRoom({ version: roomVersion })], total: 1 } } }
+      }
+      if (url.includes('/storage/shelves?')) return { body: { ok: true, data: { items: [makeShelf()], total: 1 } } }
+      if (url.includes('/storage/shelves/11')) return { body: { ok: true, data: makeShelfDetail() } }
+      throw new Error(`未预期的请求: ${url}`)
+    })
+    const wrapper = mount(StorageView, mountOpts)
+    await flushPromises()
+    await wrapper.get('[data-room="1"]').get('button.btn').trigger('click') // 编辑房间（打开 roomForm，version 3）
+    expect(wrapper.findComponent(StorageRoomForm).exists()).toBe(true)
+
+    await wrapper.findComponent(StorageRoomForm).vm.$emit('save', {
+      code: 'study', name: '书房改', description: null, sort_order: 0,
+    })
+    await flushPromises()
+    expect(patches[0]!['version']).toBe(3) // 第一次用旧版本 → 409
+    expect(lastError.value).toContain('已为你刷新最新数据')
+    // 刷新后表单仍打开但已回填 version 4 的最新对象
+    expect(wrapper.findComponent(StorageRoomForm).exists()).toBe(true)
+
+    await wrapper.findComponent(StorageRoomForm).vm.$emit('save', {
+      code: 'study', name: '书房改', description: null, sort_order: 0,
+    })
+    await flushPromises()
+    expect(patches[1]!['version']).toBe(4) // 修复前仍为 3，持续 409
+  })
+
+  it('409 刷新未完成时不恢复编辑，晚到回填不覆盖新草稿', async () => {
+    let releaseRooms!: (value: { status?: number; body: unknown }) => void
+    const roomsPending = new Promise<{ status?: number; body: unknown }>((resolve) => {
+      releaseRooms = resolve
+    })
+    let patchCount = 0
+    stubFetch((url, options) => {
+      if (url.includes('/storage/rooms') && options?.method === 'PATCH') {
+        patchCount += 1
+        return { status: 409, body: { ok: false, detail: { code: 'PLACEMENT_CHANGED', message: '版本冲突' } } }
+      }
+      if (url.includes('/storage/rooms') && patchCount > 0) return roomsPending
+      if (url.includes('/storage/rooms')) return { body: { ok: true, data: { items: [makeRoom({ name: '服务端名称', version: 4 })], total: 1 } } }
+      if (url.includes('/storage/shelves?')) return { body: { ok: true, data: { items: [makeShelf()], total: 1 } } }
+      if (url.includes('/storage/shelves/11')) return { body: { ok: true, data: makeShelfDetail() } }
+      throw new Error(`未预期的请求: ${url}`)
+    })
+    const wrapper = mount(StorageView, mountOpts)
+    await flushPromises()
+    await wrapper.get('[data-room="1"]').get('button.btn').trigger('click')
+    await wrapper.get('[data-field="name"]').setValue('提交前的名字')
+    const pending = wrapper.get('form.storage-form').trigger('submit')
+    await flushPromises()
+
+    expect(lastError.value).toContain('正在刷新')
+    expect(lastError.value).not.toContain('已为你刷新')
+    const nameInput = wrapper.get('[data-field="name"]').element as HTMLInputElement
+    expect(nameInput.disabled).toBe(true)
+    expect(wrapper.get('form.storage-form button[type="submit"]').attributes('disabled')).toBeDefined()
+
+    releaseRooms({ body: { ok: true, data: { items: [makeRoom({ name: '服务端名称', version: 4 })], total: 1 } } })
+    await pending
+    await flushPromises()
+
+    expect(lastError.value).toContain('已为你刷新最新数据')
+    // 刷新只更新版本，不把用户已输入的名称盖成服务端名称
+    expect((wrapper.get('[data-field="name"]').element as HTMLInputElement).value).toBe('提交前的名字')
+  })
+
+  it('409 后刷新失败不宣告已刷新，且不能用旧版本再保存', async () => {
+    let roomGets = 0
+    const patches: Array<Record<string, unknown>> = []
+    stubFetch((url, options) => {
+      if (url.includes('/storage/rooms') && options?.method === 'PATCH') {
+        patches.push(JSON.parse(String(options.body)))
+        return { status: 409, body: { ok: false, detail: { code: 'PLACEMENT_CHANGED', message: '版本冲突' } } }
+      }
+      if (url.includes('/storage/rooms')) {
+        roomGets += 1
+        if (roomGets === 1) return { body: { ok: true, data: { items: [makeRoom({ version: 1 })], total: 1 } } }
+        if (roomGets === 2) throw new TypeError('network down')
+        return { body: { ok: true, data: { items: [makeRoom({ version: 4 })], total: 1 } } }
+      }
+      if (url.includes('/storage/shelves?')) return { body: { ok: true, data: { items: [makeShelf()], total: 1 } } }
+      if (url.includes('/storage/shelves/11')) return { body: { ok: true, data: makeShelfDetail() } }
+      throw new Error(`未预期的请求: ${url}`)
+    })
+    const wrapper = mount(StorageView, mountOpts)
+    await flushPromises()
+    await wrapper.get('[data-room="1"]').get('button.btn').trigger('click')
+    await wrapper.findComponent(StorageRoomForm).vm.$emit('save', {
+      code: 'study', name: '书房改', description: null, sort_order: 0,
+    })
+    await flushPromises()
+
+    expect(patches).toHaveLength(1)
+    expect(patches[0]!['version']).toBe(1)
+    expect(lastError.value).toContain('刷新最新数据失败')
+    expect(lastError.value).not.toContain('已为你刷新')
+    expect(wrapper.get('form.storage-form button[type="submit"]').attributes('disabled')).toBeDefined()
+
+    await wrapper.findComponent(StorageRoomForm).vm.$emit('save', {
+      code: 'study', name: '书房改', description: null, sort_order: 0,
+    })
+    await flushPromises()
+    expect(patches).toHaveLength(1)
+
+    await wrapper.get('[data-field="reload-conflict"]').trigger('click')
+    await flushPromises()
+    expect(lastError.value).toContain('已为你刷新最新数据')
+    await wrapper.findComponent(StorageRoomForm).vm.$emit('save', {
+      code: 'study', name: '书房改', description: null, sort_order: 0,
+    })
+    await flushPromises()
+    expect(patches[1]!['version']).toBe(4)
   })
 })

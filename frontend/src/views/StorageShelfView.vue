@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { sessionRole } from '@/stores/session'
 import { copyStatusLabel } from '@/types/models'
 import {
@@ -63,17 +63,23 @@ const highlightCellId = computed(() => props.cell)
 
 const gridEl = ref<HTMLElement | null>(null)
 
+/** 格子副本清单请求代际：快速切换格子时丢弃晚到的旧响应 */
+let copiesReqId = 0
+
 async function loadCopies(cellId: number, offset: number) {
+  const reqId = ++copiesReqId
   copiesLoading.value = true
   try {
     const page = await listCellCopies(cellId, COPIES_PAGE_SIZE, offset)
+    if (reqId !== copiesReqId) return
     cellCopies.value = page.items
     cellCopiesTotal.value = page.total
     copiesOffset.value = offset
   } catch (e) {
+    if (reqId !== copiesReqId) return
     handleError(e)
   } finally {
-    copiesLoading.value = false
+    if (reqId === copiesReqId) copiesLoading.value = false
   }
 }
 
@@ -82,11 +88,17 @@ async function selectCell(cellId: number) {
   await loadCopies(cellId, 0)
 }
 
+/** 详情加载代际：路由切换重载时丢弃晚到的旧书架响应 */
+let loadReqId = 0
+
 async function load() {
+  const reqId = ++loadReqId
   loading.value = true
   errorText.value = ''
   try {
-    detail.value = await getShelf(props.shelfId)
+    const fetched = await getShelf(props.shelfId)
+    if (reqId !== loadReqId) return
+    detail.value = fetched
     // 每格副本计数：清单端点无聚合字段，家庭规模下并行取 total（limit=1 只取计数）
     const entries = await Promise.all(
       allCellIds.value.map(async (id) => {
@@ -94,6 +106,7 @@ async function load() {
         return [id, page.total] as const
       }),
     )
+    if (reqId !== loadReqId) return
     cellCounts.value = Object.fromEntries(entries)
     // 高亮定位：query cell 必须对应该书架的实际格子 ID，不凭空高亮
     if (props.cell !== null && allCellIds.value.includes(props.cell)) {
@@ -106,11 +119,32 @@ async function load() {
         ?.scrollIntoView?.({ block: 'center' })
     }
   } catch (e) {
+    if (reqId !== loadReqId) return
     handleError(e)
   } finally {
-    loading.value = false
+    if (reqId === loadReqId) loading.value = false
   }
 }
+
+// 路由复用本组件（/storage/shelves/11 → /storage/shelves/22 或 ?cell= 变化）时，
+// 仅 onMounted 不会再次加载：展示仍是旧书架而上传等写操作已用新 shelfId，
+// 造成展示对象与写入对象不一致。参数变化即清空旧选择状态并整体重载。
+watch(
+  () => [props.shelfId, props.cell] as const,
+  (next, prev) => {
+    selectedCellId.value = null
+    cellCopies.value = []
+    cellCopiesTotal.value = 0
+    copiesOffset.value = 0
+    // 换书架时先丢掉上一架的详情。加载失败不能继续展示旧架的可写界面，
+    // 否则上传会发到新 shelfId，页面上看到的仍是旧架（BUG-306）。
+    if (!prev || next[0] !== prev[0]) {
+      detail.value = null
+      cellCounts.value = {}
+    }
+    load()
+  },
+)
 
 // ── 照片管理（Owner 写；Member 只读看图） ──
 
@@ -133,7 +167,9 @@ function onFileChange(e: Event) {
 
 async function submitUpload() {
   const file = uploadFile.value
-  if (!file || uploadBusy.value) return
+  // 只写已成功加载且与当前路由一致的书架，避免详情失败后仍对 props.shelfId 发上传。
+  const shelfId = detail.value?.id
+  if (!file || uploadBusy.value || shelfId == null || shelfId !== props.shelfId) return
   errorText.value = ''
   if (!PHOTO_TYPES.includes(file.type)) {
     errorText.value = '仅支持 JPEG、PNG、WebP 图片'
@@ -145,7 +181,7 @@ async function submitUpload() {
   }
   uploadBusy.value = true
   try {
-    await uploadShelfPhoto(props.shelfId, file, {
+    await uploadShelfPhoto(shelfId, file, {
       caption: uploadCaption.value.trim() || undefined,
       idempotency_key: uploadKey,
     })

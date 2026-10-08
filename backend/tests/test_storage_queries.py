@@ -295,3 +295,29 @@ def test_cell_copies_statement_count_independent_of_rows(client: TestClient, db_
     grown = _count_statements(
         db_engine, lambda: client.get(f"/api/v1/storage/cells/{cell['id']}/copies"))
     assert grown == baseline, f"语句数随行数增长: {baseline} → {grown}"
+
+
+def test_rooms_stats_books_involved_distinct_across_shelves(client: TestClient, db_session: Session) -> None:
+    """同一书目的副本分布同一房间的多个书架：房间级涉及书目数须按房间
+    DISTINCT 去重为 1，不能把各书架已去重的值相加成 2；副本数量仍可相加。"""
+    room = _create_room(client, key="rs-room", code="DR")
+    shelf_a = _create_shelf(client, room["id"], key="rs-a", code="DA",
+                            layers=[{"label": "第 1 层", "cells": [{"label": "左格"}]}])
+    shelf_b = _create_shelf(client, room["id"], key="rs-b", code="DB",
+                            layers=[{"label": "第 1 层", "cells": [{"label": "右格"}]}])
+    book = _book(db_session, "跨架书")
+    _copy(db_session, book.id, shelf_id=shelf_a["id"],
+          cell_id=shelf_a["layers"][0]["cells"][0]["id"])
+    _copy(db_session, book.id, shelf_id=shelf_b["id"],
+          cell_id=shelf_b["layers"][0]["cells"][0]["id"])
+    db_session.commit()
+
+    r = client.get("/api/v1/storage/rooms")
+    item = next(i for i in r.json()["data"]["items"] if i["id"] == room["id"])
+    stats = item["stats"]
+    assert stats["books_involved"] == 1   # 修复前误为 2
+    assert stats["assigned_copies"] == 2  # 副本数按架相加不受影响
+
+    for shelf in (shelf_a, shelf_b):
+        per = client.get(f"/api/v1/storage/shelves/{shelf['id']}").json()["data"]["stats"]
+        assert per["books_involved"] == 1 and per["assigned_copies"] == 1

@@ -32,6 +32,8 @@ import type {
 
 const loading = ref(true)
 const busy = ref(false)
+/** 409 后刷新失败：保持表单锁定，禁止用旧版本再提交，直到重新加载成功（BUG-305）。 */
+const conflictHold = ref(false)
 const notice = ref('')
 const rooms = ref<StorageRoomWithStats[]>([])
 const shelvesByRoom = ref<Record<number, StorageShelf[]>>({})
@@ -91,7 +93,7 @@ function primaryPhotoUrl(shelfId: number): string | null {
   return primary ? shelfPhotoUrl(primary.id) : null
 }
 
-async function loadAll() {
+async function loadAll(options?: { reportError?: boolean }): Promise<boolean> {
   loading.value = true
   try {
     const roomPage = await listRooms(includeArchived.value)
@@ -110,21 +112,72 @@ async function loadAll() {
       allShelves.map(async (shelf) => [shelf.id, await getShelf(shelf.id)] as const),
     )
     shelfDetails.value = Object.fromEntries(detailEntries)
+    return true
   } catch (e) {
-    handleError(e)
+    if (options?.reportError !== false) await handleError(e)
+    return false
   } finally {
     loading.value = false
   }
 }
 
-function handleError(e: unknown) {
+function releaseBusyUnlessHeld() {
+  if (!conflictHold.value) busy.value = false
+}
+
+async function handleError(e: unknown) {
   if (e instanceof StorageApiError && e.code === 'PLACEMENT_CHANGED') {
-    // 409 期望版本失效：提示刷新并自动重载最新数据（§7.3 版本冲突不自动重试写操作）
+    // 409 期望版本失效：先等刷新完成再恢复编辑（BUG-305）。
+    // 刷新失败不得宣称「已刷新」，也不得用旧版本继续保存。
+    lastError.value = '数据已被其他操作修改，正在刷新最新数据，请稍候再核对'
+    const refreshed = await loadAll({ reportError: false })
+    if (!refreshed) {
+      conflictHold.value = true
+      lastError.value = '刷新最新数据失败，尚未核对版本。请重新加载后再保存，不要用旧版本继续提交。'
+      return
+    }
+    syncOpenForms()
+    conflictHold.value = false
     lastError.value = '数据已被其他操作修改，已为你刷新最新数据，请核对后重试'
-    loadAll()
     return
   }
   lastError.value = e instanceof Error ? e.message : '操作失败'
+}
+
+async function retryConflictRefresh() {
+  if (!conflictHold.value) return
+  const refreshed = await loadAll({ reportError: false })
+  if (!refreshed) {
+    lastError.value = '刷新最新数据失败，尚未核对版本。请重新加载后再保存，不要用旧版本继续提交。'
+    return
+  }
+  syncOpenForms()
+  conflictHold.value = false
+  busy.value = false
+  lastError.value = '数据已被其他操作修改，已为你刷新最新数据，请核对后重试'
+}
+
+/**
+ * 冲突刷新后同步仍打开的编辑表单：roomForm/shelfForm 持有的旧对象若不回填，
+ * 按提示重试仍会提交旧版本持续 409；数据已消失（如被归档且当前过滤不含）则
+ * 关闭表单，要求重新打开核对。
+ */
+function syncOpenForms() {
+  if (roomForm.value?.room) {
+    const roomId = roomForm.value.room.id
+    roomForm.value.room = rooms.value.find((r) => r.id === roomId) ?? null
+    if (roomForm.value.room === null) roomForm.value = null
+  }
+  if (shelfForm.value?.shelf) {
+    const shelfId = shelfForm.value.shelf.id
+    const updated = shelvesByRoom.value[shelfForm.value.roomId]
+      ?.find((s) => s.id === shelfId)
+    if (!updated) {
+      shelfForm.value = null
+    } else {
+      shelfForm.value = { ...shelfForm.value, shelf: updated }
+    }
+  }
 }
 
 function toggleArchivedFilter() {
@@ -141,7 +194,7 @@ function onLayoutSaved() {
 // ── 房间建档/编辑 ──
 
 async function submitRoomForm(payload: { code: string; name: string; description: string | null; sort_order: number }) {
-  if (!roomForm.value) return
+  if (!roomForm.value || conflictHold.value) return
   busy.value = true
   try {
     if (roomForm.value.room) {
@@ -155,9 +208,9 @@ async function submitRoomForm(payload: { code: string; name: string; description
     roomForm.value = null
     await loadAll()
   } catch (e) {
-    handleError(e)
+    await handleError(e)
   } finally {
-    busy.value = false
+    releaseBusyUnlessHeld()
   }
 }
 
@@ -170,7 +223,7 @@ async function submitShelfForm(payload: {
   sort_order: number
   layers?: { label?: string; cells?: { label?: string }[] }[]
 }) {
-  if (!shelfForm.value) return
+  if (!shelfForm.value || conflictHold.value) return
   busy.value = true
   try {
     if (shelfForm.value.shelf) {
@@ -189,9 +242,9 @@ async function submitShelfForm(payload: {
     shelfForm.value = null
     await loadAll()
   } catch (e) {
-    handleError(e)
+    await handleError(e)
   } finally {
-    busy.value = false
+    releaseBusyUnlessHeld()
   }
 }
 
@@ -213,9 +266,9 @@ async function toggleRoomArchived(room: StorageRoomWithStats) {
     notice.value = archiving ? `房间「${room.name}」已归档` : `房间「${room.name}」已恢复`
     await loadAll()
   } catch (e) {
-    handleError(e)
+    await handleError(e)
   } finally {
-    busy.value = false
+    releaseBusyUnlessHeld()
   }
 }
 
@@ -235,9 +288,9 @@ async function toggleShelfArchived(shelf: StorageShelf) {
     notice.value = archiving ? `书架「${shelf.name}」已归档` : `书架「${shelf.name}」已恢复`
     await loadAll()
   } catch (e) {
-    handleError(e)
+    await handleError(e)
   } finally {
-    busy.value = false
+    releaseBusyUnlessHeld()
   }
 }
 
@@ -298,6 +351,9 @@ onMounted(loadAll)
       @saved="onLayoutSaved"
     />
 
+    <p v-if="conflictHold" class="notice">
+      <button type="button" class="btn" data-field="reload-conflict" @click="retryConflictRefresh">重新加载</button>
+    </p>
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     <div v-if="loading" class="muted">加载中…</div>
 

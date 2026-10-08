@@ -35,7 +35,9 @@ const cellCounts = ref<number[]>([1])
 
 watch(
   () => props.shelf,
-  (shelf) => {
+  (shelf, prev) => {
+    // 同一书架的冲突刷新只更新版本，不覆盖编辑中的草稿（BUG-305）。
+    if (shelf && prev && prev.id === shelf.id) return
     code.value = shelf?.code ?? ''
     name.value = shelf?.name ?? ''
     positionNote.value = shelf?.position_note ?? ''
@@ -85,25 +87,25 @@ function submit() {
     <h3>{{ shelf ? `编辑书架「${shelf.name}」` : `在「${roomName}」新建书架` }}</h3>
     <label>
       编号（家庭内唯一，如 A01；建档后保留）
-      <input v-model="code" type="text" required maxlength="50" placeholder="如 A01" data-field="code" />
+      <input v-model="code" type="text" required maxlength="50" placeholder="如 A01" data-field="code" :disabled="busy" />
     </label>
     <label>
       名称
-      <input v-model="name" type="text" required maxlength="100" placeholder="如 A 号书架" data-field="name" />
+      <input v-model="name" type="text" required maxlength="100" placeholder="如 A 号书架" data-field="name" :disabled="busy" />
     </label>
     <label>
       方位说明（可选）
-      <input v-model="positionNote" type="text" maxlength="200" placeholder="如 靠窗右侧" data-field="position_note" />
+      <input v-model="positionNote" type="text" maxlength="200" placeholder="如 靠窗右侧" data-field="position_note" :disabled="busy" />
     </label>
     <label>
       排序（小的在前）
-      <input v-model.number="sortOrder" type="number" data-field="sort_order" />
+      <input v-model.number="sortOrder" type="number" data-field="sort_order" :disabled="busy" />
     </label>
 
     <template v-if="!shelf">
       <label>
         层数
-        <input v-model.number="layerCount" type="number" min="1" max="20" data-field="layer_count" />
+        <input v-model.number="layerCount" type="number" min="1" max="20" data-field="layer_count" :disabled="busy" />
       </label>
       <fieldset class="layer-cells">
         <legend>每层格数（允许每层不同）</legend>

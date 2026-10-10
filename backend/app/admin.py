@@ -46,14 +46,22 @@ def cmd_owner_reset_password() -> None:
         if not agent_access.has_owner_password(db):
             print("Owner 密码尚未设置。请使用 owner-init-password。", file=sys.stderr)
             sys.exit(1)
-        print("⚠️  即将重置 Owner 密码，所有已登录 Web 会话不会自动失效。")
+        print("⚠️  即将重置 Owner 密码；重置后该 Owner 的全部 Web 会话与 Agent Token 将被吊销。")
         confirm = input("确认重置？输入 yes 继续: ")
         if confirm.strip().lower() != "yes":
             print("已取消。")
             return
         pw = _read_password()
         agent_access.set_owner_password(db, pw)
+        # BUG-313：与 Web 端重置密码（BUG-222）口径一致——CLI 重置同样吊销
+        # 会话与 Agent Token，防止旧凭据在改密后继续生效
+        owner = agent_access.get_owner_member(db)
+        revoked_sessions = revoked_tokens = 0
+        if owner is not None:
+            revoked_sessions = agent_access.revoke_member_sessions(db, owner.id)
+            revoked_tokens = agent_access.revoke_member_agent_tokens(db, owner.id)
         print("✅ Owner 密码已重置。")
+        print(f"   已吊销该 Owner 的 Web 会话 {revoked_sessions} 个、Agent Token {revoked_tokens} 个。")
 
 
 def cmd_owner_status() -> None:

@@ -65,9 +65,9 @@ Thumbs.db
 .vscode/
 .zcode/
 
-# AI 工具工作区：会话级任务同步的 Stop hook 为项目机制（见 CLAUDE.md），
-# settings.json 与 hooks/ 入库；本地个人配置仍忽略。
-.claude/settings.local.json
+# AI 工具工作区：.claude/ 整目录不入库（含 Stop hook settings.json/hooks 与本地个人配置）；
+# hook 为本机机制（见 CLAUDE.md），克隆环境需自行安装（task-list-initialization 技能 install-maintenance --with-hook）。
+.claude/
 
 # Node / 前端
 node_modules/

@@ -208,6 +208,9 @@ def update_member(
         member.role = payload.role
         changed["role"] = payload.role
         agent_access.revoke_member_sessions(db, member.id)
+        # BUG-312：角色变更同时吊销该成员所有 Agent Grant 的 Token——
+        # 只撤 Web 会话时，降权成员仍持旧授权 Token 继续以原 scope 操作
+        agent_access.revoke_member_agent_tokens(db, member.id)
     if payload.disabled is not None:
         if payload.disabled:
             # BUG-222：owner 不能停用自己（自锁保护）
@@ -271,19 +274,9 @@ def reset_member_password(
         raise HTTPException(status_code=400, detail="成员已停用，请先恢复再设置密码")
     agent_access.set_member_password(db, member, payload.password)  # 用户名兜底在服务层统一处理
     revoked = agent_access.revoke_member_sessions(db, member.id)
-    # BUG-222：密码重置同时撤销该成员所有 Agent Grant 的 Token
-    from sqlalchemy import select as sa_select
-    from app.models import AgentGrant
-    from datetime import datetime as dt, timezone as tz
-    _now = dt.now(tz.utc).replace(tzinfo=None)
-    grants = db.scalars(sa_select(AgentGrant).where(
-        AgentGrant.member_id == member.id, AgentGrant.status == "active"
-    )).all()
-    for g in grants:
-        for t in g.tokens:
-            if t.revoked_at is None:
-                t.revoked_at = _now
-    db.commit()
+    # BUG-222：密码重置同时吊销该成员所有 Agent Grant 的 Token
+    #（BUG-312 抽取为 revoke_member_agent_tokens，与角色变更共用）
+    agent_access.revoke_member_agent_tokens(db, member.id)
     log_and_commit(
         db,
         action="member.password_reset",

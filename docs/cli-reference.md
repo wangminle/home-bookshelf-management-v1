@@ -6,7 +6,7 @@
 | --- | --- |
 | `BOOKSHELF_API_URL` | API 根地址，默认 `http://127.0.0.1:8000` |
 | `BOOKSHELF_TOKEN` | Agent Bearer Token，CLI 全部请求（含 find/show/stats 等读命令）自动附带；签发见 `docs/agent-setup.md` |
-| `BOOKSHELF_SETUP_TOKEN` / `SETUP_TOKEN` | CLI 全部请求都会自动透传为 `X-Setup-Token`；主要用于白名单建立后的 `bind` |
+| `BOOKSHELF_SETUP_TOKEN` / `SETUP_TOKEN` | CLI 全部请求都会自动透传为 `X-Setup-Token`；主要用于库中已有成员后的 `bind` |
 | `BOOKSHELF_CHANNEL` | CLI 全部请求都会自动透传为 `X-Channel` |
 | `BOOKSHELF_EXTERNAL_USER_ID` | CLI 全部请求都会自动透传为 `X-External-User-Id` |
 | `BOOKSHELF_CHANNEL_SIGNING_SECRET` | 可选；配置后渠道头自动附带 `X-Channel-Signature`（HMAC-SHA256），与后端 `CHANNEL_SIGNING_SECRET` 配合使用。未设置时回退读取 `CHANNEL_SIGNING_SECRET` |
@@ -125,6 +125,7 @@ bookshelf auth status
   「确定未建立连接」的连接失败/连接超时（DNS、拒连等）才可安全重试
 - `GET /api/v1/health` 已要求认证（`members:read`）：无凭证时 `health`/`doctor` 自动回退 `GET /api/v1/public-health` 验证可达性，并以警告提示诊断细节不可用（数据库状态显示「未知」而非误报异常）。监控脚本请直接打 `public-health`，不要再对 `/health` 期望 200。数据库断开时 `/health` 返回 503 + 诊断体，`doctor` 会正确报告「数据库未连接」并给出处置建议（检查 `DATABASE_URL` / 迁移），不会误诊为 API 不可达
 - `doctor` 会读取 health 响应（无凭证走 `public-health`，持 Token 走 `/health`，两者均携带）的 `frontend_version` / `app_version`，不一致时警告 static 漂移
+- `doctor` 会尝试读取 `GET /api/v1/members` 汇总成员与绑定数：读取失败（无凭证/权限不足 401/403、API 未更新、网络错误）时 `checks.members_total`/`members` 输出 `null`（未知）并附「成员数量未知，不得按空库处理」警告，文本模式显示「成员: 未知」——空库仍是真实的 `0`/`[]`，脚本不得把 `null` 当 0 判定空库
 
 ---
 

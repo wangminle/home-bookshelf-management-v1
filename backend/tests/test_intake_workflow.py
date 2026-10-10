@@ -183,6 +183,22 @@ def test_update_candidate_photo_ids_must_belong_to_item(db_engine):
             wf.update_candidate(s, cand.id, photo_ids=["ghost"])
 
 
+def test_update_candidate_rejects_empty_photo_ids(db_engine):
+    """BUG-315：编辑路径与拆分路径（BUG-293）同口径，不允许清空候选照片。
+
+    空照片候选是永远无法完成的空壳，且因 _is_user_authored 保护不会被重建
+    取代，任务会卡在非 completed 状态。
+    """
+    SessionLocal = _session(db_engine)
+    item_id, _ = _mk_item_with_photos(db_engine, [
+        {"photo_id": "p0001", "filename": "a.jpg", "content": b"x", "role": "cover"}])
+    with SessionLocal() as s:
+        wf.build_candidates(s, item_id, {"p0001": wf.RecognitionInput(title="三体")})
+        cand = s.scalars(select(IntakeCandidate)).first()
+        with pytest.raises(WorkflowError, match="全部清空"):
+            wf.update_candidate(s, cand.id, photo_ids=[])
+
+
 # ── BI-14：匹配预览（只读）──
 
 def test_preview_matches_no_write_and_field_diff(db_engine):

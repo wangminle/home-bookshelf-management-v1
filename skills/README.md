@@ -55,7 +55,7 @@ export BOOKSHELF_API_URL=http://127.0.0.1:8000   # 家庭服务器地址
 export BOOKSHELF_TOKEN=hbs_at_...                # 推荐首选：Agent Bearer Token（在「Agent 授权」页签发）
 export BOOKSHELF_CHANNEL=feishu                  # 可选：按绑定成员身份执行写操作
 export BOOKSHELF_EXTERNAL_USER_ID=ou_xxx         # 可选：与 bind 时一致
-export BOOKSHELF_SETUP_TOKEN=...                 # 可选：白名单建立后代绑成员
+export BOOKSHELF_SETUP_TOKEN=...                 # 可选：库中已有成员后代绑需要（透传 X-Setup-Token）
 export BOOKSHELF_CHANNEL_SIGNING_SECRET=...      # 可选：渠道头 HMAC 签名（与后端 CHANNEL_SIGNING_SECRET 配合）
 ```
 

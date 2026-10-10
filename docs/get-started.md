@@ -118,18 +118,16 @@ bookshelf show --id <书ID> --no-json
 
 ---
 
-## 5.（推荐）创建成员并绑定 IM
+## 5.（推荐）绑定 IM 渠道（白名单）
 
 若要通过飞书等 Agent 操作，需要白名单：
 
 ```bash
-# 空库可直接绑定，会自动创建默认 owner
-bookshelf bind --member-id 1 --channel feishu --external-user-id ou_xxxxxxxx
-
-# 或先建成员再建绑定
-bookshelf member --name "你" --role owner
+# 空库引导：直接绑定即可，首个 bind（member_id=1）会自动创建默认 owner
 bookshelf bind --member-id 1 --channel feishu --external-user-id ou_xxxxxxxx
 ```
+
+注意：库非空后（例如先用 `bookshelf member` 建过成员）匿名 `bind` 会被拒绝（403）。此时需设置 `BOOKSHELF_SETUP_TOKEN`（CLI 以 `X-Setup-Token` 头透传，即部署环境的 `SETUP_TOKEN`），或改用已绑定成员的身份（`BOOKSHELF_CHANNEL`/`BOOKSHELF_EXTERNAL_USER_ID`）再绑定。因此空库引导推荐直接用上面的 bind 命令，不要先建成员。
 
 绑定完成后，若你平时通过 CLI 或 Agent+CLI 直接写入，可设置：
 

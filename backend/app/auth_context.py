@@ -246,7 +246,11 @@ def authorize_member_bind(
     if expected and setup_token and setup_token == expected:
         return
 
-    if member_count(db) == 0 or not system_has_channel_bindings(db):
+    if member_count(db) == 0:
+        # BUG-311：仅空库（真正引导期）放行匿名 bind。此前附加的
+        # "系统尚无渠道绑定"代理条件在纯密码部署下恒真，匿名可绑定任意
+        # 成员身份冒充 Owner。对齐 add_member 的 BUG-221 口径：已有成员后
+        # 须 X-Setup-Token 或已绑定身份（下方分支）。
         return
 
     if channel and external_user_id:
@@ -629,14 +633,15 @@ def enforce_channel_member(
     require_complete_channel_headers(channel, external_user_id)
 
     if not channel and not external_user_id:
-        # 不再允许匿名回退（除非系统完全未初始化）
-        bindings_established = system_has_channel_bindings(db)
-        if require_channel or bindings_established:
+        # 不再允许匿名回退（仅空库引导期放行）。BUG-311 与 authorize_member_bind
+        # 同口径：旧的 system_has_channel_bindings 代理指标在纯密码部署下恒假，
+        # 会让匿名带任意 body_member_id 通过成员解析
+        if require_channel or member_count(db) > 0:
             raise HTTPException(
                 status_code=403,
                 detail="此端点要求认证，请提供渠道身份、Web 会话或 Agent Token",
             )
-        # 系统尚未建立任何绑定，允许初始化
+        # 空库（尚无任何成员）引导期允许匿名初始化
         try:
             return resolve_member_id(db, body_member_id)
         except ValueError as exc:

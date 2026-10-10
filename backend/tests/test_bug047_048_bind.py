@@ -1,8 +1,8 @@
 """BUG-047/048: 初始化绑定与渠道身份唯一性。"""
 
 
-def test_create_member_then_first_anonymous_bind_ok(client):
-    """README 流程：先 POST /members，再匿名 bind 应成功（系统尚无任何绑定）。"""
+def test_create_member_then_bind_ok(client):
+    """owner 会话下先 POST /members，再 bind 应成功（匿名 bind 的收紧见 test_bug311_317_fixes）。"""
     m = client.post("/api/v1/members", json={"name": "甲", "role": "owner"})
     assert m.status_code == 201
     member_id = m.json()["data"]["id"]
@@ -25,7 +25,7 @@ def test_duplicate_channel_identity_rejected(client):
     m2 = client.post("/api/v1/members", json={"name": "乙", "role": "member"})
     id1, id2 = m1.json()["data"]["id"], m2.json()["data"]["id"]
 
-    # 首次绑定：系统无绑定，匿名可绑
+    # 首次绑定（owner 会话下）
     assert (
         client.post(
             "/api/v1/members/bind",

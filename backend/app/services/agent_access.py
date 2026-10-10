@@ -536,6 +536,29 @@ def revoke_member_sessions(
     return result.rowcount or 0
 
 
+def revoke_member_agent_tokens(db: Session, member_id: int) -> int:
+    """吊销成员所有 active Grant 下未吊销的 Agent Token。返回吊销数。
+
+    角色变更（BUG-312）/密码重置（BUG-222，与 CLI 重置 BUG-313 同口径）后调用：
+    Grant 本体保留（授权历史可追溯），其下 Token 即时失效，防止降权/改密后
+    旧授权继续生效（基线 §11.2"角色变化应撤销对应会话"）。停用成员另由
+    verify_token 的 BUG-203 停用检查兜底，本函数不重复处理。
+    """
+    now = _now()
+    count = 0
+    grants = db.scalars(
+        select(AgentGrant).where(
+            AgentGrant.member_id == member_id, AgentGrant.status == "active")
+    ).all()
+    for grant in grants:
+        for token in grant.tokens:
+            if token.revoked_at is None:
+                token.revoked_at = now
+                count += 1
+    db.commit()
+    return count
+
+
 # ── Web Session ──
 
 def create_web_session(

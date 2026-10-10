@@ -81,12 +81,18 @@ def auth_status(db: Session = Depends(get_db)):
 
 
 def _is_secure_request(request: Request) -> bool:
-    """判断请求是否为 HTTPS（或 loopback 测试环境）。"""
-    # X-Forwarded-Proto（反向代理）
-    forwarded_proto = request.headers.get("x-forwarded-proto", "")
-    if forwarded_proto:
-        return forwarded_proto == "https"
-    # 直接连接
+    """判断请求是否为 HTTPS（决定会话 Cookie 的 Secure 标志）。
+
+    BUG-317：X-Forwarded-Proto 仅当直接对端是可信代理（TRUSTED_PROXIES）时
+    才采信——与 XFF 的 BUG-179/181 右值法同口径，防止任意客户端自带该头
+    干扰 Secure 判定。影响面限于该次登录响应的 Cookie 标志。
+    """
+    client = request.client
+    if client is not None and _is_trusted_proxy(client.host):
+        forwarded_proto = request.headers.get("x-forwarded-proto", "")
+        if forwarded_proto:
+            return forwarded_proto.split(",")[0].strip().lower() == "https"
+    # 直接连接（无代理或代理未声明）
     return request.url.scheme == "https"
 
 

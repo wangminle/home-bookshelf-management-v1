@@ -17,9 +17,11 @@ class DoctorReport:
     db_ok: bool | None = False
     google_books_configured: bool = False
     barcode_scan_available: bool = False
-    members_total: int = 0
-    members_bound: int = 0
-    members: list[dict[str, Any]] = field(default_factory=list)
+    # BUG-318：成员字段读取失败（401/403/404/网络）时必须保持 None（未知），
+    # 不得回落为 0/[]——否则初始化引导会把"未读取"误判为"空库"
+    members_total: int | None = None
+    members_bound: int | None = None
+    members: list[dict[str, Any]] | None = None
     bookshelf_api_url_from_env: bool = False
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -128,9 +130,10 @@ def run_doctor(client: BookshelfClient | None = None) -> DoctorReport:
         report.members_bound = sum(1 for m in items if m.get("channel_bindings"))
         if report.members_bound == 0:
             report.warnings.append("尚无成员绑定 IM 渠道（members.channel_bindings 为空）")
-            report.hints.append("空库首次绑定：bookshelf bind --member-id 1 --channel feishu --external-user-id ou_xxx")
-            report.hints.append("或先创建成员再绑：bookshelf member --name \"你\" --role owner；然后 bookshelf bind --member-id 1 ...（系统尚无绑定时允许首次初始化）")
-            report.hints.append("白名单建立后新增绑定：使用已绑定 owner 的 BOOKSHELF_CHANNEL/BOOKSHELF_EXTERNAL_USER_ID，或设置 BOOKSHELF_SETUP_TOKEN")
+            if report.members_total == 0:
+                report.hints.append("空库首次绑定（无需先建成员）：bookshelf bind --member-id 1 --channel feishu --external-user-id ou_xxx")
+            else:
+                report.hints.append("库中已有成员后匿名 bind 会返回 403：使用已绑定 owner 的 BOOKSHELF_CHANNEL/BOOKSHELF_EXTERNAL_USER_ID，或设置 BOOKSHELF_SETUP_TOKEN 后再绑定")
         # 权限阶段 0（任务 0.7）：非 Owner 渠道缩权预览（基线 §13——发布前列出受影响绑定）
         for m in items:
             if m.get("channel_bindings") and m.get("role") != "owner":
@@ -144,10 +147,13 @@ def run_doctor(client: BookshelfClient | None = None) -> DoctorReport:
             report.warnings.append("API 可能未更新到最新版本（缺少 GET /members），请拉取代码并重启后端")
         elif "[HTTP 401]" in msg or "[HTTP 403]" in msg:
             # BUG-167：GET /members 需 members:read，无凭证时属预期而非故障
-            report.warnings.append("GET /members 需要认证（members:read），未读取成员/绑定状态")
+            # BUG-318：此时 members_total/members 为 null（未知），不得按空库处理
+            report.warnings.append(
+                "GET /members 需要认证（members:read），未读取成员/绑定状态——成员数量未知，不得按空库处理"
+            )
             report.hints.append("export BOOKSHELF_TOKEN=...（含 members:read 的 Grant）后重试，或使用已绑定渠道身份")
         else:
-            report.warnings.append(f"无法读取成员列表：{exc}")
+            report.warnings.append(f"无法读取成员列表（成员数量未知，不得按空库处理）：{exc}")
 
     if not report.bookshelf_api_url_from_env and api_url == DEFAULT_API_URL:
         report.hints.append("Agent/CLI 连远程服务器时：export BOOKSHELF_API_URL=http://<家庭服务器IP>:8000")
@@ -264,7 +270,11 @@ def emit_doctor(payload: dict[str, Any], as_json: bool) -> None:
     print(f"  数据库: {'正常' if db_state else ('未知（/health 需认证）' if db_state is None else '异常')}")
     print(f"  Google Books Key: {'已配置' if checks.get('google_books_configured') else '未配置'}")
     print(f"  条码识别(服务端): {'可用' if checks.get('barcode_scan_available') else '不可用'}")
-    print(f"  成员: {checks.get('members_total', 0)} 人，已绑定渠道 {checks.get('members_bound', 0)} 人")
+    members_total = checks.get("members_total")
+    if members_total is None:
+        print("  成员: 未知（GET /members 未读取，见警告）")
+    else:
+        print(f"  成员: {members_total} 人，已绑定渠道 {checks.get('members_bound', 0)} 人")
 
     for label, items in (("错误", data.get("errors")), ("警告", data.get("warnings")), ("提示", data.get("hints"))):
         if not items:

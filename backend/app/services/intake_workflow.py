@@ -543,6 +543,13 @@ def update_candidate(
         changed = True
         content_changed = True
     if photo_ids is not None:
+        # BUG-315：与拆分路径（BUG-293）同口径——不允许清空全部照片；
+        # 空照片候选是永远无法完成的空壳，且因 _is_user_authored 保护
+        # 不会被重建取代，任务会卡在非 completed 状态
+        if not photo_ids:
+            raise WorkflowError(
+                "不能把候选照片全部清空（原候选将没有照片）；如整组都不需要，"
+                "请拒绝该候选或拆分到其他候选")
         # 重新关联（拆分/合并的另一面）：照片必须属于同一任务
         item_photos = {
             p.photo_id for p in db.scalars(select(IntakePhoto).where(

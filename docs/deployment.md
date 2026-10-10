@@ -126,7 +126,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir .
 | `DATABASE_URL` | 默认 `sqlite:///./data/bookshelf.db` |
 | `DATA_DIR` | 数据根目录（封面、附件） |
 | `GOOGLE_BOOKS_API_KEY` | 可选 |
-| `SETUP_TOKEN` | 可选；保护白名单建立后的 `/members/bind`。CLI 侧可用 `BOOKSHELF_SETUP_TOKEN` / `SETUP_TOKEN` 自动透传 |
+| `SETUP_TOKEN` | 可选；库中已有成员后，`/members/bind` 的代绑通道（空库以外匿名不可绑定）。CLI 侧可用 `BOOKSHELF_SETUP_TOKEN` / `SETUP_TOKEN` 自动透传 |
 | `CHANNEL_SIGNING_SECRET` | 可选；配置后渠道头须附带 `X-Channel-Signature`（HMAC-SHA256），防伪造。CLI 侧用 `BOOKSHELF_CHANNEL_SIGNING_SECRET` 透传 |
 | `ANONYMOUS_CATALOG_MODE` | 匿名共享书架（C 模式）：`lan_shared` 开启 / `disabled` 关闭（代码默认；存量部署升级不改变现状，新部署在 deploy 模板引导下开启） |
 | `TRUSTED_LAN_CIDRS` | 可信家庭局域网网段（逗号分隔 CIDR，如 `192.168.1.0/24`）。匿名浏览只对回环、该列表内来源（或经 `TRUSTED_PROXIES` 还原后落在列表内）开放 |
@@ -243,9 +243,10 @@ Owner 与家庭成员使用统一登录页 `/login`（用户名 + 密码；系�
 - **创建成员并设密码**：`POST /members` 建成员 → `POST /members/{id}/password`
   设置初始密码（登录用户名默认按成员显示名生成，响应中返回）；
 - **停用/恢复与角色调整**：`PATCH /members/{id}`（`{"disabled": true}` 或
-  `{"role": "member"}`）；变更后该成员全部会话立即失效；唯一活跃 owner 不可
-  停用或降级；
-- **重置密码**：`POST /members/{id}/password`（重置后该成员全部会话失效）；
+  `{"role": "member"}`）；角色变更后该成员全部 Web 会话与 Agent Token 立即
+  失效；唯一活跃 owner 不可停用或降级；
+- **重置密码**：`POST /members/{id}/password`（重置后该成员全部 Web 会话与
+  Agent Token 失效）；
 - **自助改密**：登录后 `POST /auth/change-password`（保留当前会话，其余失效）；
 - 连续 5 次密码错误锁定 15 分钟；登录接口按来源 IP 限流失败尝试。
 
@@ -287,8 +288,8 @@ python -m alembic upgrade head
 
 ## 安全提示
 
-- **Owner 密码**：首次部署后必须通过 `python -m app.admin owner-init-password` 或 Web UI 初始化。密码使用 Argon2id 存储。
-- **HTTPS 建议**：正式家庭数据环境的 Owner 登录、Token 签发和 Bearer 调用建议走 HTTPS。后端不强制拒绝 HTTP——HTTP 下功能均可用，区别仅在 HTTPS（含反向代理 `X-Forwarded-Proto: https`）时会话 Cookie 带 `Secure` 标志，HTTP 下不带。
+- **Owner 密码**：首次部署后必须通过 `python -m app.admin owner-init-password` 或 Web UI 初始化。密码使用 Argon2id 存储。重置密码（CLI `owner-reset-password` 或 Web 端接口）后会吊销该 Owner/成员的全部 Web 会话与 Agent Token。
+- **HTTPS 建议**：正式家庭数据环境的 Owner 登录、Token 签发和 Bearer 调用建议走 HTTPS。后端不强制拒绝 HTTP——HTTP 下功能均可用，区别仅在 HTTPS 时会话 Cookie 带 `Secure` 标志，HTTP 下不带。反代场景下 `X-Forwarded-Proto: https` 仅在直接对端为 `TRUSTED_PROXIES` 内的可信代理（如 lwa/nginx 网关）时才被采信，任意客户端自带的该头不影响判定。
 - **Agent Token**：Token 以 `hbs_at_` 前缀格式签发，SHA-256 哈希存储，仅签发时显示一次明文。可在 Web 授权中心随时撤销。
 - **Scope 限制**：每个 Agent Token 绑定特定 Scope（共 14 个），高风险操作（删除、跨成员统计）需单独授权。
 - 不要把 `0.0.0.0:8000` 直接暴露到公网。

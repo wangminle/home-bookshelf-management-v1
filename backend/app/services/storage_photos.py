@@ -286,8 +286,10 @@ def update_photo(
 ) -> dict:
     fields = payload.model_dump(exclude_unset=True,
                                 exclude={"idempotency_key", "version"})
+    # BUG-316：期望版本入摘要（与位置域 update_room 等口径一致）——同 key
+    # 不同 version 的重试应 409，而非重放旧回执
     digest_payload = {"op": "storage.photo.update", "photo_id": photo_id,
-                      "fields": fields}
+                      "fields": fields, "version": payload.version}
 
     def fn(db: Session) -> dict:
         begin = None
@@ -346,7 +348,10 @@ def delete_photo(
     idempotency_key: str | None = None,
     operator_member_id: int,
 ) -> dict:
-    digest_payload = {"op": "storage.photo.delete", "photo_id": photo_id}
+    # BUG-316：期望版本入摘要（M0 契约"同 key 不同摘要 409"）——同 key
+    # 不同 version 的删除是不同操作意图，不得重放旧回执
+    digest_payload = {"op": "storage.photo.delete", "photo_id": photo_id,
+                      "version": version}
 
     def fn(db: Session) -> dict:
         begin = None

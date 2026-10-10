@@ -99,7 +99,7 @@ bookshelf member --name "配偶" --role member
 bookshelf bind --member-id 2 --channel feishu --external-user-id ou_yyy
 ```
 
-白名单建立后，匿名再绑会被拒绝；可用已绑定的 owner 身份代绑，或配置 `SETUP_TOKEN` / `BOOKSHELF_SETUP_TOKEN`。详见 [FAQ](./faq.md)。
+库中已有成员后，匿名再绑会被拒绝；可用已绑定的 owner 身份代绑，或配置 `SETUP_TOKEN` / `BOOKSHELF_SETUP_TOKEN`。详见 [FAQ](./faq.md)。
 
 如果你希望平时直接在 CLI 里按某个已绑定成员身份操作，可设置：
 

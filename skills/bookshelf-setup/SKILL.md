@@ -45,10 +45,14 @@ bookshelf doctor
 | `checks.db_ok` | 数据库是否正常 |
 | `checks.google_books_configured` | 服务端是否配置了 Google Books Key |
 | `checks.barcode_scan_available` | 服务端条码识别是否可用 |
-| `checks.members_bound` | 已绑定 IM 渠道的成员数 |
+| `checks.members_total` | 成员总数；`null` 表示未读取（未知），**不是 0** |
+| `checks.members_bound` | 已绑定 IM 渠道的成员数；`null` 同样表示未知 |
 | `errors` | **必须先清零** |
 | `warnings` | 建议处理，不阻断基本使用 |
 | `hints` | 具体操作指引 |
+
+> 无凭证（401/403）或未更新 API 时 `GET /members` 读取失败，`members_total`/`members` 输出为 `null` 并附警告。
+> 此时成员状态**未知**，不得按 `0`/空列表理解为空库。
 
 ### 常见 errors 处理
 
@@ -86,7 +90,7 @@ bookshelf doctor
    export BOOKSHELF_API_URL=http://127.0.0.1:8000   # 或家庭服务器地址
    export BOOKSHELF_CHANNEL=feishu                  # 可选：Agent 通过 CLI 写入时复用绑定身份
    export BOOKSHELF_EXTERNAL_USER_ID=ou_xxx         # 可选：与 bind 时一致
-   export BOOKSHELF_SETUP_TOKEN=...                 # 可选：白名单建立后代绑成员
+   export BOOKSHELF_SETUP_TOKEN=...                 # 可选：库中已有成员后代绑需要（透传 X-Setup-Token）
    ```
 4. 确认以下技能已加载：
 
@@ -111,18 +115,25 @@ bookshelf doctor
    ```
    或调用 `GET /api/v1/members`
 
-2. 默认可能有「默认用户」（ID=1）。如需区分多位家庭成员，先创建新成员：
-   ```bash
-   bookshelf member --name "你" --role owner     # role 可选 owner / member
-   ```
-   > 空库首次直接 `bookshelf bind --member-id 1 ...` 会自动创建默认 owner，无需先手动建成员。
+2. 先确认是否已有成员（`bookshelf doctor` 或 `GET /api/v1/members`），再选择分支：
+   - **成员状态未知（doctor 的 `members_total` 为 `null`，或 `GET /api/v1/members` 返回 401/403）**：**不得按空库处理**。先按 doctor 提示获取授权（`export BOOKSHELF_TOKEN=...`，含 `members:read`）或核实初始化状态，重新读取成员后再判断。
+   - **空库（已确认尚无任何成员）**：无需先建成员，第 3 步直接使用 `--member-id 1`，系统会自动创建默认 owner。
+   - **库中已有成员**：如需新增家庭成员，须带 owner 身份（`BOOKSHELF_TOKEN` 或已绑定 owner 的渠道身份）执行下面的命令，并记下输出 JSON 中的 `data.id`，即新成员 ID：
+     ```bash
+     bookshelf member --name "你" --role owner     # role 可选 owner / member
+     ```
+     > 此时**不要沿用 `--member-id 1`**：ID 1 通常是已有的 Owner，绑定会把渠道身份写到它名下。
 
-3. 绑定飞书用户（示例）：
+3. 绑定飞书用户（示例）。`--member-id` 必须是要绑定的成员 ID：
+   - 空库首次绑定：`1`
+   - 已有成员：第 2 步记下的新成员 ID（或 `GET /api/v1/members` 核对后的 ID）
    ```bash
-   bookshelf bind --member-id 1 --channel feishu --external-user-id ou_xxxxxxxx
+   bookshelf bind --member-id <成员ID> --channel feishu --external-user-id ou_xxxxxxxx
    ```
    - `external_user_id`：飞书开放平台用户 open_id（`ou_` 开头）
    - 获取方式：飞书机器人事件回调中的 `sender.sender_id.open_id`
+
+   > 库中已有成员后，匿名 `bind` 会返回 403；无 owner 身份时使用 `BOOKSHELF_SETUP_TOKEN` 代绑。
 
 4. 绑定后 `bookshelf doctor` 应显示 `members_bound >= 1`
 

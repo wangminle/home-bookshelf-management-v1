@@ -176,7 +176,7 @@ bash scripts/deploy_frontend.sh --base /home-bookshelf/
 
 ## 鉴权模型
 
-Web UI 通过统一登录页 `/login` 登录（权限阶段 2：Owner 与家庭成员使用各自用户名+密码；Owner 密码在「Agent 授权」页首次设置，成员账号由 Owner 创建并设置密码）：登录后持有 `hbs_session` 会话 Cookie，全部业务请求凭该会话通过统一鉴权（AuthContext），`X-UI-Client` 头无任何授权含义。角色/密码/停用变更后受影响会话立即失效。Owner 会话可在顶栏切换家庭成员并代表其操作（写请求携带所选 `member_id`，操作日志记录实际操作者与数据归属人）；Member 登录后固定本人身份、无成员切换器、不显示管理入口；外部 Agent/CLI 走 Bearer Token 或渠道头，只能操作绑定成员本人的数据。**请勿将 Web UI 直接暴露到公网。**
+Web UI 通过统一登录页 `/login` 登录（权限阶段 2：Owner 与家庭成员使用各自用户名+密码；Owner 密码在「Agent 授权」页首次设置，成员账号由 Owner 创建并设置密码）：登录后持有 `hbs_session` 会话 Cookie，全部业务请求凭该会话通过统一鉴权（AuthContext），`X-UI-Client` 头无任何授权含义。角色/密码/停用变更后受影响 Web 会话立即失效；角色变更与密码重置还会同时吊销该成员的全部 Agent Token（停用成员的 Agent Token 亦会在校验时被拒）。Owner 会话可在顶栏切换家庭成员并代表其操作（写请求携带所选 `member_id`，操作日志记录实际操作者与数据归属人）；Member 登录后固定本人身份、无成员切换器、不显示管理入口；外部 Agent/CLI 走 Bearer Token 或渠道头，只能操作绑定成员本人的数据。**请勿将 Web UI 直接暴露到公网。**
 
 ## 技术栈
 

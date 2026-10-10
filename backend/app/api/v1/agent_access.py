@@ -1,6 +1,6 @@
 """WBS-5：Agent 访问控制 API（Owner 管理端）。
 
-端点（全部要求 Owner 会话）：
+端点（全部要求 Owner 会话；写端点同源 CSRF 校验（BUG-314））：
 - POST   /agent-access/clients            注册 Agent 客户端
 - GET    /agent-access/clients            列出 Agent 客户端
 - DELETE /agent-access/clients/{id}       撤销 Agent 客户端
@@ -18,6 +18,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.auth_context import verify_csrf
 from app.db import get_db
 from app.schemas.agent_access import (
     AgentClientCreate,
@@ -42,6 +43,7 @@ def create_client(
     body: AgentClientCreate,
     db: Session = Depends(get_db),
     _owner=Depends(require_owner),
+    _csrf: None = Depends(verify_csrf),
 ):
     client = agent_access.register_agent_client(
         db, display_name=body.display_name, client_type=body.client_type,
@@ -63,6 +65,7 @@ def revoke_client(
     client_id: int,
     db: Session = Depends(get_db),
     _owner=Depends(require_owner),
+    _csrf: None = Depends(verify_csrf),
 ):
     agent_access.revoke_agent_client(db, client_id)
     return {"ok": True}
@@ -75,6 +78,7 @@ def create_grant(
     body: AgentGrantCreate,
     db: Session = Depends(get_db),
     owner=Depends(require_owner),
+    _csrf: None = Depends(verify_csrf),
 ):
     grant = agent_access.create_grant(
         db,
@@ -117,6 +121,7 @@ def update_grant(
     body: AgentGrantUpdate,
     db: Session = Depends(get_db),
     _owner=Depends(require_owner),
+    _csrf: None = Depends(verify_csrf),
 ):
     if body.scopes is not None:
         grant = agent_access.update_grant_scopes(db, grant_id, body.scopes)
@@ -137,6 +142,7 @@ def revoke_grant(
     grant_id: int,
     db: Session = Depends(get_db),
     _owner=Depends(require_owner),
+    _csrf: None = Depends(verify_csrf),
 ):
     agent_access.revoke_grant(db, grant_id)
     return {"ok": True}
@@ -149,6 +155,7 @@ def issue_token(
     body: AgentTokenCreate,
     db: Session = Depends(get_db),
     _owner=Depends(require_owner),
+    _csrf: None = Depends(verify_csrf),
 ):
     plaintext, token_row = agent_access.issue_token(db, body.grant_id)
     return AgentTokenOut(
@@ -175,6 +182,7 @@ def revoke_token(
     token_id: int,
     db: Session = Depends(get_db),
     _owner=Depends(require_owner),
+    _csrf: None = Depends(verify_csrf),
 ):
     agent_access.revoke_token(db, token_id)
     return {"ok": True}

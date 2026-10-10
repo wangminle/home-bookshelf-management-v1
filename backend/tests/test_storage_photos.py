@@ -472,6 +472,57 @@ def test_idempotent_replay_upload(client: TestClient, db_session: Session) -> No
     assert r.json()["detail"]["code"] == "IDEMPOTENCY_CONFLICT"
 
 
+def test_delete_same_key_different_version_conflicts(client: TestClient) -> None:
+    """BUG-316：删除的幂等摘要须含期望版本（M0 契约"同 key 不同摘要 409"）。
+
+    旧版摘要不含 version：同 key 不同期望版本的迟到删除会重放旧回执误报
+    成功，而非提示操作意图已变化。
+    """
+    shelf = _make_shelf(client)
+    photo = _upload(client, shelf["id"], key="delv-1").json()["data"]
+
+    r1 = client.delete(f"/api/v1/storage/photos/{photo['id']}",
+                       params={"version": photo["version"],
+                               "idempotency_key": "delv-key"})
+    assert r1.status_code == 200, r1.text
+    # 同 key 同版本重放：仍返回原回执
+    r2 = client.delete(f"/api/v1/storage/photos/{photo['id']}",
+                       params={"version": photo["version"],
+                               "idempotency_key": "delv-key"})
+    assert r2.status_code == 200, r2.text
+    # 同 key 不同期望版本：不同操作意图，应 409 而非重放旧回执
+    r3 = client.delete(f"/api/v1/storage/photos/{photo['id']}",
+                       params={"version": photo["version"] + 1,
+                               "idempotency_key": "delv-key"})
+    assert r3.status_code == 409, r3.text
+    assert r3.json()["detail"]["code"] == "IDEMPOTENCY_CONFLICT"
+
+
+def test_update_same_key_different_version_conflicts(client: TestClient) -> None:
+    """BUG-316：更新的幂等摘要同样含期望版本（与 update_room 等口径一致）。
+
+    同 key 不同 version 的重试是不同操作意图，应 409 而非重放旧回执。
+    """
+    shelf = _make_shelf(client)
+    photo = _upload(client, shelf["id"], key="updv-1").json()["data"]
+
+    r1 = client.patch(f"/api/v1/storage/photos/{photo['id']}",
+                      json={"version": photo["version"], "caption": "第一版",
+                            "idempotency_key": "updv-key"})
+    assert r1.status_code == 200, r1.text
+    # 同 key 同载荷重放：返回原回执
+    r2 = client.patch(f"/api/v1/storage/photos/{photo['id']}",
+                      json={"version": photo["version"], "caption": "第一版",
+                            "idempotency_key": "updv-key"})
+    assert r2.status_code == 200, r2.text
+    # 同 key 不同期望版本：409
+    r3 = client.patch(f"/api/v1/storage/photos/{photo['id']}",
+                      json={"version": photo["version"] + 1, "caption": "第一版",
+                            "idempotency_key": "updv-key"})
+    assert r3.status_code == 409, r3.text
+    assert r3.json()["detail"]["code"] == "IDEMPOTENCY_CONFLICT"
+
+
 def test_upload_audit_recorded(client: TestClient, db_session: Session) -> None:
     shelf = _make_shelf(client)
     _upload(client, shelf["id"], key="audit-p1")

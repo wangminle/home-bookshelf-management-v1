@@ -41,6 +41,8 @@ bookshelf add --isbn ... --location "书房"
 # 或之后用 API POST /books/{id}/copies
 ```
 
+也可以在 Web UI「副本与位置登记」页（`/storage/intake`）批量补录：按书目勾选、填实际新增量并选定位置后确认，系统不会自动补册。
+
 ### ISBN 报校验位不正确？
 
 手工输入的 ISBN 必须通过 ISBN-10/13 校验。可核对印刷页数字，或改用书名入库。

@@ -68,6 +68,11 @@ const hasRunningExecution = computed(() =>
   (current.value?.executions ?? []).some((e) => e.status === 'executing'),
 )
 
+// 仅使用服务端成功回执；候选、照片与书目数量都不能代表实体册数。
+const provisionBookIds = computed(() => [...new Set((current.value?.executions ?? [])
+  .filter((execution) => execution.status === 'completed' && Number.isSafeInteger(execution.book_id) && (execution.book_id ?? 0) > 0)
+  .map((execution) => execution.book_id!))])
+
 async function api(path: string, options?: RequestInit) {
   // BUG-249：FormData 请求不能带 JSON Content-Type，否则浏览器不会生成 multipart boundary，
   // 真实后端解析不到文件。FormData 时省略该头，交给浏览器处理。
@@ -457,6 +462,10 @@ onMounted(async () => {
         </button>
       </div>
       <p v-if="notice" class="notice" role="status">{{ notice }}</p>
+      <div v-if="provisionBookIds.length" class="provision-next">
+        <RouterLink class="btn primary" :to="{ path: '/storage/intake', query: { books: provisionBookIds.join(',') } }">继续登记副本与位置</RouterLink>
+        <p class="muted">已入库书目可继续登记实体副本与位置。请实际清点后确认册数，不会按照片或书目数量自动建册。</p>
+      </div>
 
       <div v-if="current.photos.length" class="photos">
         <figure v-for="p in current.photos" :key="p.id" :data-photo-id="p.photo_id" :class="{ warned: p.warnings && p.warnings.length }">
@@ -581,6 +590,8 @@ onMounted(async () => {
 .receipts table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .receipts th, .receipts td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .err { color: #a03030; font-size: 12px; max-width: 340px; }
+.provision-next { padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+.provision-next a { display: inline-block; text-decoration: none; }
 .notice { color: #1c6b48; }
 input[type='text'], input[type='number'] {
   padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm, 6px);

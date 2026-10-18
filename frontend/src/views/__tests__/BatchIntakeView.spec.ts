@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils'
 import BatchIntakeView from '../BatchIntakeView.vue'
 import { sessionRole } from '@/stores/session'
 import { lastError } from '@/stores/api'
@@ -42,6 +42,10 @@ function stubFetch(handler: (url: string, options?: RequestInit) => any) {
   )
 }
 
+function mountWorkbench() {
+  return mount(BatchIntakeView, { global: { stubs: { RouterLink: RouterLinkStub } } })
+}
+
 describe('BatchIntakeView', () => {
   beforeEach(() => {
     sessionRole.value = 'owner'
@@ -51,7 +55,7 @@ describe('BatchIntakeView', () => {
   it('非 Owner 不请求工作台', async () => {
     sessionRole.value = 'member'
     stubFetch(() => ({ items: [] }))
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     expect(wrapper.text()).toContain('仅 Owner')
     expect(fetch).not.toHaveBeenCalled()
@@ -62,7 +66,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snapshot()
       return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     expect(wrapper.text()).toContain('客厅书架')
     await wrapper.get('.item-list li .link').trigger('click')
@@ -80,7 +84,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snapshot('confirmed')
       return { items: [{ id: 1, title: '客厅书架', status: 'confirmed' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -105,7 +109,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snapshot()
       return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -138,7 +142,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snap
       return { items: [{ id: 1, title: '客厅书架', status: 'partial' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -159,7 +163,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snap
       return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -191,7 +195,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snapshot()
       return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await openWorkbench(wrapper, {
       added: [{ id: 2, photo_id: 'p0002', role: 'cover', image_url: '/intake-workflow/photos/2/image' }],
@@ -217,7 +221,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snapshot()
       return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await openWorkbench(wrapper, { added: [] })
 
@@ -230,7 +234,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snapshot()
       return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -253,7 +257,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snap
       return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -294,7 +298,7 @@ describe('BatchIntakeView', () => {
   }
 
   it('候选服务端内容未变时，重新加载保留人工编辑', async () => {
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await editThenReload(wrapper, { ...snapshot().candidates[0] })
     expect((wrapper.get('[data-candidate="11"] [data-field="title"]').element as HTMLInputElement).value)
@@ -302,7 +306,7 @@ describe('BatchIntakeView', () => {
   })
 
   it('候选服务端内容变化（重新识别）后，输入框刷新为新值', async () => {
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     const reloaded = {
       ...snapshot().candidates[0],
@@ -328,7 +332,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snap
       return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -355,7 +359,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snap
       return { items: [{ id: 1, title: '客厅书架', status: 'confirmed' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -378,7 +382,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snapshot('confirmed')
       return { items: [{ id: 1, title: '客厅书架', status: 'confirmed' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -412,7 +416,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snapshot('confirmed')
       return { items: [{ id: 1, title: '客厅书架', status: 'confirmed' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -434,7 +438,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snap
       return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -456,7 +460,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snapshot('executing')
       return { items: [{ id: 1, title: '客厅书架', status: 'executing' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -484,7 +488,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snap
       return { items: [{ id: 1, title: '客厅书架', status: 'failed' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -508,7 +512,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snap
       return { items: [{ id: 1, title: '客厅书架', status: 'failed' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -522,7 +526,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snapshot('confirmed')
       return { items: [{ id: 1, title: '客厅书架', status: 'confirmed' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -547,7 +551,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snap
       return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -574,7 +578,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snap
       return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -597,7 +601,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snap
       return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -619,7 +623,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return snap
       return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await wrapper.get('.item-list li .link').trigger('click')
     await flushPromises()
@@ -677,7 +681,7 @@ describe('BatchIntakeView', () => {
       }
       return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await openEditCheckForce(wrapper)
 
@@ -705,7 +709,7 @@ describe('BatchIntakeView', () => {
       if (url.includes('/work-items/1')) return conflictedSnapshot()
       return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await openEditCheckForce(wrapper)
 
@@ -742,7 +746,7 @@ describe('BatchIntakeView', () => {
       }
       return { items: [{ id: 1, title: '客厅书架', status: 'in_review' }] }
     })
-    const wrapper = mount(BatchIntakeView)
+    const wrapper = mountWorkbench()
     await flushPromises()
     await openEditCheckForce(wrapper)
 
@@ -751,5 +755,73 @@ describe('BatchIntakeView', () => {
     )
     expect(confirmCall).toBeTruthy()
     expect(JSON.parse(String((confirmCall![1] as RequestInit).body))).toEqual({ candidate_ids: [11] })
+  })
+})
+
+
+describe('BatchIntakeView：LOC-17 入库后继续登记', () => {
+  beforeEach(() => {
+    sessionRole.value = 'owner'
+    lastError.value = null
+  })
+
+  it('仅从 completed 成功回执提取正整数书目并去重；重新打开仍可继续', async () => {
+    const snap = { ...snapshot('partial'), executions: [
+      { id: 1, status: 'completed', book_id: 7 },
+      { id: 2, status: 'completed', book_id: 7 },
+      { id: 3, status: 'completed', book_id: 9 },
+      { id: 4, status: 'failed', book_id: 11 },
+      { id: 5, status: 'outcome_unknown', book_id: 12 },
+      { id: 6, status: 'completed', book_id: null },
+      { id: 7, status: 'completed', book_id: -1 },
+      { id: 8, status: 'completed', book_id: 1.5 },
+      { id: 9, status: 'executing', book_id: 13 },
+    ] }
+    stubFetch((url) => url.includes('/work-items/1') ? snap : { items: [{ id: 1, title: '客厅书架', status: 'partial' }] })
+    for (let refresh = 0; refresh < 2; refresh++) {
+      const wrapper = mountWorkbench()
+      await flushPromises()
+      await wrapper.get('.item-list li .link').trigger('click')
+      await flushPromises()
+      const link = wrapper.getComponent(RouterLinkStub)
+      expect(link.text()).toBe('继续登记副本与位置')
+      expect(link.props('to')).toEqual({ path: '/storage/intake', query: { books: '7,9' } })
+      expect(wrapper.text()).toContain('实际清点')
+      wrapper.unmount()
+    }
+    expect(vi.mocked(fetch).mock.calls.every(([, o]) => !o?.method || o.method === 'GET')).toBe(true)
+  })
+
+  it('没有成功回执时不按候选或照片生成登记入口', async () => {
+    const snap = { ...snapshot('failed'), executions: [{ id: 1, status: 'failed', book_id: 7 }] }
+    stubFetch((url) => url.includes('/work-items/1') ? snap : { items: [{ id: 1, title: '客厅书架', status: 'failed' }] })
+    const wrapper = mountWorkbench()
+    await flushPromises()
+    await wrapper.get('.item-list li .link').trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(RouterLinkStub).exists()).toBe(false)
+  })
+
+  it('执行完成后出现继续入口，不自动创建副本或再次执行入库', async () => {
+    let done = false
+    stubFetch((url, options) => {
+      if (url.endsWith('/execute') && options?.method === 'POST') {
+        done = true
+        return { status: 'completed' }
+      }
+      if (url.includes('/work-items/1')) return { ...snapshot(done ? 'completed' : 'confirmed'),
+        executions: done ? [{ id: 1, status: 'completed', book_id: 7 }] : [] }
+      return { items: [{ id: 1, title: '客厅书架', status: 'confirmed' }] }
+    })
+    const wrapper = mountWorkbench()
+    await flushPromises()
+    await wrapper.get('.item-list li .link').trigger('click')
+    await flushPromises()
+    const execute = wrapper.findAll('button').find((button) => button.text() === '执行入库')!
+    await execute.trigger('click')
+    await flushPromises()
+    expect(wrapper.getComponent(RouterLinkStub).props('to')).toEqual({ path: '/storage/intake', query: { books: '7' } })
+    expect(vi.mocked(fetch).mock.calls.filter(([, o]) => o?.method === 'POST')).toHaveLength(1)
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/storage/'))).toBe(false)
   })
 })

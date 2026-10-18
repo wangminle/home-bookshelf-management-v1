@@ -21,6 +21,7 @@ import type {
  */
 const emit = defineEmits<{
   'update:target': [target: PlacementTargetInput | null]
+  'update:display': [display: string]
 }>()
 
 const rooms = ref<StorageRoomWithStats[]>([])
@@ -77,6 +78,7 @@ async function onShelfChange() {
     if (detail.id !== Number(requestedShelf)) return
     if (requestedRoom !== '' && detail.room_id !== Number(requestedRoom)) return
     shelfDetail.value = detail
+    emitTarget()
   } catch (e) {
     if (reqId !== detailReqId || shelfId.value !== requestedShelf) return
     loadError.value = e instanceof Error ? e.message : '加载书架结构失败'
@@ -100,8 +102,14 @@ function currentLayer(): ShelfLayer | null {
 function emitTarget() {
   if (shelfId.value === '') {
     emit('update:target', null)
+    emit('update:display', '')
     return
   }
+  const room = rooms.value.find((r) => r.id === Number(roomId.value))
+  const shelf = shelves.value.find((s) => s.id === Number(shelfId.value))
+  const layer = currentLayer()
+  const cell = layer?.cells.find((c) => c.id === Number(cellId.value))
+  emit('update:display', [room?.name, shelf?.name, ...(cell ? [layer?.label, cell.label] : ['格子待登记'])].filter(Boolean).join(' · '))
   emit('update:target', {
     shelf_id: Number(shelfId.value),
     cell_id: cellId.value === '' ? null : Number(cellId.value),

@@ -18,7 +18,7 @@
 - **阅读追踪**：5 态进度（想读/在读/读完/弃读/放弃）、每日阅读日志、连续天数、读书笔记
 - **Web UI**：Vue 3 SPA 封面墙浏览、筛选、详情页、阅读统计仪表盘、书架概览图生成与导出
 - **拍照批量入库工作台**：Web 上传多图 → 模型识别 → 候选核对（含副标题/拆分）→ 匹配已有书 → 确认执行 → 回执重试，状态服务端持久化可恢复
-- **实体书架位置管理**：房间/书架/层格建档与布局编辑、副本定位与批量移动、书架照片管理；写操作带期望版本与幂等键，版本冲突自动刷新
+- **实体书架位置管理**：房间/书架/层格建档与布局编辑、副本定位与批量移动、书架照片管理；副本与位置登记工作台（`/storage/intake`：未定位清单分页、显式新增量补录、批量移动预览，回执丢失或整页刷新后可恢复）；写操作带期望版本与幂等键，版本冲突自动刷新
 - **多模态模型识别**：Owner 在 `/llm-settings` 配置兼容 OpenAI 的识图模型，看封面读出书名/作者，供拍照批量入库工作台使用；单本 `--image` 入库走 zbar 条码扫描，不依赖识图模型
 - **附件**：书籍/副本/成员/笔记可挂链接、文件、Markdown
 - **成员与 IM 绑定**：家庭成员 + 渠道白名单（飞书/Telegram 等）鉴权
@@ -134,7 +134,7 @@ bash scripts/deploy_frontend.sh --base /home-bookshelf/
 - **Reading tracking**: 5-state progress (unread/reading/finished/abandoned/dropped), daily logs, streaks, notes
 - **Web UI**: Vue 3 SPA with cover-wall browsing, filters, book details, reading stats dashboard, shelf overview export
 - **Photo batch-intake workbench**: upload multiple covers on the Web → model recognition → candidate review (subtitle/split) → match existing books → confirm & execute → receipt/retry; state persisted server-side and resumable
-- **Physical shelf locations**: rooms/shelves/layers/cells with a layout editor, copy placement & batch moves, shelf photos; writes carry expected versions and idempotency keys, with auto-refresh on version conflicts
+- **Physical shelf locations**: rooms/shelves/layers/cells with a layout editor, copy placement & batch moves, shelf photos; a copy/location registration workbench (`/storage/intake`: unplaced-copy worklists, explicit incremental provisioning, batch-move previews, recoverable after lost receipts or a full page reload); writes carry expected versions and idempotency keys, with auto-refresh on version conflicts
 - **Multimodal model recognition**: the owner configures an OpenAI-compatible vision model in `/llm-settings` to read title/author from covers, used by the photo batch-intake workbench; single-book `--image` intake uses zbar barcode scanning, not the vision model
 - **Attachments**: link/file/markdown on books, copies, members, notes
 - **Members & IM binding**: family members + channel whitelist (Feishu/Telegram) for auth

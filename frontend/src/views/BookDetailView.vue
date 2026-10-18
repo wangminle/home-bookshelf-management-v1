@@ -212,7 +212,15 @@ async function submitNote() {
 }
 
 onMounted(loadDetail)
-watch(() => props.id, loadDetail)
+watch(() => props.id, () => {
+  editingPlacementCopyId.value = null
+  showProvisionForm.value = false
+  copiesNotice.value = ''
+  noteForm.content_md = ''
+  noteForm.page = null
+  book.value = null
+  loadDetail()
+})
 // 修复 4.3：切换成员后刷新详情页进度表（进度按成员展示）
 watch(() => members.selectedId, loadDetail)
 
@@ -238,6 +246,7 @@ function placementLink(c: BookCopy): string | null {
 const editingPlacementCopyId = ref<number | null>(null)
 const showProvisionForm = ref(false)
 const copiesNotice = ref('')
+watch(sessionRole, () => { editingPlacementCopyId.value = null; showProvisionForm.value = false })
 
 async function onPlacementSaved() {
   editingPlacementCopyId.value = null
@@ -256,6 +265,8 @@ async function onProvisionSaved(created: number) {
   <div>
     <!-- 修复 P1：返回链接改用 button 语义 -->
     <button class="back-link" @click="router.push('/')">← 返回书架</button>
+
+    <p v-if="copiesNotice" class="copies-notice" role="status">{{ copiesNotice }}</p>
 
     <!-- 骨架屏（修复 P2） -->
     <div v-if="loading" class="detail-layout" aria-hidden="true">
@@ -406,7 +417,7 @@ async function onProvisionSaved(created: number) {
           aria-labelledby="tab-copies"
         >
           <div v-if="book.copies.length" class="copy-cards">
-            <div v-for="c in book.copies" :key="c.id" class="copy-card" :data-copy-id="c.id">
+            <div v-for="c in book.copies" :key="`${book.id}:${c.id}`" class="copy-card" :data-copy-id="c.id">
               <div class="copy-head">
                 <strong>副本 #{{ c.id }}</strong>
                 <span class="badge">{{ c.copy_type === 'digital' ? '电子副本' : '实体副本' }}</span>
@@ -444,7 +455,8 @@ async function onProvisionSaved(created: number) {
                 >{{ editingPlacementCopyId === c.id ? '收起' : '编辑位置' }}</button>
               </div>
               <CopyPlacementEditor
-                v-if="editingPlacementCopyId === c.id"
+                v-if="sessionRole === 'owner' && c.copy_type === 'physical' && hasPlacementInfo(c) && editingPlacementCopyId === c.id"
+                :key="`${book.id}:${c.id}`"
                 :book-id="book.id"
                 :copy="c"
                 @saved="onPlacementSaved"
@@ -456,6 +468,7 @@ async function onProvisionSaved(created: number) {
           <p v-else class="muted-text">尚未登记实体副本</p>
 
           <div v-if="sessionRole === 'owner'" class="provision-entry">
+            <RouterLink data-bulk-provision :to="{ path: '/storage/intake', query: { books: String(book.id) } }" class="link-primary">批量登记副本与位置</RouterLink>
             <button
               v-if="!showProvisionForm"
               type="button"
@@ -464,13 +477,13 @@ async function onProvisionSaved(created: number) {
             >补录实体副本</button>
             <CopyProvisionForm
               v-else
+              :key="book.id"
               :book-id="book.id"
               @saved="onProvisionSaved"
               @close="showProvisionForm = false"
               @conflict="loadDetail"
             />
           </div>
-          <p v-if="copiesNotice" class="copies-notice" role="status">{{ copiesNotice }}</p>
         </div>
 
         <!-- 购买 -->
@@ -641,7 +654,9 @@ async function onProvisionSaved(created: number) {
   background: var(--card-bg, #fff); color: inherit; }
 
 /* LOC-15：副本位置卡片 */
-.copy-cards { display: grid; gap: 10px; }
+.detail-layout > div { min-width: 0; }
+.tabs { overflow-x: auto; }
+.copy-cards { display: grid; gap: 10px; min-width: 0; }
 .copy-card {
   border: 1px solid var(--border, #e2e8f0); border-radius: 10px;
   padding: 10px 14px; background: var(--card-bg, #fff);
@@ -656,6 +671,8 @@ async function onProvisionSaved(created: number) {
 .location-path.legacy { color: var(--text-muted, #5a6878); }
 .away-hint { width: 100%; margin: 2px 0 0; font-size: 0.85rem; color: #8a5a19; }
 .copy-actions { margin-top: 6px; }
-.provision-entry { margin-top: 12px; }
+.provision-entry { margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.provision-entry :deep(.provision-form) { flex-basis: 100%; min-width: 0; }
+.location-path { overflow-wrap: anywhere; min-width: 0; }
 .copies-notice { color: #1c6b48; }
 </style>

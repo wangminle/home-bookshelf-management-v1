@@ -25,6 +25,13 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/storage/intake',
+      name: 'storage-intake',
+      component: () => import('@/views/StorageIntakeView.vue'),
+      props: (route) => ({ bookIds: route.query.books == null ? [] : String(route.query.books).split(',').map(Number) }),
+      meta: { requiresAuth: true },
+    },
+    {
       // 书架详情（LOC-12）：照片管理、层格示意图、高亮定位与格子内容列表。
       // props 映射路由参数与 ?cell=<id> 高亮 query，组件不直接依赖路由实例
       path: '/storage/shelves/:id',

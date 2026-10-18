@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 备份 SQLite 数据库与 data/ 目录下的封面、附件
+# 备份 SQLite 数据库与 data/ 目录下的封面、附件、书架及批量入库原图
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -75,8 +75,9 @@ TAR_TARGETS=()
 [[ -d "${DATA_DIR}/covers" ]] && TAR_TARGETS+=(covers)
 [[ -d "${DATA_DIR}/attachments" ]] && TAR_TARGETS+=(attachments)
 [[ -d "${DATA_DIR}/shelf_photos" ]] && TAR_TARGETS+=(shelf_photos)
+[[ -d "${DATA_DIR}/intake_photos" ]] && TAR_TARGETS+=(intake_photos)
 if [[ ${#TAR_TARGETS[@]} -eq 0 ]]; then
-  echo "警告：${DATA_DIR} 下无 covers/attachments/shelf_photos 目录，跳过附件包" >&2
+  echo "警告：${DATA_DIR} 下无 covers/attachments/shelf_photos/intake_photos 目录，跳过附件包" >&2
   ARCHIVE="(跳过)"
 else
   if tar -czf "${ARCHIVE}" -C "${DATA_DIR}" \

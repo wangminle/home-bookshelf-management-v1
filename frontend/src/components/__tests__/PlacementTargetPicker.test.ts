@@ -83,6 +83,7 @@ describe('PlacementTargetPicker：级联请求代际', () => {
     await wrapper.get('[data-field="shelf"]').setValue(102) // 立即返回
     await flushPromises()
     expect(wrapper.get('[data-field="layer"]').text()).toContain('二层')
+    expect(wrapper.emitted('update:display')?.at(-1)).toEqual(['房间A · 二架 · 格子待登记'])
 
     deferredShelf101.resolve(jsonRes({ ok: true, data: { ...makeShelf(101, '一架'), layers: [{ id: 4, shelf_id: 101, label: '旧层', sort_order: 0, version: 1, archived_at: null, created_at: TS, updated_at: TS, cells: [] }], stats: { assigned_copies: 0, present_copies: 0, on_shelf_copies: 0, books_involved: 0 }, photos: [] } }))
     await flushPromises()

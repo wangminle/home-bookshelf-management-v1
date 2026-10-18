@@ -300,6 +300,7 @@ onMounted(loadAll)
 <template>
   <section class="storage-view">
     <h1>实体书架</h1>
+      <RouterLink to="/storage/intake" class="intake-entry">副本与位置登记 · 查看未定位清单</RouterLink>
     <p class="muted">
       这里登记家中的实体房间与书架（位置档案）；浏览藏书封面请使用首页「书架」封面墙。
       编号约定：面向书架正面，层从上到下、格子从左到右。

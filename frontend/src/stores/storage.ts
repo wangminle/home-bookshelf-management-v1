@@ -77,36 +77,11 @@ export function newIdempotencyKey(): string {
   return `web-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
 }
 
-/**
- * 补录幂等键按「书目 + 规范化载荷」跨组件实例保留（BUG-299）。
- * 结果尚未确认（断网、超时、关闭重开）时，相同载荷必须复用原键，
- * 否则服务端会当成新操作再建一批副本。载荷变化各记各的键：
- * A→B→回到 A 仍用 A 的未确认键，不能只记住最近一次。
- * 只有回执可解析且含有效字段后才忘掉该载荷的键；HTTP 成功但 JSON
- * 截断或 data 为空仍视为结果未确认。
- */
-const pendingProvisionKeys = new Map<string, string>()
-
-function provisionSignature(bookId: number, items: unknown): string {
-  return `${bookId}:${JSON.stringify(items)}`
-}
-
-export function reuseProvisionIdempotencyKey(bookId: number, items: unknown): string {
-  const sig = provisionSignature(bookId, items)
-  const existing = pendingProvisionKeys.get(sig)
-  if (existing) return existing
-  const key = newIdempotencyKey()
-  pendingProvisionKeys.set(sig, key)
-  return key
-}
-
-export function forgetProvisionIdempotencyKey(bookId: number, items: unknown): void {
-  pendingProvisionKeys.delete(provisionSignature(bookId, items))
-}
-
-export function resetProvisionIdempotencyKeys(): void {
-  pendingProvisionKeys.clear()
-}
+export { reuseProvisionIdempotencyKey, forgetProvisionIdempotencyKey, resetProvisionIdempotencyKeys,
+  prepareLocationOperation, pendingLocationOperations } from './storageOperations'
+import { assertOperationOwner, settleLocationOperation } from './storageOperations'
+import type { LocationOperation } from './storageOperations'
+export type { LocationOperation } from './storageOperations'
 
 // ── 房间 ──
 
@@ -332,4 +307,85 @@ export interface IntakeCommitResult {
 
 export function provisionCopies(payload: IntakeCommitPayload): Promise<IntakeCommitResult> {
   return request('/storage/copies', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// ── 未定位清单与批量移动（LOC-16） ──
+export interface UnlocatedCopy {
+  copy_id: number; book_id: number; book_title: string; owner_member_id: number | null
+  owner_member_name: string | null; status: string; location: string | null
+}
+export interface UnlocatedBook { book_id: number; book_title: string; digital_copies: number }
+export interface UnlocatedPage {
+  copies_without_placement: { items: UnlocatedCopy[]; total: number }
+  legacy_location_only: { items: UnlocatedCopy[]; total: number }
+  books_without_physical_copy: { items: UnlocatedBook[]; total: number }
+}
+export function listUnlocated(limit = 20, offset = 0): Promise<UnlocatedPage> {
+  return request(`/storage/unlocated?limit=${limit}&offset=${offset}`)
+}
+export interface MovePreview {
+  target: PlacementTargetInput & { shelf_version: number; cell_version: number | null; display: string }
+  copies: { copy_id: number; book_id: number; book_title: string; placement_version: number;
+    from: { display: string | null }; to: { display: string | null } }[]
+  preview_digest: string
+}
+export function previewPlacement(target: PlacementTargetInput, copyIds: number[]): Promise<MovePreview> {
+  return request('/storage/placements/preview', { method: 'POST',
+    body: JSON.stringify({ target, copies: copyIds.map((copy_id) => ({ copy_id })) }) })
+}
+
+function validResult(op: LocationOperation, value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const r = value as Record<string, any>
+  const positiveIds = (ids: unknown) => Array.isArray(ids) && ids.every((id) => Number.isInteger(id) && id > 0)
+  if (op.kind === 'provision') {
+    const items = op.payload.items as IntakeCommitPayload['items']
+    if (!Array.isArray(items) || !Array.isArray(r.items) || r.items.length !== items.length) return false
+    if (r.created !== items.reduce((sum, i) => sum + (i.new_copies?.count ?? 0), 0) ||
+        r.assigned !== items.reduce((sum, i) => sum + (i.assign?.length ?? 0), 0)) return false
+    return items.every((i) => {
+      const rows = r.items.filter((row: any) => row?.book_id === i.book_id)
+      if (rows.length !== 1) return false
+      const row = rows[0]
+      return positiveIds(row.created) && row.created.length === (i.new_copies?.count ?? 0) &&
+        Array.isArray(row.assigned) && row.assigned.length === (i.assign?.length ?? 0)
+    })
+  }
+  const copies = op.payload.copies as { copy_id: number; placement_version: number }[]
+  return Array.isArray(copies) && r.moved === copies.length && Array.isArray(r.copies) &&
+    r.copies.length === copies.length && copies.every((c) => r.copies.some((row: any) =>
+      row.copy_id === c.copy_id && row.placement_version === c.placement_version + 1))
+}
+
+export async function checkLocationOperation(op: LocationOperation): Promise<unknown | null> {
+  assertOperationOwner(op)
+  const receipt = await request<{ status: string; idempotency_key: string; result?: unknown }>(
+    `/storage/operations/${encodeURIComponent(op.key)}`)
+  if (receipt.idempotency_key !== op.key) throw new Error('回执标识不一致，结果未确认')
+  if (receipt.status !== 'completed') return null // not_found 不代表未执行，原key继续保留
+  if (!validResult(op, receipt.result)) throw new Error('回执内容不完整，结果未确认')
+  settleLocationOperation(op, 'completed', receipt.result)
+  return receipt.result
+}
+
+export async function sendLocationOperation(op: LocationOperation): Promise<unknown> {
+  assertOperationOwner(op)
+  try {
+    const result = await request(op.kind === 'provision' ? '/storage/copies' : '/storage/placements', {
+      method: 'POST', body: JSON.stringify({ ...op.payload, idempotency_key: op.key }),
+    })
+    if (!validResult(op, result)) throw new Error('回执内容不完整，结果未确认，请查询回执或重试原操作')
+    settleLocationOperation(op, 'completed', result)
+    return result
+  } catch (e) {
+    // 确定的业务拒绝可重新预览；鉴权/限流/网络/5xx仍保留原操作。
+    if (e instanceof StorageApiError && [400, 404, 409, 413, 422].includes(e.status)) {
+      settleLocationOperation(op, 'rejected')
+    }
+    throw e
+  }
+}
+
+export function getStorageBook(bookId: number): Promise<import('@/types/models').BookDetail> {
+  return request(`/books/${bookId}`)
 }

@@ -100,7 +100,7 @@ Owner 在 `/login` 登录后进入 `/agent-authorization` 页面：
 2. 创建授权（选择成员、Scope、有效期）
 3. 签发 Token - **仅显示一次，请立即保存**
 
-Token 格式为 `hbs_at_<public_id>_<secret>`，设置环境变量 `BOOKSHELF_TOKEN` 即可通过 CLI 使用。
+Token 格式为 `hbs_at_<public_id>_<secret>`，用 `bookshelf auth login`（隐藏输入，存入 0600 文件）或设置环境变量 `BOOKSHELF_TOKEN` 即可通过 CLI 使用。
 
 ### Token 丢失了怎么办？
 

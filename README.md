@@ -104,7 +104,10 @@ bash scripts/deploy_frontend.sh --base /home-bookshelf/
 | `bind` | 绑定 IM 渠道账号到成员（白名单；空库首次 `--member-id 1` 会自动创建默认 owner） |
 | `health` | 查看 API 状态 |
 | `bootstrap` | 发现系统契约（manifest / Skills 索引 / public-health，无需认证） |
-| `auth status` | 检查当前 Agent 授权状态（需 `BOOKSHELF_TOKEN`） |
+| `auth status` | 检查当前 Agent 授权状态（Token 来自 `BOOKSHELF_TOKEN` 或 Token 文件） |
+| `auth login` / `auth logout` | 把 Token 存入 / 删除 `~/.config/bookshelf/token`（0600，隐藏输入，不进命令行） |
+| `locate` / `storage` | 只读定位与位置浏览（`locations:read`；无该 Scope 时如实说明，不推断） |
+| `set-isbn` / `merge` | 给已有书补 ISBN（`books:write`，默认只补缺失）/ 合并重复记录（`books:delete`，不可逆，默认只预览） |
 
 - **结果未知保护**：写命令遇 5xx/超时回执丢失时报「可能已提交」且**不自动重发**，先用 `find`/`show` 或批量脚本 `reconcile` 核对服务端状态（详见 [CLI 参考](docs/cli-reference.md)）
 
@@ -219,7 +222,10 @@ See [Path Alias Deployment](docs/web-ui.md#路径别名部署path-alias). The st
 | `bind` | Bind IM channel account to a member (whitelist; empty-library first `--member-id 1` auto-creates default owner) |
 | `health` | API status |
 | `bootstrap` | Discover the system contract (manifest / skills index / public-health, no auth) |
-| `auth status` | Check current Agent authorization status (needs `BOOKSHELF_TOKEN`) |
+| `auth status` | Check current Agent authorization status (token from `BOOKSHELF_TOKEN` or a token file) |
+| `auth login` / `auth logout` | Save / remove the token at `~/.config/bookshelf/token` (mode 0600, hidden prompt, never on the command line) |
+| `locate` / `storage` | Read-only copy placement & location browsing (`locations:read`; without the scope it says so instead of guessing) |
+| `set-isbn` / `merge` | Backfill a book's ISBN (`books:write`, fill-only by default) / merge duplicate records (`books:delete`, irreversible, preview by default) |
 
 - **Outcome-unknown protection**: on 5xx/timeouts with a lost receipt, write commands report "possibly committed" and **never auto-retry** — verify server state with `find`/`show` or the batch script's `reconcile` first (see [CLI reference](docs/cli-reference.md))
 

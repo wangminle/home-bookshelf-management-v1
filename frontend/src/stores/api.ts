@@ -79,11 +79,17 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     if (res.status === 401) {
       markSessionExpired()
     }
-    const body: ApiResponse<T> = await res.json().catch(() => ({
+    const raw: unknown = await res.json().catch(() => ({
       ok: false,
       data: null as any,
       error: `HTTP ${res.status}`,
     }))
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      const msg = '响应格式无效，结果未确认，请先核对记录'
+      lastError.value = msg
+      throw new Error(msg)
+    }
+    const body = raw as ApiResponse<T>
     if (!body.ok) {
       const msg = extractApiErrorMessage(body, res.status, '请求失败')
       lastError.value = res.status === 401 ? '登录已过期，请重新登录' : msg

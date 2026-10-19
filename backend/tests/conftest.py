@@ -41,8 +41,57 @@ def _run_migrations(db_url: str) -> None:
     command.upgrade(cfg, "head")
 
 
+_PG_ADMIN_URL = os.environ.get("TEST_DATABASE_URL", "").strip()
+
+
+def _pg_url(db_name: str) -> str:
+    from sqlalchemy.engine import make_url
+
+    return make_url(_PG_ADMIN_URL).set(database=db_name).render_as_string(hide_password=False)
+
+
+def _pg_admin(sql: str) -> None:
+    """LOC-19：在管理库上执行 CREATE/DROP DATABASE（需 AUTOCOMMIT）。"""
+    from sqlalchemy import create_engine, text
+
+    admin = create_engine(_PG_ADMIN_URL, isolation_level="AUTOCOMMIT")
+    try:
+        with admin.connect() as conn:
+            conn.execute(text(sql))
+    finally:
+        admin.dispose()
+
+
+@pytest.fixture(scope="session")
+def _pg_template_db():
+    """TEST_DATABASE_URL 非空时，会话内只迁移一次模板库，后续每个用例 CREATE DATABASE ... TEMPLATE。"""
+    if not _PG_ADMIN_URL:
+        yield None
+        return
+    from app.config import settings
+    import uuid
+
+    template = f"hbs_test_template_{uuid.uuid4().hex}"
+    # 仅清理由本次会话成功创建的库；绝不预先删除共享服务上的同名库。
+    _pg_admin(f'CREATE DATABASE "{template}"')
+    previous = settings.database_url
+    try:
+        url = _pg_url(template)
+        settings.database_url = url
+        try:
+            _run_migrations(url)
+        finally:
+            settings.database_url = previous
+        yield template
+    finally:
+        _pg_admin(f'DROP DATABASE IF EXISTS "{template}"')
+
+
 @pytest.fixture()
-def db_engine(tmp_path: Path):
+def db_engine(tmp_path: Path, request):
+    if _PG_ADMIN_URL:
+        yield from _pg_db_engine(tmp_path, request.getfixturevalue("_pg_template_db"))
+        return
     db_path = tmp_path / "case.db"
     db_url = f"sqlite:///{db_path.as_posix()}"
     os.environ["DATABASE_URL"] = db_url
@@ -62,6 +111,39 @@ def db_engine(tmp_path: Path):
     _run_migrations(db_url)
     yield engine
     engine.dispose()
+
+
+def _pg_db_engine(tmp_path: Path, template: str):
+    import uuid
+
+    from app import db as db_module
+    from app.config import settings
+
+    name = f"hbs_t_{uuid.uuid4().hex[:12]}"
+    _pg_admin(f'CREATE DATABASE "{name}" TEMPLATE "{template}"')
+    engine = None
+    try:
+        db_url = _pg_url(name)
+        os.environ["DATABASE_URL"] = db_url
+        settings.database_url = db_url
+        settings.data_dir = tmp_path / "data"
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
+        (settings.data_dir / "covers").mkdir(exist_ok=True)
+        (settings.data_dir / "attachments").mkdir(exist_ok=True)
+
+        engine = create_engine_from_url(db_url)
+        db_module.engine = engine
+        db_module.SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+        yield engine
+    finally:
+        try:
+            if engine is not None:
+                engine.dispose()
+        finally:
+            # 仅终止本用例独有库的残留连接，避免依赖 PG13 才支持的 DROP ... FORCE。
+            _pg_admin(f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                      f"WHERE datname = '{name}' AND pid <> pg_backend_pid()")
+            _pg_admin(f'DROP DATABASE IF EXISTS "{name}"')
 
 
 @pytest.fixture()

@@ -7,6 +7,8 @@ from typing import Any
 
 import httpx
 
+from bookshelf.credentials import resolve_token
+
 DEFAULT_API_URL = "http://127.0.0.1:8000"
 DEFAULT_TIMEOUT = httpx.Timeout(5.0, read=30.0)
 INTAKE_TIMEOUT = httpx.Timeout(5.0, read=90.0)
@@ -37,10 +39,11 @@ class BookshelfClient:
 
     def _auth_headers(self) -> dict[str, str]:
         headers: dict[str, str] = {}
-        # WBS-5/8：Agent Bearer Token 优先（通过环境变量，不落文件不打印）
-        bearer_token = os.environ.get("BOOKSHELF_TOKEN")
-        if bearer_token:
-            headers["Authorization"] = f"Bearer {bearer_token}"
+        # WBS-5/8：Agent Bearer Token 优先。来源（DEV-036）：BOOKSHELF_TOKEN 环境变量 >
+        # BOOKSHELF_TOKEN_FILE > 默认 ~/.config/bookshelf/token（0600）；不打印 Token。
+        resolved = resolve_token()
+        if resolved is not None:
+            headers["Authorization"] = f"Bearer {resolved.token}"
             return headers  # Bearer Token 时不需要渠道头
 
         setup_token = os.environ.get("BOOKSHELF_SETUP_TOKEN") or os.environ.get("SETUP_TOKEN")
@@ -176,7 +179,7 @@ class BookshelfClient:
                     data["database"] = "unknown"
                 return pub
             raise RuntimeError(
-                f"[HTTP {status}] /health 需要认证（BOOKSHELF_TOKEN / 渠道身份 / Web 会话），"
+                f"[HTTP {status}] /health 需要认证（BOOKSHELF_TOKEN / Token 文件 / 渠道身份 / Web 会话），"
                 f"public-health 亦不可达（HTTP {pub_status}）"
             )
         if status and status >= 400:
@@ -348,6 +351,54 @@ class BookshelfClient:
 
     def stats(self) -> dict[str, Any]:
         return self._request("GET", "/stats")
+
+    # ── OPT-016：纠错（补 ISBN：books:write；合并：books:delete，破坏性） ──
+
+    def update_book_isbn(self, book_id: int, isbn: str, *, expected_isbn13: str | None = None) -> dict[str, Any]:
+        # isbn10 必须显式清空：只改 isbn13 时，库里残留的 isbn10 会在服务端被判成不一致并 409。
+        return self._request("PATCH", f"/books/{book_id}",
+                             json={"isbn13": isbn, "isbn10": None, "expected_isbn13": expected_isbn13})
+
+    def merge_books(self, target_id: int, source_id: int, *, force: bool = False,
+                    expected_target_isbn13: str | None = None,
+                    expected_source_isbn13: str | None = None) -> dict[str, Any]:
+        params: dict[str, Any] = {"source_id": source_id}
+        if force:
+            params["force"] = "true"
+        if expected_target_isbn13 is not None:
+            params["expected_target_isbn13"] = expected_target_isbn13
+        if expected_source_isbn13 is not None:
+            params["expected_source_isbn13"] = expected_source_isbn13
+        return self._request("POST", f"/books/{target_id}/merge", params=params)
+
+    # ── LOC-18：只读定位（均为 GET，需 locations:read；不提供任何写方法） ──
+
+    def storage_rooms(self, *, include_archived: bool = False, limit: int = 20, offset: int = 0) -> dict[str, Any]:
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if include_archived:
+            params["include_archived"] = "true"
+        return self._request("GET", "/storage/rooms", params=params)
+
+    def storage_shelves(
+        self, *, room_id: int | None = None, include_archived: bool = False,
+        limit: int = 20, offset: int = 0,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if room_id is not None:
+            params["room_id"] = room_id
+        if include_archived:
+            params["include_archived"] = "true"
+        return self._request("GET", "/storage/shelves", params=params)
+
+    def storage_shelf(self, shelf_id: int, *, include_archived: bool = False) -> dict[str, Any]:
+        params = {"include_archived": "true"} if include_archived else {}
+        return self._request("GET", f"/storage/shelves/{shelf_id}", params=params)
+
+    def storage_cell_copies(self, cell_id: int, *, limit: int = 20, offset: int = 0) -> dict[str, Any]:
+        return self._request("GET", f"/storage/cells/{cell_id}/copies", params={"limit": limit, "offset": offset})
+
+    def storage_unlocated(self, *, limit: int = 20, offset: int = 0) -> dict[str, Any]:
+        return self._request("GET", "/storage/unlocated", params={"limit": limit, "offset": offset})
 
 
 def emit(payload: dict[str, Any], as_json: bool) -> None:

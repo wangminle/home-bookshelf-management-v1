@@ -5,11 +5,15 @@
 | 变量 | 作用 |
 | --- | --- |
 | `BOOKSHELF_API_URL` | API 根地址，默认 `http://127.0.0.1:8000` |
-| `BOOKSHELF_TOKEN` | Agent Bearer Token，CLI 全部请求（含 find/show/stats 等读命令）自动附带；签发见 `docs/agent-setup.md` |
+| `BOOKSHELF_TOKEN` | Agent Bearer Token，CLI 全部请求（含 find/show/stats 等读命令）自动附带；签发见 `docs/agent-setup.md`。优先级最高 |
+| `BOOKSHELF_TOKEN_FILE` | Token 文件路径（DEV-036）。未设 `BOOKSHELF_TOKEN` 时读取；显式指定但文件不存在即报错，不静默回退 |
+| 默认 Token 文件 | `$XDG_CONFIG_HOME/bookshelf/token`，无 XDG 时为 `~/.config/bookshelf/token`；由 `bookshelf auth login` 写入 |
 | `BOOKSHELF_SETUP_TOKEN` / `SETUP_TOKEN` | CLI 全部请求都会自动透传为 `X-Setup-Token`；主要用于库中已有成员后的 `bind` |
 | `BOOKSHELF_CHANNEL` | CLI 全部请求都会自动透传为 `X-Channel` |
 | `BOOKSHELF_EXTERNAL_USER_ID` | CLI 全部请求都会自动透传为 `X-External-User-Id` |
 | `BOOKSHELF_CHANNEL_SIGNING_SECRET` | 可选；配置后渠道头自动附带 `X-Channel-Signature`（HMAC-SHA256），与后端 `CHANNEL_SIGNING_SECRET` 配合使用。未设置时回退读取 `CHANNEL_SIGNING_SECRET` |
+
+Token 来源优先级：`BOOKSHELF_TOKEN` > `BOOKSHELF_TOKEN_FILE` > `auth login --file` 记住的文件 > 默认 Token 文件。自定义路径以绝对路径保存在配置目录的 `bookshelf/token-path.json`（创建时 `0600`；只含路径，允许 `0644`，但拒绝组/其他用户可写及异属主配置），后续命令和批量脚本自动使用；`auth logout` 默认删除当前选择的 Token，保留路径选择，不回退使用旧 Token。Token 文件在 POSIX 上必须是属主为当前用户的普通文件且权限为 `0600`（组/其他可读写会被拒绝并提示 `chmod 600`）；Token 明文不会出现在任何命令输出中。
 
 多数命令支持 `--json` / `--no-json`（默认 JSON）。
 
@@ -24,6 +28,10 @@
 | `add` | 入库（ISBN / 图片 / 书名） |
 | `find` | 搜索 |
 | `show` | 详情 |
+| `set-isbn --id N --isbn X [--replace]` | 给已有书补 ISBN（`books:write`）。ISBN 校验位先在本地检查；默认只补缺失，已有不同 ISBN 时拒绝，`--replace` 才覆盖；已是同一 ISBN 则不改 |
+| `merge --target A --source B [--yes] [--force]` | 合并重复记录（`books:delete`，**不可逆**）：B 的副本/购买/进度/笔记迁入 A 后删除 B。默认只预览；`--yes` 才执行；两书 ISBN 都有且不同时拒绝，`--force` 越过 |
+| `locate --id N` | 只读定位：逐个副本给出归属位置、状态与是否在架，并附一句可转述的 `summary`。需 `locations:read`；无该 Scope 返回 `location_access: "not_granted"`，不推断位置 |
+| `storage rooms` / `shelves [--room-id]` / `shelf --id` / `cell --id` / `unlocated` | 只读位置浏览（均为 GET，需 `locations:read`，403 时提示缺 Scope）；CLI 不提供任何结构化位置写入，`add --location` 仍是原样文字 |
 | `recognize` | 图片识别 ISBN |
 | `progress` | 更新阅读进度 |
 | `reading-log` | 每日阅读日志 |
@@ -35,7 +43,9 @@
 | `doctor` | 初始化诊断 |
 | `health` | API 健康检查 |
 | `bootstrap` | 发现系统契约（manifest / Skills 索引 / public-health，无需认证） |
-| `auth status` | 检查当前 Agent 授权状态（需 `BOOKSHELF_TOKEN`） |
+| `auth status` | 检查当前 Agent 授权状态（Token 来自环境变量或 Token 文件，输出 `token_source`） |
+| `auth login` | 把 Agent Token 存入 `0600` 文件。**没有 `--token` 参数**：Token 只从隐藏提示或 `--stdin` 读入，不进命令行/进程列表/shell 历史；默认先 `/auth/introspect` 校验，通过才保存（`--no-verify` 跳过）；`--file` 指定并记住路径 |
+| `auth logout` | 删除 Token 文件（幂等，不影响 `BOOKSHELF_TOKEN` 环境变量） |
 
 ---
 
@@ -109,7 +119,7 @@ bookshelf auth status
 补充：
 
 - `bookshelf doctor` 在检查未通过时会以退出码 `1` 结束，便于 Agent / 脚本判断失败
-- `doctor --authorized`：授权后业务检查，需先设置 `BOOKSHELF_TOKEN`（会先跑
+- `doctor --authorized`：授权后业务检查，需先提供 Token（`BOOKSHELF_TOKEN` 或 Token 文件，见上）（会先跑
   `auth status` 再做常规诊断）。JSON 模式输出**单一** JSON 文档——auth 结果并入
   顶层 `auth_status` 键，stdout 始终可整体解析；auth 失败（无效 Token / 连接失败）
   时输出失败文档并退出码 1，不再继续诊断
@@ -137,3 +147,23 @@ bookshelf auth status
 - `--member` 按姓名（目前仅 `--member-id`）
 
 设计背景见 [`design/`](../design/)。
+
+
+## 运行测试
+
+从仓库根目录分别运行后端/批处理与 CLI，以免两个名为 `tests` 的 Python 包互相覆盖：
+
+```bash
+backend/.venv/bin/python -m pytest backend/tests tests/scripts
+PYTHONPATH=cli backend/.venv/bin/python -m pytest cli/tests
+npm --prefix frontend run test:run
+```
+
+不要只在 `cli/` 目录执行无路径的 `pytest`，上级 `pytest.ini` 的默认发现范围是后端与批处理。Windows PowerShell 中，CLI 的对应入口为：
+
+```powershell
+$env:PYTHONPATH = "cli"
+.\backend\.venv\Scripts\python.exe -m pytest cli/tests
+```
+
+PostgreSQL 验证须显式设置 `TEST_DATABASE_URL` 为专用测试服务的管理库 URL，账号需能建库、删库并终止自己创建的测试库连接。每会话模板、每用例库均使用独有名称；初始化失败也清理本次创建的库。清理先终止该用例库的残留连接再普通 DROP，不依赖 PG13 的 `DROP ... WITH (FORCE)`。

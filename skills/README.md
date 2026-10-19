@@ -26,7 +26,7 @@ Agent 能力层：每个 Skill 描述**何时触发、如何调用 CLI、如何�
 3. **默认 JSON**：所有 CLI 命令保持 `--json`，便于解析 `data.message`
 4. **用户确认**：入库、消歧、识别存疑时先确认再执行
 5. **单一职责**：入库用 book-intake，查询用 book-query，评测视觉模型用 cover-eval，不要混用命令
-6. **统一鉴权**：业务端点（读+写）统一走 AuthContext 鉴权：Agent Bearer Token（按 Grant scope 校验）/ Web 会话 / 已绑定渠道头三选一，无凭证 401；CLI 设置 BOOKSHELF_TOKEN 或 BOOKSHELF_CHANNEL/BOOKSHELF_EXTERNAL_USER_ID 后自动注入，不必手工拼头；可选 CHANNEL_SIGNING_SECRET 开启渠道头 HMAC 签名
+6. **统一鉴权**：业务端点（读+写）统一走 AuthContext 鉴权：Agent Bearer Token（按 Grant scope 校验）/ Web 会话 / 已绑定渠道头三选一，无凭证 401；CLI 用 `bookshelf auth login` 保存 Token 文件（0600）、设置 BOOKSHELF_TOKEN / BOOKSHELF_TOKEN_FILE，或设置 BOOKSHELF_CHANNEL/BOOKSHELF_EXTERNAL_USER_ID 后自动注入，不必手工拼头；可选 CHANNEL_SIGNING_SECRET 开启渠道头 HMAC 签名
 7. **结果未知保护**：写请求（add/purchase/note/progress/reading-log/bind）超时、5xx 或回执丢失时结果未知（可能已提交），**禁止自动重发**；先 `find`/`show` 核对服务端是否已写入，再显式决定补发或放弃。读请求（find/show/stats）5xx 属确定未提交，可检查服务后重试
 
 ## 本地模拟对话
@@ -52,7 +52,8 @@ Agent：→ cover-eval → 看 tests/eval/covers（真实集 tests/eval/user-set
 
 ```bash
 export BOOKSHELF_API_URL=http://127.0.0.1:8000   # 家庭服务器地址
-export BOOKSHELF_TOKEN=hbs_at_...                # 推荐首选：Agent Bearer Token（在「Agent 授权」页签发）
+bookshelf auth login                             # 推荐首选：把 Agent Token 存入 0600 文件（隐藏输入，不进命令行）
+export BOOKSHELF_TOKEN=hbs_at_...                # 或：环境变量（优先级更高；Token 在「Agent 授权」页签发）
 export BOOKSHELF_CHANNEL=feishu                  # 可选：按绑定成员身份执行写操作
 export BOOKSHELF_EXTERNAL_USER_ID=ou_xxx         # 可选：与 bind 时一致
 export BOOKSHELF_SETUP_TOKEN=...                 # 可选：库中已有成员后代绑需要（透传 X-Setup-Token）

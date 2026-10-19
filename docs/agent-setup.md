@@ -120,6 +120,9 @@ Token 格式为 `hbs_at_<public_id>_<secret>`，仅显示一次。
 
 ```bash
 export BOOKSHELF_API_URL=http://<服务器>
+# 推荐：存入 0600 文件，Token 不出现在命令行/进程列表/shell 历史
+bookshelf auth login              # 隐藏输入；先校验再保存到 ~/.config/bookshelf/token
+# 或（CI/一次性）：
 export BOOKSHELF_TOKEN=hbs_at_xxx_yyy
 
 # CLI 自动使用 Bearer Token
@@ -148,6 +151,8 @@ curl -H "Authorization: Bearer $BOOKSHELF_TOKEN" \
 | `files:read` | 低 | 读取附件 |
 | `members:read` | 低 | 查看成员列表 |
 | `locations:read` | 低 | 查看房间、书架、格子与副本位置 |
+
+> **只读定位（`locations:read`）**：必须由 Owner 显式授予，不会自动追加到已有 Token；书架外观照片另需 `files:read`。CLI 对应 `bookshelf locate --id <书目 ID>` 与 `bookshelf storage rooms|shelves|shelf|cell|unlocated`，全部只读。没有该 Scope 时书目详情不含结构化位置，Agent 只能如实说明“未授权读取精确位置”，不得凭旧文字或经验猜测；外借等非在架状态只说明归属位置并注明“当前不在架”。结构化位置的分配/移动仍仅限 Owner Web，Agent/CLI 不开放写入。
 
 ---
 

@@ -46,15 +46,19 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   if (res.status === 401) {
     markSessionExpired()
   }
-  let body: Record<string, unknown> = {}
+  let raw: unknown = {}
   try {
-    body = await res.json()
+    raw = await res.json()
   } catch {
     // HTTP 成功但回执截断：不能当成业务成功（BUG-299）。失败响应仍走原错误文案。
     if (res.ok) {
       throw new StorageApiError('响应无法解析，结果未确认', res.status, null)
     }
   }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new StorageApiError('响应格式无效，结果未确认', res.status, null)
+  }
+  const body = raw as Record<string, unknown>
   if (!res.ok || body.ok === false) {
     throw new StorageApiError(
       extractApiErrorMessage(body, res.status, '请求失败'),
@@ -77,7 +81,7 @@ export function newIdempotencyKey(): string {
   return `web-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
 }
 
-export { reuseProvisionIdempotencyKey, forgetProvisionIdempotencyKey, resetProvisionIdempotencyKeys,
+export { reuseProvisionIdempotencyKey, resetProvisionIdempotencyKeys,
   prepareLocationOperation, pendingLocationOperations } from './storageOperations'
 import { assertOperationOwner, settleLocationOperation } from './storageOperations'
 import type { LocationOperation } from './storageOperations'

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -54,8 +54,12 @@ def _normalize_updated_isbns(book: Book, payload: BookUpdate, set_fields: set[st
         val = payload.isbn10
         next_isbn10 = (normalize_isbn(val) or val.strip() or None) if val else None
         derived_isbn13 = canonical_isbn13(next_isbn10) if next_isbn10 else None
-        if derived_isbn13:
+        if derived_isbn13 and "isbn13" not in set_fields:
             next_isbn13 = derived_isbn13
+    elif "isbn13" in set_fields and next_isbn10:
+        derived_isbn13 = canonical_isbn13(next_isbn10)
+        if not next_isbn13 or (derived_isbn13 and derived_isbn13 != next_isbn13):
+            next_isbn10 = None
 
     if next_isbn10 and next_isbn13:
         derived_isbn13 = canonical_isbn13(next_isbn10)
@@ -83,14 +87,26 @@ def _ensure_no_conflicting_isbn(db: Session, *, book_id: int, isbn13: str | None
         raise ConflictError("书籍已存在（ISBN 冲突）")
 
 
+def _lock_book(db: Session, book_id: int) -> Book | None:
+    """写锁贯穿校验与提交；SQLite 的 FOR UPDATE 无效，故使用无值变化的 UPDATE。
+
+    同时刷新 ORM 缓存，不能拿锁之前读过的 ISBN 做保护判断。
+    """
+    db.execute(update(Book).where(Book.id == book_id).values(id=Book.id, updated_at=Book.updated_at),
+               execution_options={"synchronize_session": False})
+    return db.scalar(select(Book).where(Book.id == book_id).execution_options(populate_existing=True))
+
+
 def update_book(db: Session, book_id: int, payload: BookUpdate) -> BookUpdateResult:
-    book = db.get(Book, book_id)
+    book = _lock_book(db, book_id)
     if not book:
         raise ValueError(f"书籍 ID {book_id} 不存在")
 
     # BUG-118：使用 model_fields_set 区分"未传字段"与"显式传 null"
     # 之前 `if payload.X is not None:` 会把显式 null 当成"跳过"，无法清空字段
     set_fields = payload.model_fields_set
+    if "expected_isbn13" in set_fields and book.isbn13 != payload.expected_isbn13:
+        raise ConflictError("书目 ISBN 已变化，请重新读取并核对后再修改")
 
     if "title" in set_fields and payload.title is not None:
         book.title = payload.title.strip()
@@ -252,7 +268,9 @@ class MergeResult:
     merged_tags: list[str]
 
 
-def merge_books(db: Session, *, target_id: int, source_id: int) -> MergeResult:
+def merge_books(db: Session, *, target_id: int, source_id: int, force: bool = False,
+                expected_target_isbn13: str | None = None,
+                expected_source_isbn13: str | None = None) -> MergeResult:
     """把 source 书合并进 target 书，迁移所有关联数据后删除 source。
 
     BUG-148：此前没有合并接口，重复书只能手动拼字段+删行。本接口处理：
@@ -267,12 +285,20 @@ def merge_books(db: Session, *, target_id: int, source_id: int) -> MergeResult:
     if target_id == source_id:
         raise ValueError("目标书与源书不能相同")
 
-    target = db.get(Book, target_id)
-    source = db.get(Book, source_id)
+    # 固定加锁顺序，避免反向合并死锁；锁内重读且保护至删除/回填提交。
+    locked = {bid: _lock_book(db, bid) for bid in sorted((target_id, source_id))}
+    target, source = locked[target_id], locked[source_id]
     if not target:
         raise ValueError(f"目标书籍 ID {target_id} 不存在")
     if not source:
         raise ValueError(f"源书籍 ID {source_id} 不存在")
+    for book, expected in ((target, expected_target_isbn13), (source, expected_source_isbn13)):
+        if expected is not None and (book.isbn13 or "") != expected:
+            raise ConflictError("合并预览后 ISBN 已变化，请重新读取并核对")
+    ti = canonical_isbn13(target.isbn13) or target.isbn13
+    si = canonical_isbn13(source.isbn13) or source.isbn13
+    if ti and si and ti != si and not force:
+        raise ConflictError("两本书 ISBN 不同，确认合并须显式指定 force")
 
     source_title = source.title
     migrated_copies = migrated_purchases = migrated_progress = migrated_notes = 0
@@ -452,10 +478,13 @@ def _backfill_target_from_snapshot(db: Session, target: Book, snapshot: dict) ->
         )
         target.isbn13 = snapshot["isbn13"]
     if not target.isbn10 and snapshot["isbn10"]:
-        _ensure_no_conflicting_isbn(
-            db, book_id=target.id, isbn13=target.isbn13, isbn10=snapshot["isbn10"]
-        )
-        target.isbn10 = snapshot["isbn10"]
+        derived = canonical_isbn13(snapshot["isbn10"])
+        current13 = canonical_isbn13(target.isbn13) or target.isbn13
+        if not (current13 and derived and derived != current13):
+            _ensure_no_conflicting_isbn(
+                db, book_id=target.id, isbn13=target.isbn13, isbn10=snapshot["isbn10"]
+            )
+            target.isbn10 = snapshot["isbn10"]
     if not target.cover_path and snapshot["cover_path"]:
         target.cover_path = snapshot["cover_path"]
         # 封面归 target 后，调用方不应再删该文件；置空快照里的 cover_path 作为信号

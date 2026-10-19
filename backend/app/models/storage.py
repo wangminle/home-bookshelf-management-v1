@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -125,7 +126,7 @@ class ShelfPhoto(Base, TimestampUpdateMixin):
     width: Mapped[int] = mapped_column(Integer, nullable=False)
     height: Mapped[int] = mapped_column(Integer, nullable=False)
     caption: Mapped[str | None] = mapped_column(String(200))
-    is_primary: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
 
     shelf: Mapped[StorageShelf] = relationship(back_populates="photos")

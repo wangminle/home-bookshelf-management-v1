@@ -80,6 +80,8 @@ class BookCreate(BookBase):
 
 
 class BookUpdate(BaseModel):
+    # 未传=兼容普通编辑；显式 null=仅当数据库 ISBN 仍为空才允许写入。
+    expected_isbn13: str | None = None
     title: str | None = Field(default=None, max_length=500)
     subtitle: str | None = Field(default=None, max_length=500)
     isbn13: str | None = None

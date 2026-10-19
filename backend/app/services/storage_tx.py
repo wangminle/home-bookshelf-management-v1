@@ -242,7 +242,8 @@ def lock_resources(db: Session, resources: dict[str, Iterable[int]]) -> None:
 
     SQLite：逐行零改写条件 UPDATE（锁列与 updated_at 自赋值，不改任何数据）
     取写锁并 expire 重读；PostgreSQL：同类一次 SELECT … ORDER BY id FOR UPDATE
-    （本机无 PG，该分支未实机验证）。
+    （PG 分支已由 tests/test_loc19_postgres_acceptance.py 在 PostgreSQL 16 上实机验证，
+    含「外部持锁则移动阻塞」的行锁变异检出，见 LOC-19 验收记录）。
     调用方在锁定后自行重验父子关系、版本与祖先集合；不符即整体回滚，
     本函数不做持锁补锁。
     """

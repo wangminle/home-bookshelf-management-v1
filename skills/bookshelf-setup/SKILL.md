@@ -116,7 +116,7 @@ bookshelf doctor
    或调用 `GET /api/v1/members`
 
 2. 先确认是否已有成员（`bookshelf doctor` 或 `GET /api/v1/members`），再选择分支：
-   - **成员状态未知（doctor 的 `members_total` 为 `null`，或 `GET /api/v1/members` 返回 401/403）**：**不得按空库处理**。先按 doctor 提示获取授权（`export BOOKSHELF_TOKEN=...`，含 `members:read`）或核实初始化状态，重新读取成员后再判断。
+   - **成员状态未知（doctor 的 `members_total` 为 `null`，或 `GET /api/v1/members` 返回 401/403）**：**不得按空库处理**。先按 doctor 提示获取授权（让用户运行 `bookshelf auth login` 保存 Token，或 `export BOOKSHELF_TOKEN=...`，含 `members:read`）或核实初始化状态，重新读取成员后再判断。
    - **空库（已确认尚无任何成员）**：无需先建成员，第 3 步直接使用 `--member-id 1`，系统会自动创建默认 owner。
    - **库中已有成员**：如需新增家庭成员，须带 owner 身份（`BOOKSHELF_TOKEN` 或已绑定 owner 的渠道身份）执行下面的命令，并记下输出 JSON 中的 `data.id`，即新成员 ID：
      ```bash

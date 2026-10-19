@@ -1,6 +1,6 @@
 """Owner 在后台保存的多模态模型接口配置（单行）。"""
 
-from sqlalchemy import Boolean, Float, Integer, String, text
+from sqlalchemy import Boolean, Float, Integer, String, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampUpdateMixin
@@ -10,7 +10,7 @@ class LlmSettings(Base, TimestampUpdateMixin):
     __tablename__ = "llm_settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     display_name: Mapped[str] = mapped_column(
         String(80), default="识书模型", server_default="识书模型", nullable=False
     )

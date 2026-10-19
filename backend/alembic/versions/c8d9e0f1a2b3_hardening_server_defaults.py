@@ -28,9 +28,9 @@ def upgrade() -> None:
 
     with op.batch_alter_table("reading_progress", schema=None) as batch_op:
         batch_op.alter_column("status", server_default="unread")
-        batch_op.alter_column("to_read", server_default=sa.text("0"))
-        batch_op.alter_column("owned", server_default=sa.text("1"))
-        batch_op.alter_column("borrowed", server_default=sa.text("0"))
+        batch_op.alter_column("to_read", server_default=sa.false())
+        batch_op.alter_column("owned", server_default=sa.true())
+        batch_op.alter_column("borrowed", server_default=sa.false())
 
     with op.batch_alter_table("reading_logs", schema=None) as batch_op:
         batch_op.alter_column("pages_read", server_default="0")

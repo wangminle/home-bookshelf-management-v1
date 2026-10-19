@@ -21,10 +21,13 @@
     python3 scripts/batch_import_covers.py run --manifest batch_manifest.json --dry-run
     python3 scripts/batch_import_covers.py run --manifest batch_manifest.json
     python3 scripts/batch_import_covers.py reconcile --manifest batch_manifest.json
+    python3 scripts/batch_import_covers.py verify --manifest batch_manifest.json   # 只读：内容/重复/待抽查
 
 环境变量（同 CLI）：
     BOOKSHELF_API_URL   默认 http://127.0.0.1:8000
     BOOKSHELF_TOKEN     Agent Bearer Token（写接口必需；reconcile 只需读权限）
+    BOOKSHELF_TOKEN_FILE  Token 文件路径（优先级低于 BOOKSHELF_TOKEN；未设置时读
+                        ~/.config/bookshelf/token，可用 bookshelf auth login 写入；须 0600）
 """
 from __future__ import annotations
 
@@ -41,6 +44,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "cli"))
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from bookshelf.client import ApiOutcomeUnknownError, BookshelfClient  # noqa: E402
+from bookshelf.credentials import TokenFileError, resolve_token  # noqa: E402
 
 import batch_manifest as bm  # noqa: E402
 
@@ -103,7 +107,8 @@ def cmd_scan(args: argparse.Namespace) -> None:
                  "role": "cover", "title": None, "author": None, "authors": None,
                  "isbn": None, "price": None, "channel": None, "location": None,
                  "member_id": None, "confirmed_fields": [], "status": "pending",
-                 "note": None, "warnings": [], "candidate_id": None, "result": None}
+                 "note": None, "warnings": [], "candidate_id": None,
+                 "same_as": None, "confidence": None, "needs_review": False, "result": None}
             )
             added.append(rel)
     # 补齐/刷新内容哈希：v1 升级条目缺失时计算；已有但文件变化的不强行覆盖
@@ -143,6 +148,21 @@ def cmd_status(args: argparse.Namespace) -> None:
         print("⚠ 以下条目缺 isbn 和 title，run 时会失败:")
         for e in need_fix:
             print(f"  {e['file']}")
+    # OPT-016：配对分组与人工核对队列
+    members = bm.group_members(manifest["entries"])
+    if members:
+        photos = sum(len(v) for v in members.values())
+        print(f"分组: {len(members)} 组（{photos} 张成员照片并入主条目，一组只发一次入库请求）")
+    min_conf = getattr(args, "min_confidence", None)
+    queue = [(e, bm.review_reasons(e, min_conf)) for e in manifest["entries"]
+             if e["status"] not in ("skip", "imported")]
+    queue = [(e, r) for e, r in queue if r]
+    if queue:
+        print(f"待人工核对: {len(queue)} 条（recognized 条目被 --yes 暂缓；confirmed 已人工确认，仍按确认状态处理）")
+        for e, reasons in queue:
+            label = e.get("title") or e.get("isbn") or e.get("file")
+            print(f"  {e.get('photo_id')}  {label}  [{', '.join(reasons)}]"
+                  + (f" confidence={e['confidence']}" if e.get("confidence") is not None else ""))
 
 
 # ── eval 阈值门控 ──
@@ -290,9 +310,78 @@ def cmd_run(args: argparse.Namespace, client: BookshelfClient | None = None) -> 
     if args.retry_unknown:
         target_status.add("outcome_unknown")
     todo = [e for e in entries if e["status"] in target_status]
-    skipped = len(entries) - len(todo)
 
-    if not todo:
+    # OPT-016：同组（same_as）照片只发一次入库请求；成员不单独入库。
+    # --yes 自动确认的 recognized 条目若 needs_review / 置信度不足，不自动入库。
+    min_conf = getattr(args, "min_confidence", None)
+    members_of = bm.group_members(entries)
+    member_ids = {id(m) for ms in members_of.values() for m in ms}
+    root_of = bm.group_roots(entries)
+
+    def _held_by_review(e: dict[str, Any]) -> list[str]:
+        return bm.review_reasons(e, min_conf) if e["status"] == "recognized" else []
+
+    held_review = [(e, _held_by_review(e)) for e in todo if id(e) not in member_ids]
+    held_review = [(e, r) for e, r in held_review if r]
+    held_ids = {id(e) for e, _ in held_review}
+    for e, reasons in held_review:
+        label = e.get("title") or e.get("isbn") or e.get("file")
+        print(f"  ⏸ 暂缓（待人工核对 {', '.join(reasons)}）: {label}")
+    by_pid = {e["photo_id"]: e for e in entries}
+    late_links = []
+    for m in todo:
+        if id(m) not in member_ids or _held_by_review(m):
+            continue
+        root = by_pid[root_of[m["photo_id"]]]
+        result = root.get("result") or {}
+        bid = result.get("final_book_id", result.get("book_id"))
+        if root["status"] == "imported" and isinstance(bid, int) and (
+            m["status"] == "confirmed" or (args.yes and m["status"] == "recognized")
+        ):
+            late_links.append((root, m, bid))
+    late_ids = {id(m) for _, m, _ in late_links}
+
+    def _member_snapshot(member: dict[str, Any]) -> dict[str, Any]:
+        # 失败重试只能复用原请求中已获准使用的成员与字段；不能借重试扩大识别授权。
+        return {key: member.get(key) for key in (
+            "file", "sha256", "role", "same_as", "isbn", "title", "author", "authors")}
+
+    def _member_joins(root: dict[str, Any], member: dict[str, Any]) -> bool:
+        """成员能否并入这次主条目请求。失败重试时，recognized 搭档须与原请求快照一致。"""
+        if _held_by_review(member):
+            return False
+        if root.get("status") in ("failed", "outcome_unknown") and member.get("status") == "recognized" and not args.yes:
+            attempted = (root.get("result") or {}).get("attempted_members")
+            return isinstance(attempted, dict) and attempted.get(member["photo_id"]) == _member_snapshot(member)
+        if member.get("status") not in target_status:
+            return False
+        root_locked = root.get("status") == "confirmed" or bool(root.get("confirmed_fields"))
+        if root_locked and member.get("status") != "confirmed":
+            return bool(args.yes and member.get("status") == "recognized")
+        return True
+
+    def _blocks_group(root: dict[str, Any], member: dict[str, Any]) -> bool:
+        if member.get("status") in ("skip", "imported") or id(member) in late_ids:
+            return False
+        return not _member_joins(root, member)
+
+    for root_entry in list(todo):
+        if id(root_entry) in member_ids:
+            continue
+        partners = members_of.get(root_entry["photo_id"]) or []
+        if any(_blocks_group(root_entry, partner) for partner in partners):
+            held_ids.add(id(root_entry))
+            print(f"  ⏸ 整组暂缓：{root_entry.get('photo_id')} 仍有未完成的配对照片，先不要缺字段入库")
+    run_roots = {e["photo_id"] for e in todo if id(e) not in member_ids and id(e) not in held_ids}
+    for e in todo:
+        if id(e) in member_ids and id(e) not in late_ids and root_of[e["photo_id"]] not in run_roots:
+            print(f"  ⏸ 暂缓: {e.get('file')} 属于分组 {root_of[e['photo_id']]}，主条目未进入本次入库，"
+                  f"单独入库会把同一本书拆成两条")
+    todo = [e for e in todo if id(e) not in member_ids and id(e) not in held_ids]
+    skipped = len(entries) - len(todo)
+    grouped_n = 0
+
+    if not todo and not late_links:
         print(f"没有待入库条目（{statuses.count('confirmed')} confirmed / {statuses.count('recognized')} recognized）。")
         return 0
 
@@ -316,6 +405,56 @@ def cmd_run(args: argparse.Namespace, client: BookshelfClient | None = None) -> 
         per_entry = entry.get(key)
         return per_entry if per_entry is not None else getattr(args, key, None)
 
+    # OPT-016：把同组成员的识别键并入主条目（主条目优先，缺哪个键取第一个有值的成员）。
+    # 冲突预检必须覆盖这次真正会并入的成员（含 --yes 下并入 confirmed 主条目的 recognized 成员），
+    # 不能另用一套更窄的条件，否则不同 ISBN 仍会标成同一本书。
+    for root in [*todo, *(by_pid[pid] for pid in dict.fromkeys(r["photo_id"] for r, _, _ in late_links))]:
+        participants = [root] + [m for m in members_of.get(root["photo_id"], [])
+            if m["status"] == "imported" or _member_joins(root, m)]
+        isbns = {_canonical_isbn13(e.get("isbn")) for e in participants if e.get("isbn")}
+        if len(isbns) > 1:
+            _die(f"分组 {root['photo_id']} 的 ISBN 冲突：{', '.join(sorted(isbns))}；请先人工修正 same_as 或 ISBN")
+
+    group_plan: dict[int, dict[str, Any]] = {}
+    inferred_merge = False
+    for root in todo:
+        ms = members_of.get(root["photo_id"]) or []
+        if not ms:
+            continue
+        root_human = root["status"] == "confirmed" or bool(root.get("confirmed_fields"))
+        eligible = []
+        for m in ms:
+            if _member_joins(root, m):
+                eligible.append(m)
+                continue
+            if _held_by_review(m):
+                why = "待人工核对（needs_review/低置信）"
+            elif m["status"] not in target_status and not (
+                root.get("status") in ("failed", "outcome_unknown") and m.get("status") == "recognized"
+            ):
+                why = "状态不在本次入库范围"
+            else:
+                why = "未经人工确认，不并入已确认主条目"
+            print(f"  ⚠ 分组 {root['photo_id']}：成员 {m.get('photo_id')}（{m.get('file')}）{why}，未并入")
+        merged_keys: list[str] = []
+        for key in ("isbn", "title", "author", "authors"):
+            if root.get(key):
+                continue
+            donor = next((m for m in eligible if m.get(key)), None)
+            if donor is not None:
+                root[key] = list(donor[key]) if isinstance(donor[key], list) else donor[key]
+                merged_keys.append("authors" if key in ("author", "authors") else key)
+        if root.get("confirmed_fields") and root_human:
+            for key in merged_keys:
+                if key not in root["confirmed_fields"]:
+                    root["confirmed_fields"].append(key)
+        image_entry = root
+        if root.get("role") != "cover":
+            image_entry = next((m for m in eligible if m.get("role") == "cover" and m.get("file")), root)
+        group_plan[id(root)] = {"members": eligible, "image_entry": image_entry}
+        if merged_keys:
+            inferred_merge = True
+
     # BUG-260：推断资格必须先写回清单，独立于接下来可能变为 failed/unknown
     # 的运行状态。包括预检失败：补回文件后重试仍保护原人工确认字段。
     inferred_confirmation = False
@@ -334,9 +473,10 @@ def cmd_run(args: argparse.Namespace, client: BookshelfClient | None = None) -> 
         if not (entry.get("isbn") or entry.get("title")):
             entry["status"] = "failed"
             entry["result"] = _failure_result(run_id, "缺少 isbn 和 title，无法入库", outcome="failed")
-        elif entry.get("file") and not (source_dir / entry["file"]).is_file():
+        elif (img_entry := group_plan.get(id(entry), {}).get("image_entry", entry)).get("file") \
+                and not (source_dir / img_entry["file"]).is_file():
             entry["status"] = "failed"
-            entry["result"] = _failure_result(run_id, f"封面文件缺失: {entry['file']}", outcome="failed")
+            entry["result"] = _failure_result(run_id, f"封面文件缺失: {img_entry['file']}", outcome="failed")
         else:
             continue
         preflight_failed.append(entry["file"] or "?")
@@ -353,8 +493,12 @@ def cmd_run(args: argparse.Namespace, client: BookshelfClient | None = None) -> 
         print("\n[dry-run] 以下条目将被提交（不调 API）:")
         for i, entry in enumerate(todo, 1):
             label = entry.get("title") or entry.get("isbn") or "(无识别键)"
-            img = entry.get("file") or "(无封面图)"
+            plan = group_plan.get(id(entry), {})
+            img = plan.get("image_entry", entry).get("file") or "(无封面图)"
             extras = []
+            if plan.get("members"):
+                extras.append("同书照片 " + ", ".join(
+                    f"{m.get('photo_id')}({m.get('file')})" for m in plan["members"]) + " 并入同一次入库")
             if effective(entry, "price") is not None:
                 extras.append(f"price={effective(entry, 'price')}")
             if effective(entry, "channel"):
@@ -363,13 +507,20 @@ def cmd_run(args: argparse.Namespace, client: BookshelfClient | None = None) -> 
                 extras.append(f"location={effective(entry, 'location')}")
             suffix = f"  [{', '.join(extras)}]" if extras else ""
             print(f"  [{i}/{len(todo)}] {label} / {entry.get('author') or '?'}  ({img}){suffix}")
+        for root, m, bid in late_links:
+            print(f"  补确认：{m['photo_id']} 关联已入库主条目 {root['photo_id']} → ID {bid}（用 verify 核对 ISBN）")
         print("[dry-run] 未调用 API、未修改清单。")
         return 0
 
     if client is None:
         client = BookshelfClient()
-    if not os.environ.get("BOOKSHELF_TOKEN"):
-        print("⚠ 未设置 BOOKSHELF_TOKEN，写接口大概率被拒（401/403）。", file=sys.stderr)
+    try:
+        resolved_token = resolve_token()
+    except TokenFileError as exc:
+        _die(str(exc))  # DEV-036：Token 文件不可用时先于任何 API 调用与清单回写中止
+    if resolved_token is None:
+        print("⚠ 未设置 BOOKSHELF_TOKEN，也未找到 Token 文件，写接口大概率被拒（401/403）。"
+              "可运行 bookshelf auth login 保存 Token。", file=sys.stderr)
     try:
         health_payload = client.health()
     except RuntimeError as exc:
@@ -377,10 +528,11 @@ def cmd_run(args: argparse.Namespace, client: BookshelfClient | None = None) -> 
     _warn_barcode_capability(health_payload)
 
     # BI-04：预检失败也是执行结果，先落盘（dry-run 已在上文返回，不会走到这里）
-    if preflight_failed or inferred_confirmation:
+    if preflight_failed or inferred_confirmation or inferred_merge:
         save_manifest(manifest_path, manifest)
 
     results: list[dict[str, Any]] = []
+    skipped_rows: dict[int, dict[str, Any]] = {}
     todo_ids = {id(e) for e in todo}
     for e in entries:
         if id(e) in todo_ids:
@@ -393,10 +545,27 @@ def cmd_run(args: argparse.Namespace, client: BookshelfClient | None = None) -> 
                             "error": (e.get("result") or {}).get("error"),
                             "warnings": [], "run_id": run_id})
         else:
-            results.append({"file": e.get("file"), "title": e.get("title"), "author": e.get("author"),
-                            "outcome": "skipped", "book_id": None, "action": None,
-                            "error_code": None, "error": None, "warnings": [], "run_id": run_id})
+            skipped_row = {"file": e.get("file"), "title": e.get("title"), "author": e.get("author"),
+                           "outcome": "skipped", "book_id": None, "action": None,
+                           "error_code": None, "error": None, "warnings": [], "run_id": run_id}
+            skipped_rows[id(e)] = skipped_row
+            results.append(skipped_row)
     summary = {"created": 0, "exists": 0, "failed": len(preflight_failed), "outcome_unknown": 0}
+    # 已成功入库的主条目不重建、不覆写历史回执；补确认照片关联最终书目。
+    for root, member, bid in late_links:
+        member["status"] = "imported"
+        member["result"] = {
+            "outcome": "grouped", "book_id": bid, "grouped_with": root["photo_id"],
+            "action": None, "message": "补确认照片已关联已有书目；请运行 verify 核对 ISBN 等字段",
+            "run_id": run_id, "at": now_iso(), "error_code": None, "error": None, "warnings": [],
+        }
+        skipped_rows[id(member)].update(outcome="grouped", book_id=bid, grouped_with=root["photo_id"])
+        skipped -= 1
+        grouped_n += 1
+        print(f"  ✔ 补确认：{member['photo_id']} → ID {bid}；请运行 verify 核对 ISBN")
+    if late_links:
+        summary["grouped"] = grouped_n
+        save_manifest(manifest_path, manifest)
     started = time.monotonic()
 
     def _flush_report() -> None:
@@ -413,7 +582,8 @@ def cmd_run(args: argparse.Namespace, client: BookshelfClient | None = None) -> 
                 # total == created+exists+failed+outcome_unknown+skipped。
                 # failed 含预检失败（缺识别键/缺文件，请求未发到接口）；
                 # 本轮实际提交数 = total-skipped-预检失败条数。
-                "total": len(todo) + len(preflight_failed) + skipped,
+                # OPT-016：grouped（同书照片并入主条目的那一次入库）单独成项，仅在有分组时出现。
+                "total": len(todo) + len(preflight_failed) + skipped + grouped_n,
                 **summary,
                 "skipped": skipped,
             },
@@ -425,7 +595,9 @@ def cmd_run(args: argparse.Namespace, client: BookshelfClient | None = None) -> 
 
     for i, entry in enumerate(todo, 1):
         label = entry.get("title") or entry.get("isbn") or entry.get("file")
-        image = Path(source_dir / entry["file"]) if entry.get("file") else None
+        plan = group_plan.get(id(entry)) or {}
+        image_src = plan.get("image_entry", entry)
+        image = Path(source_dir / image_src["file"]) if image_src.get("file") else None
         # BUG-262：作者数组（authors）优先，回落 singular author（单元素数组，
         # 与后端 payload.author 等价）；客户端与后端 intake 均支持多值 authors，
         # 不得静默丢弃——实际下发的数组记录在回执与报告中，清单侧可追溯。
@@ -487,6 +659,31 @@ def cmd_run(args: argparse.Namespace, client: BookshelfClient | None = None) -> 
                 info = _failure_result(run_id, str(exc), outcome="failed")
                 summary["failed"] += 1
                 print(f"  [{i}/{len(todo)}] ✗ 失败: {label} — {exc}")
+        if plan.get("members") and info["outcome"] in ("created", "exists"):
+            # OPT-016：同组成员共享这一次入库的结果；失败/未知时成员保持原状态，
+            # 重试仍从主条目带着成员字段再来一次（不会单独入库拆成两本）。
+            grouped_ids = []
+            for member in plan["members"]:
+                member["status"] = "imported"
+                member["result"] = {
+                    "outcome": "grouped", "book_id": info.get("book_id"),
+                    "grouped_with": entry["photo_id"], "action": None,
+                    "message": f"与 {entry['photo_id']} 同书，已并入同一次入库",
+                    "run_id": run_id, "at": now_iso(), "error_code": None, "error": None, "warnings": [],
+                }
+                row = skipped_rows.get(id(member))
+                if row is not None:
+                    row.update({"outcome": "grouped", "book_id": info.get("book_id"),
+                                "grouped_with": entry["photo_id"]})
+                skipped -= 1
+                grouped_n += 1
+                grouped_ids.append(member["photo_id"])
+            summary["grouped"] = grouped_n
+            info["grouped_photos"] = grouped_ids
+            print(f"      ↳ 同书照片 {', '.join(grouped_ids)} 已并入")
+        info["attempted_members"] = {
+            member["photo_id"]: _member_snapshot(member) for member in plan.get("members", [])
+        }
         entry["result"] = info
         results.append({
             "file": entry.get("file"), "title": entry.get("title"), "author": entry.get("author"),
@@ -506,6 +703,8 @@ def cmd_run(args: argparse.Namespace, client: BookshelfClient | None = None) -> 
 
     print(f"\n完成: 入库 {summary['created']}，已存在 {summary['exists']}，失败 {summary['failed']}，"
           f"结果未知 {summary['outcome_unknown']}，跳过 {skipped}")
+    if grouped_n:
+        print(f"      同书照片并入 {grouped_n} 张（与主条目共用一次入库）")
     if summary["outcome_unknown"]:
         print("⚠ 存在结果未知条目：请先用 reconcile 或书目查询核对是否已入库，再决定 --retry-unknown。")
     print(f"报告: {report_path}")
@@ -516,7 +715,7 @@ def cmd_run(args: argparse.Namespace, client: BookshelfClient | None = None) -> 
 # ── reconcile（BI-05：默认只读核对；--apply 仅改清单/报告，不改数据库）──
 
 def _digits(value: Any) -> str:
-    return "".join(ch for ch in str(value or "") if ch.isdigit() or ch in "Xx")
+    return "".join(ch for ch in str(value or "") if ("0" <= ch <= "9") or ch in "Xx")
 
 
 def _canonical_isbn13(value: Any) -> str | None:
@@ -558,6 +757,10 @@ def cmd_reconcile(args: argparse.Namespace, client: BookshelfClient | None = Non
         mappings[mp["from"]] = mp
 
     if client is None:
+        try:
+            resolve_token()
+        except TokenFileError as exc:
+            _die(str(exc))
         client = BookshelfClient()
 
     books: dict[int, dict[str, Any]] = {}
@@ -575,6 +778,8 @@ def cmd_reconcile(args: argparse.Namespace, client: BookshelfClient | None = Non
                 "cover_path": data.get("cover_path"),
                 "error": None,
             }
+        except TokenFileError as exc:
+            _die(str(exc))
         except RuntimeError as exc:
             msg = str(exc)
             if msg.startswith("[HTTP 404]"):
@@ -753,6 +958,189 @@ def cmd_reconcile(args: argparse.Namespace, client: BookshelfClient | None = Non
     return 1 if any(unresolved.values()) else 0
 
 
+# ── verify（OPT-016：只读对比清单与库内记录；绝不写库、不改清单）──
+
+def _norm_text(value: Any) -> str:
+    """比较口径：小写并去掉空白与标点（保留字母/数字/汉字）。"""
+    import re
+    return re.sub(r"[\W_]+", "", str(value or "").lower())
+
+
+def _texts_match(a: Any, b: Any) -> bool:
+    na, nb = _norm_text(a), _norm_text(b)
+    if not na or not nb:
+        return True  # 任一侧缺失无从比较，不算不符
+    if na == nb:
+        return True
+    shorter, longer = sorted((na, nb), key=len)
+    return len(shorter) >= 2 and shorter in longer  # 副标题/“著”等后缀容忍
+
+
+def _authors_match(entry: dict[str, Any], book: dict[str, Any]) -> bool:
+    mine = entry.get("authors") if isinstance(entry.get("authors"), list) and entry.get("authors") \
+        else ([entry["author"]] if entry.get("author") else [])
+    theirs = [a for a in (book.get("authors") or []) if a]
+    if not mine or not theirs:
+        return True
+    return any(_texts_match(x, y) for x in mine for y in theirs)
+
+
+def cmd_verify(args: argparse.Namespace, client: BookshelfClient | None = None) -> int:
+    """对比清单与库内实际记录（契约：只读）。
+
+    与 reconcile 的分工：reconcile 核对"关联是否有效"（书是否存在、ISBN 是否冲突、
+    封面是否在）；verify 核对"内容是否对得上"并抓重复——ISBN 缺失/不符、书名与作者
+    不符、同组照片是否落到不同书、清单引用书目中的疑似重复书，以及低置信/待核对队列。
+    """
+    manifest_path = Path(args.manifest).expanduser()
+    manifest = load_manifest(manifest_path)
+    entries = manifest["entries"]
+    min_conf = getattr(args, "min_confidence", None)
+    if client is None:
+        client = BookshelfClient()
+
+    try:
+        resolve_token()
+    except TokenFileError as exc:
+        _die(str(exc))
+
+    books: dict[int, dict[str, Any]] = {}
+
+    def fetch(book_id: int) -> dict[str, Any]:
+        if book_id not in books:
+            try:
+                resp = client.show(book_id)
+                data = (resp or {}).get("data") or {} if isinstance(resp, dict) else {}
+                books[book_id] = {"state": "alive", "data": data}
+            except TokenFileError as exc:
+                _die(str(exc))
+            except RuntimeError as exc:
+                msg = str(exc)
+                books[book_id] = {"state": "missing" if msg.startswith("[HTTP 404]") else "unknown",
+                                  "data": {}, "error": msg}
+        return books[book_id]
+
+    def effective_book_id(e: dict[str, Any]) -> int | None:
+        result = e.get("result") or {}
+        final_id = result.get("final_book_id")
+        book_id = final_id if isinstance(final_id, int) else result.get("book_id")
+        return book_id if isinstance(book_id, int) else None
+
+    roots = bm.group_roots(entries)
+    by_pid = {e["photo_id"]: e for e in entries}
+
+    def resolve_book_id(entry: dict[str, Any]) -> int | None:
+        book_id = effective_book_id(entry)
+        if book_id is not None:
+            return book_id
+        root_pid = roots.get(entry.get("photo_id"))
+        root = by_pid.get(root_pid) if root_pid else None
+        return effective_book_id(root) if root else None
+
+    rows: list[dict[str, Any]] = []
+    issue_counts: dict[str, int] = {}
+    for e in entries:
+        book_id = resolve_book_id(e)
+        if book_id is None:
+            continue
+        info = fetch(book_id)
+        issues: list[str] = []
+        suggestion = None
+        if info["state"] == "missing":
+            issues.append("book_missing")
+        elif info["state"] == "unknown":
+            issues.append("book_unknown")
+        else:
+            data = info["data"]
+            entry_isbn = _canonical_isbn13(e.get("isbn"))
+            live_isbn = _canonical_isbn13(data.get("isbn13"))
+            suggestions: list[str] = []
+            if entry_isbn and not live_isbn:
+                issues.append("isbn_missing_in_db")
+                suggestions.append(f"bookshelf set-isbn --id {book_id} --isbn {entry_isbn}")
+            elif entry_isbn and live_isbn and entry_isbn != live_isbn:
+                issues.append("isbn_mismatch")
+            if e.get("title") and not _texts_match(e["title"], data.get("title")):
+                issues.append("title_mismatch")
+            if not _authors_match(e, data):
+                issues.append("author_mismatch")
+            root_pid = roots.get(e["photo_id"])
+            if root_pid is not None:
+                root_id = effective_book_id(by_pid[root_pid])
+                if root_id is not None and root_id != book_id:
+                    issues.append("group_split")
+                    suggestions.append(
+                        f"同组照片落到了不同的书：bookshelf merge --target {root_id} --source {book_id}")
+            suggestion = "；".join(suggestions) or None
+        for code in issues:
+            issue_counts[code] = issue_counts.get(code, 0) + 1
+        row = {
+            "photo_id": e.get("photo_id"), "file": e.get("file"), "book_id": book_id,
+            "title": (info["data"] or {}).get("title"), "issues": issues,
+        }
+        if suggestion:
+            row["suggestion"] = suggestion
+        if info.get("error"):
+            row["error"] = info["error"]
+        rows.append(row)
+
+    # 清单引用书目中的疑似重复：被清单引用的不同书里，书名规范化后相同
+    seen_title: dict[str, list[int]] = {}
+    for bid, info in sorted(books.items()):
+        if info["state"] != "alive":
+            continue
+        key = _norm_text(info["data"].get("title"))
+        if len(key) >= 2:
+            seen_title.setdefault(key, []).append(bid)
+    duplicates = []
+    for ids in seen_title.values():
+        if len(ids) > 1:
+            duplicates.append({
+                "book_ids": ids, "reason": "same_title",
+                "title": books[ids[0]]["data"].get("title"),
+                "suggestion": f"人工确认后合并: bookshelf merge --target {ids[0]} --source {ids[1]}（默认仅预览）",
+            })
+
+    review_queue = []
+    for e in entries:
+        if e.get("status") == "skip":
+            continue
+        reasons = bm.review_reasons(e, min_conf)
+        if reasons:
+            review_queue.append({"photo_id": e.get("photo_id"), "file": e.get("file"),
+                                 "status": e.get("status"), "confidence": e.get("confidence"),
+                                 "reasons": reasons})
+
+    bad_rows = [r for r in rows if r["issues"]]
+    summary = {
+        "entries_total": len(entries), "checked": len(rows), "ok": len(rows) - len(bad_rows),
+        "issues": issue_counts, "duplicates": len(duplicates), "review_queue": len(review_queue),
+    }
+    report = {
+        "generated_at": now_iso(), "manifest": str(manifest_path), "batch_id": manifest.get("batch_id"),
+        "read_only": True, "entries": rows, "duplicates": duplicates,
+        "review_queue": review_queue, "summary": summary,
+    }
+    out_path = (Path(args.out).expanduser() if args.out
+                else Path(f"batch_verify-{bm._compact_now()}.json"))
+    tmp = out_path.with_suffix(out_path.suffix + ".tmp")
+    tmp.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, out_path)
+
+    print(f"核对: 清单 {len(entries)} 条，已入库可核对 {len(rows)} 条，一致 {summary['ok']}")
+    for r in bad_rows:
+        print(f"  ✗ {r['photo_id']} {r['file']} → 书 {r['book_id']}: {', '.join(r['issues'])}"
+              + (f"\n      建议: {r['suggestion']}" if r.get("suggestion") else ""))
+    for d in duplicates:
+        print(f"  ⚠ 清单引用书目中的疑似重复书 {d['book_ids']}（{d['title']}）: {d['suggestion']}")
+    if review_queue:
+        print(f"待人工抽查: {len(review_queue)} 条")
+        for q in review_queue:
+            print(f"  {q['photo_id']} {q['file']} [{', '.join(q['reasons'])}]")
+    print(f"只读核对报告: {out_path}（未修改清单与数据库）")
+    return 1 if (bad_rows or duplicates) else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="批量导入图书封面并建档（Agent + CLI 路径）")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -763,6 +1151,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_status = sub.add_parser("status", help="查看清单各状态计数与待修条目")
     p_status.add_argument("--manifest", default="batch_manifest.json")
+    p_status.add_argument("--min-confidence", type=float, default=None,
+                          help="低于该置信度（或缺失）的条目列入待人工核对")
 
     p_run = sub.add_parser("run", help="按清单调 POST /books/intake 入库并出报告")
     p_run.add_argument("--manifest", default="batch_manifest.json")
@@ -772,7 +1162,10 @@ def build_parser() -> argparse.ArgumentParser:
                             "且 --gate-task-type/--gate-prompt-version/--gate-model-fingerprint/"
                             "--gate-golden-sha 与本次实际配置逐一比对）")
     p_run.add_argument("--force", action="store_true", help="越过 eval 门控强制 --yes（人工判断责任自负）")
-    p_run.add_argument("--retry-failed", action="store_true", help="连同上次 failed 的条目重试（不含 outcome_unknown）")
+    p_run.add_argument("--min-confidence", type=float, default=None,
+                       help="OPT-016：--yes 自动确认时，置信度低于该值（或缺失）的 recognized 条目暂缓，留待人工核对；"
+                            "needs_review=true 的条目无论是否设置都会暂缓")
+    p_run.add_argument("--retry-failed", action="store_true", help="连同上次 failed 的条目重试；recognized 搭档仅复用原请求快照，新增或变更须确认/--yes（不含 outcome_unknown）")
     p_run.add_argument("--retry-unknown", action="store_true",
                        help="连同上次 outcome_unknown 的条目重发（须先人工核对，请求可能已入库）")
     p_run.add_argument("--eval-dir", default=str(PROJECT_ROOT / "tests/eval"),
@@ -801,6 +1194,12 @@ def build_parser() -> argparse.ArgumentParser:
                             "如 --map 10=18:9787553820217")
     p_rec.add_argument("--out", default=None,
                        help="核对报告输出路径（默认 batch_reconcile-<时间戳>.json）")
+
+    p_ver = sub.add_parser("verify", help="只读对比清单与所引用书目：ISBN/书名/作者、同组落点、引用书目内疑似重复、待抽查队列")
+    p_ver.add_argument("--manifest", default="batch_manifest.json")
+    p_ver.add_argument("--min-confidence", type=float, default=None,
+                       help="低于该置信度（或缺失）的条目列入待抽查队列")
+    p_ver.add_argument("--out", default=None, help="核对报告输出路径（默认 batch_verify-<时间戳>.json）")
     return parser
 
 
@@ -814,6 +1213,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_run(args)
     elif args.command == "reconcile":
         return cmd_reconcile(args)
+    elif args.command == "verify":
+        return cmd_verify(args)
     return 0
 
 

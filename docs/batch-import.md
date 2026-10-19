@@ -24,6 +24,7 @@
   → python3 scripts/batch_import_covers.py run                   逐本调 POST /books/intake
   → batch_report-<run时间戳>.json（入库/已存在/失败/结果未知、警告与错误码）
   → python3 scripts/batch_import_covers.py reconcile             只读核对最终关联（悬空 ID 处理）
+  → python3 scripts/batch_import_covers.py verify                只读核对内容、疑似重复与待抽查队列
 ```
 
 CLI 路径（元数据补全、封面落盘、查重去重）由既有 `POST /books/intake` 完成。可靠性增强（2026-10，
@@ -34,7 +35,7 @@ PLN-012 M1）之后：条码依赖故障**可降级**（有书名即入库并带
 
 1. **后端在跑**：`http://127.0.0.1:8000`（可用 `bookshelf health` 验证）；不在本机时 `export BOOKSHELF_API_URL=http://<服务器>`
 2. **Agent Token**：在前端「Agent 授权」页（`/agent-authorization`）注册 client → 建 `books:write` 授权 → 签发 token，
-   然后 `export BOOKSHELF_TOKEN=hbs_at_...`（写接口必需，见 `docs/agent-setup.md`；reconcile 只需读权限）
+   然后保存 Token（写接口必需，见 `docs/agent-setup.md`；reconcile 只需读权限）。**推荐** `bookshelf auth login`（隐藏输入，存入 `~/.config/bookshelf/token`，权限 0600），脚本和 CLI 自动读取；也可 `export BOOKSHELF_TOKEN=hbs_at_...` 或用 `BOOKSHELF_TOKEN_FILE` 指向文件。**不要**把 Token 写在命令行参数里（会进入进程列表和 shell 历史）
 3. **图片**：放进一个目录。支持 jpg / jpeg / png / webp / bmp / heic / tif / tiff；建议 jpg/png。
    文件名随意（Agent 靠看图识别，不依赖文件名）；若恰好在文件名里放了 ISBN，可在清单里手工填 `isbn` 字段。
 4. **（可选）条码解码依赖**：macOS `brew install zbar`。缺 zbar 时批量流程**仍可用**——
@@ -77,6 +78,9 @@ scan 生成的清单为 **version 2**。相对旧版，每个条目新增：
 | `confirmed_fields` | 用户核对过的字段名列表（run 时作为 `prefer_confirmed` 输入）；旧 confirmed 条目缺失时，在请求前推断并持久保存，失败/未知后的重试仍保留确认资格 |
 | `warnings` | 条目级警告（`{code, message, …}`） |
 | `candidate_id` | 候选书目预留（M3 工作台使用） |
+| `same_as` | （OPT-016）同一本书的**主条目 `photo_id`**。条码图/封底图指向封面图；链式指向解析到最终主条目；指向不存在、自己或形成循环会在读取清单时直接报错 |
+| `confidence` | （OPT-016）识别置信度，`0~1` 数字或 `null`；越界/非数字读取时报错 |
+| `needs_review` | （OPT-016）`true` 表示须人工核对；`--yes` 不会自动入库该条目。人工核对后改 `status: confirmed` 即视为已核对 |
 
 兼容规则：
 
@@ -96,6 +100,33 @@ Agent 会话中，识别这样执行：
 
 依据 `skills/book-intake/SKILL.md` 的约束：**识别结果存疑时先确认再入库**——
 拿不准的条目保持 `recognized` 并在汇报中明示，不要替用户确认。
+
+### 配对同一本书的多张照片（OPT-016）
+
+条码图只有 ISBN、封面图只有书名时，两条记录没有公共键，会被建成**两本书**（TST-017 的 3 对重复就是这样来的）。
+识别时发现几张照片是同一本书，在**次要照片**（条码/封底）上写 `same_as` 指向主条目（封面）的 `photo_id`：
+
+```json
+{"photo_id": "p0001", "file": "三体-封面.jpg", "role": "cover",   "title": "三体", "author": "刘慈欣", "status": "confirmed"},
+{"photo_id": "p0002", "file": "三体-条码.jpg", "role": "barcode", "isbn": "9787536692930", "same_as": "p0001", "status": "confirmed"}
+```
+
+`run` 对一组只发**一次**入库请求：识别键（isbn/title/author）以主条目优先、缺哪个取第一个有值的成员，
+合并值写回主条目；封面图优先用 `role: cover` 的那张；成员在回执里记 `outcome: grouped`、`book_id` 指向同一本书，
+报告 `summary.grouped` 单独计数（仅有分组时出现）。规则：
+
+- 主条目已 `confirmed` 时，默认只并入同样已 `confirmed` 的成员；`--yes` 且门控通过时，未被 `needs_review` 或低置信度拦住的 `recognized` 成员可以并入。组里仍有未完成照片时**整组暂缓**。实际并入的照片若 ISBN 不同，本次拒绝入库，不把它们标成同一本书；
+- 主条目不在本次入库范围时，成员也**暂缓**，不会被单独入库拆成两本；
+- 主条目失败/结果未知时成员保持原状态；`--retry-failed` 只带回原请求中已记录且识别字段未变的 `recognized` 搭档，重试仍是一次请求；失败后新增配对、改过识别字段或旧回执缺成员快照时，须先把搭档人工置为 `confirmed`，或使用通过 eval 门控的 `--yes`；
+- 价格/渠道/位置/成员以主条目为准。
+
+### 置信度与人工抽查（OPT-016）
+
+给识别结果写 `confidence`（0~1），拿不准的写 `needs_review: true`：
+
+- `run --yes` 时，`needs_review` 的 `recognized` 条目**暂缓**；再加 `--min-confidence 0.8`，低于 0.8 **或没有置信度**的也暂缓；
+- `status [--min-confidence X]` 列出分组数和「待人工核对」队列；
+- 暂缓不是失败：条目保持 `recognized`，核对后改 `confirmed` 再 `run`。
 
 ## 第三步：用户核对
 
@@ -214,6 +245,47 @@ python3 scripts/batch_import_covers.py reconcile --apply \
     原对象已删或状态未知不计；命中已有书不算新增）；
   - `corrections` 清理/修正（重映射条数、被拒映射），不归为新入库成功。
 
+同组已确认照片的 ISBN 若不一致，`run` 会在调用 API、修改清单前拒绝；ISBN-10 与等价的 ISBN-13 视为一致。`photo_id` 必须唯一，重复 ID 的清单不能运行。
+
+若封面已经入库，条码照片后来才 `confirmed`，再次 `run` 会将其关联到主条目当前的最终书目 ID，保留主条目的历史入库回执，不重新入库。随后运行 `verify`：库内缺 ISBN 时会给出 `set-isbn` 命令，人工核对后执行。
+
+## 第六步：verify 内容核对，以及补 ISBN / 合并（OPT-016）
+
+`reconcile` 管「关联是否有效」；`verify` 管「**内容对不对、有没有重复**」，**只读**：不写数据库、不改清单，只写报告。
+
+```bash
+python3 scripts/batch_import_covers.py verify --manifest batch_manifest.json [--min-confidence 0.8] [--out batch_verify.json]
+```
+
+对每个已入库条目（跟随 `final_book_id`），调书目详情逐项对比，问题码：
+
+| 问题码 | 含义 | 建议 |
+|---|---|---|
+| `isbn_missing_in_db` | 清单有 ISBN，库内那本没有 | `bookshelf set-isbn --id N --isbn X` |
+| `isbn_mismatch` | 两侧 ISBN 不同（ISBN-10/13 先换算再比） | 人工核对是否对应错书 |
+| `title_mismatch` / `author_mismatch` | 书名/作者对不上（去标点空白后比较；副标题、“著”等后缀容忍） | 人工核对 |
+| `group_split` | 同组（`same_as`）照片落到了不同的书 | `bookshelf merge --target A --source B` |
+| `book_missing` / `book_unknown` | 书已不存在 / 无法判定（网络、权限） | 结合 `reconcile` 处理 |
+
+另外报告 `duplicates`（清单引用的不同书里，书名规范化后相同——疑似重复，只做提示）和 `review_queue`
+（`needs_review` 或低置信/缺置信的条目，用于事后抽查）。有问题条目或疑似重复时退出 `1`；抽查队列只是提示，不单独使 verify 失败。
+
+Token 文件不存在、权限或内容错误时，`verify` 会中止，不将其误记为书目未知，也不覆盖报告。
+
+补 ISBN 与合并是**人工确认后**的纠错命令。CLI 会传递读取时的 ISBN，服务端在写事务内加锁并重新校验；若 ISBN 已被其他请求修改，返回 `409`，需要重新读取核对。合并时 ISBN 不同也由服务端拒绝，只有显式 `--force` 才允许：
+
+```bash
+# 给已有书补 ISBN（books:write）。默认只补缺失；书已有不同 ISBN 时拒绝，确认要覆盖加 --replace
+bookshelf set-isbn --id 12 --isbn 978-7-5366-9293-0
+
+# 合并重复记录（books:delete，不可逆）。默认只预览（显示两本书的 ISBN、副本数）；确认后加 --yes
+bookshelf merge --target 12 --source 18            # 预览
+bookshelf merge --target 12 --source 18 --yes      # 执行：迁移副本/购买/进度/笔记等，然后删除 source
+# 两本 ISBN 都有且不同时默认拒绝（通常不是同一本书），确要合并加 --force
+```
+
+`books:delete` 是高风险 Scope，建议仅在需要合并时由 Owner 临时授予。
+
 ## eval：识别质量评估（tests/eval/）
 
 详细规范见 `tests/eval/README.md`。核心流程：
@@ -283,7 +355,8 @@ backend/.venv/bin/python scripts/run_cover_model_eval.py \
 
 ## 常见问题
 
-- **run 报 401/403**：`BOOKSHELF_TOKEN` 未设置或过期，去前端「Agent 授权」页（`/agent-authorization`）重新签发。
+- **run 报 401/403**：Token 未配置或过期（`bookshelf auth status` 可看来源与状态），去前端「Agent 授权」页（`/agent-authorization`）重新签发，再 `bookshelf auth login`。
+- **run 一开始就报 Token 文件权限过宽/内容非法**：按提示 `chmod 600 <文件>` 或重新 `bookshelf auth login`；脚本会在任何 API 调用和清单回写之前中止。
 - **后端不可用**：`run` 启动时会先做健康检查并直接退出，不会入库一半。
 - **某本识别不出来**：留空 + `note` 注明，人工补书名/ISBN 后再 `confirmed`；
   有 ISBN 时（如封底照）后端会自动拉元数据与封面。

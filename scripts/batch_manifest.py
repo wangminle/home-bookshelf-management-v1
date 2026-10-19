@@ -82,6 +82,11 @@ ENTRY_V2_DEFAULTS: dict[str, Any] = {
     "confirmed_fields": [],
     "warnings": [],
     "candidate_id": None,
+    # OPT-016：跨照片配对与抽查。same_as 指向同一本书的主条目 photo_id（条码图/封底图
+    # 指向封面图）；confidence 为识别置信度 0~1；needs_review 标记须人工核对。
+    "same_as": None,
+    "confidence": None,
+    "needs_review": False,
 }
 
 
@@ -272,6 +277,7 @@ def _entry_v2(raw: dict[str, Any]) -> dict[str, Any]:
         entry["confirmed_fields"] = []
     if not isinstance(entry.get("warnings"), list):
         entry["warnings"] = []
+    entry["needs_review"] = bool(entry.get("needs_review"))
     return entry
 
 
@@ -287,11 +293,91 @@ def upgrade_manifest(data: dict[str, Any]) -> dict[str, Any]:
     for raw in out.get("entries", []):
         entry = _entry_v2(raw)
         if not entry.get("photo_id"):
-            entry["photo_id"] = new_photo_id(photo_ids)
+            entry["photo_id"] = new_photo_id(photo_ids + [e.get("photo_id") for e in out.get("entries", [])])
+        if entry["photo_id"] in photo_ids:
+            _die(f"photo_id 重复：{entry['photo_id']}，请先修正清单")
         photo_ids.append(entry["photo_id"])
         entries.append(entry)
     out["entries"] = entries
     return out
+
+
+# ── OPT-016：配对（same_as）与抽查（confidence / needs_review）──
+
+def validate_pairing(entries: list[dict[str, Any]]) -> list[str]:
+    """校验 same_as / confidence，返回问题列表（空 = 合法）。不修改条目。"""
+    problems: list[str] = []
+    by_id = {e.get("photo_id"): e for e in entries}
+    if len(by_id) != len(entries):
+        problems.append("photo_id 重复，无法确定 same_as 分组")
+    for e in entries:
+        pid = e.get("photo_id")
+        label = f"{pid}（{e.get('file')}）"
+        conf = e.get("confidence")
+        if conf is not None and (isinstance(conf, bool) or not isinstance(conf, (int, float))
+                                 or not 0 <= conf <= 1):
+            problems.append(f"{label} 的 confidence={conf!r} 非法（须为 0~1 的数字或 null）")
+        target = e.get("same_as")
+        if target is None:
+            continue
+        if not isinstance(target, str) or not target:
+            problems.append(f"{label} 的 same_as 非法（须为非空 photo_id 字符串或 null）")
+        elif target == pid:
+            problems.append(f"{label} 的 same_as 指向自己")
+        elif target not in by_id:
+            problems.append(f"{label} 的 same_as={target!r} 指向清单里不存在的 photo_id")
+    if problems:
+        return problems
+    for e in entries:
+        seen: set[Any] = set()
+        cur = e
+        while cur.get("same_as") is not None:
+            if cur["photo_id"] in seen:
+                problems.append(f"same_as 存在循环（涉及 {e.get('photo_id')}）")
+                break
+            seen.add(cur["photo_id"])
+            cur = by_id[cur["same_as"]]
+    return problems
+
+
+def group_roots(entries: list[dict[str, Any]]) -> dict[str, str]:
+    """成员 photo_id → 根（主条目）photo_id。仅含有 same_as 的条目；链式指向解析到最终根。
+    调用前须已通过 validate_pairing。"""
+    by_id = {e.get("photo_id"): e for e in entries}
+    out: dict[str, str] = {}
+    for e in entries:
+        if e.get("same_as") is None:
+            continue
+        cur = e
+        while cur.get("same_as") is not None:
+            cur = by_id[cur["same_as"]]
+        out[e["photo_id"]] = cur["photo_id"]
+    return out
+
+
+def group_members(entries: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """根 photo_id → 成员条目列表（清单顺序，不含根自己）。"""
+    roots = group_roots(entries)
+    members: dict[str, list[dict[str, Any]]] = {}
+    for e in entries:
+        root = roots.get(e.get("photo_id"))
+        if root is not None:
+            members.setdefault(root, []).append(e)
+    return members
+
+
+def review_reasons(entry: dict[str, Any], min_confidence: float | None = None) -> list[str]:
+    """条目须人工核对的原因：needs_review、置信度过低或缺失（给定阈值时）。"""
+    reasons: list[str] = []
+    if entry.get("needs_review"):
+        reasons.append("needs_review")
+    if min_confidence is not None:
+        conf = entry.get("confidence")
+        if conf is None:
+            reasons.append("no_confidence")
+        elif conf < min_confidence:
+            reasons.append("low_confidence")
+    return reasons
 
 
 def load_manifest(path: Path) -> dict[str, Any]:
@@ -314,6 +400,10 @@ def load_manifest(path: Path) -> dict[str, Any]:
     if bad:
         _die(f"清单含非法 status 的条目: {bad}（合法值 {VALID_STATUS}）")
     upgraded = upgrade_manifest(manifest)
+    problems = validate_pairing(upgraded["entries"])
+    if problems:
+        _die(f"清单配对/置信度字段非法: {path}\n  - " + "\n  - ".join(problems)
+             + "\n  （已拒绝读取，不会写回；请修正 same_as / confidence 后重试）")
     # 保留原始顶层键（不丢弃任何历史信息）
     return upgraded
 

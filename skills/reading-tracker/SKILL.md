@@ -36,7 +36,7 @@ bookshelf health
 可选 `--member-id`；未指定时回退到认证身份本人（Agent Token / 渠道头绑定的成员；`auth_context.py` 的 `resolve_body_member`）。
 
 > **渠道鉴权**（Agent 走后端时）：调用 `/progress` 端点时，后端读取 HTTP 头 `X-Channel` / `X-External-User-Id`：
-> - 无任何凭证 -> 401（业务端点不再有匿名回退；CLI 需设置 BOOKSHELF_TOKEN 或渠道头环境变量）
+> - 无任何凭证 -> 401（业务端点不再有匿名回退；CLI 需 `bookshelf auth login` 保存的 Token 文件、BOOKSHELF_TOKEN 或渠道头环境变量）
 > - 有渠道头但未绑定 -> 403
 > - 有渠道头且绑定，但与 body `member_id` 不一致 -> 403
 >

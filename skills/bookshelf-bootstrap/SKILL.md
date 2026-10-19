@@ -52,7 +52,9 @@ bookshelf bootstrap https://your-bookshelf.example
 
 ```bash
 # 设置 Token（通过环境变量，不要写入文件）
-export BOOKSHELF_TOKEN="hbs_at_..."
+# 推荐：让用户在自己的终端运行 `bookshelf auth login`（隐藏输入，存 0600 文件）。
+# 不要自己拼带 Token 明文的命令行——会进入进程列表和 shell 历史。
+export BOOKSHELF_TOKEN="hbs_at_..."   # 仅作备选（CI/一次性）
 
 # 验证连接
 bookshelf auth status

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import extract, func, select
 from sqlalchemy.orm import Session
 
 from app.models import Book, Member, PurchaseRecord, ReadingLog, ReadingProgress
@@ -47,13 +47,15 @@ def _compute_yearly_stats(db: Session, member_id: int | None = None) -> list[Yea
     books_by_year: dict[str, int] = {}
     book_year_rows = db.execute(
         select(
-            func.strftime("%Y", Book.created_at).label("yr"),
+            # BUG-323：extract 由 SQLAlchemy 按方言编译（SQLite→strftime，PG→EXTRACT），
+            # 不再写死 SQLite 专用的 strftime。
+            extract("year", Book.created_at).label("yr"),
             func.count(),
         ).group_by("yr")
     ).all()
     for row in book_year_rows:
         if row.yr:
-            books_by_year[row.yr] = row[1]
+            books_by_year[str(int(row.yr))] = row[1]
 
     # 年度花费：按 purchase_date 前 4 位分组（仅 CNY，与 total_spent 同口径）
     spent_by_year: dict[str, float] = {}

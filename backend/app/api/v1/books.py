@@ -350,6 +350,9 @@ def remove_book(
 def merge_book(
     book_id: int,
     source_id: int = Query(..., description="被合并进来的源书 ID（合并后删除）"),
+    force: bool = Query(False, description="确认合并 ISBN 不同的两书"),
+    expected_target_isbn13: str | None = Query(None, description="预览时目标 ISBN，空字符串表示无 ISBN"),
+    expected_source_isbn13: str | None = Query(None, description="预览时源 ISBN，空字符串表示无 ISBN"),
     db: Session = Depends(get_db),
     _ctx: AuthContext = Depends(require_scope("books:delete")),
     _csrf: None = Depends(verify_csrf),
@@ -359,7 +362,9 @@ def merge_book(
     权限阶段 0：合并会删除源书记录（破坏性），按授权矩阵契约要求
     books:delete——此前误用 books:write，与矩阵声明不一致。"""
     try:
-        result = merge_books(db, target_id=book_id, source_id=source_id)
+        result = merge_books(db, target_id=book_id, source_id=source_id, force=force,
+                             expected_target_isbn13=expected_target_isbn13,
+                             expected_source_isbn13=expected_source_isbn13)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ConflictError as exc:

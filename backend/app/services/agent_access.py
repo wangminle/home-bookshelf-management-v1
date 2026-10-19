@@ -66,6 +66,17 @@ def _now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _utc_naive(value: datetime | None) -> datetime | None:
+    """把库内时间归一为 naive UTC，便于与 _now() 比较（BUG-323）。
+
+    SQLite 返回 naive（本就是 UTC 墙钟）；PostgreSQL 的 timestamptz 返回
+    tz-aware。aware 值必须先转 UTC 再去 tzinfo，不能只丢弃 tzinfo。
+    """
+    if value is None or value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 # ── Scope 验证 ──
 
 def validate_scopes(scopes: list[str]) -> list[str]:
@@ -286,7 +297,7 @@ def issue_token(db: Session, grant_id: int) -> tuple[str, AgentToken]:
         raise HTTPException(status_code=400, detail="Agent 客户端已撤销")
 
     now = _now()
-    if grant.expires_at <= now:
+    if _utc_naive(grant.expires_at) <= now:
         raise HTTPException(status_code=400, detail="授权已过期")
 
     secret = _gen_secret()
@@ -323,7 +334,7 @@ def verify_token(db: Session, plaintext: str) -> tuple[AgentToken, AgentGrant, A
         return None
 
     now = _now()
-    if token_row.expires_at <= now:
+    if _utc_naive(token_row.expires_at) <= now:
         return None
 
     grant = token_row.grant
@@ -333,7 +344,7 @@ def verify_token(db: Session, plaintext: str) -> tuple[AgentToken, AgentGrant, A
     # 旧令牌即使未被吊销也立即失效，防止旧范围令牌继承新范围（或反向复活）
     if (token_row.grant_version or 1) != get_grant_version(grant):
         return None
-    if grant.expires_at <= now:
+    if _utc_naive(grant.expires_at) <= now:
         grant.status = "expired"
         db.commit()
         return None
@@ -473,10 +484,11 @@ def verify_member_password(db: Session, member: Member, password: str) -> bool:
         return False
 
     now = _now()
-    if cred.locked_until is not None and cred.locked_until > now:
+    locked_until = _utc_naive(cred.locked_until)
+    if locked_until is not None and locked_until > now:
         raise HTTPException(
             status_code=429,
-            detail=f"登录尝试过多，已锁定至 {cred.locked_until.strftime('%H:%M')} UTC",
+            detail=f"登录尝试过多，已锁定至 {locked_until.strftime('%H:%M')} UTC",
         )
 
     try:
@@ -593,7 +605,7 @@ def verify_web_session(db: Session, session_token: str) -> Member | None:
         return None
     if session.revoked_at is not None:
         return None
-    if session.expires_at <= _now():
+    if _utc_naive(session.expires_at) <= _now():
         return None
     member = db.get(Member, session.member_id)
     if member is None:

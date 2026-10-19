@@ -1,3 +1,4 @@
+import sqlite3
 from collections.abc import Generator
 
 from sqlalchemy import event
@@ -13,7 +14,8 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 @event.listens_for(Engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record) -> None:
-    if settings.database_url.startswith("sqlite"):
+    # 按实际连接类型判断，而非全局配置：同进程内可能同时存在 SQLite 与 PostgreSQL 引擎（LOC-19）。
+    if isinstance(dbapi_connection, sqlite3.Connection):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.execute("PRAGMA journal_mode=WAL")

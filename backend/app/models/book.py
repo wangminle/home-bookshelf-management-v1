@@ -14,7 +14,8 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
-    text,
+    false,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -120,9 +121,9 @@ class ReadingProgress(Base):
     book_id: Mapped[int] = mapped_column(ForeignKey("books.id", ondelete="CASCADE"), nullable=False, index=True)
     member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(20), default="unread", server_default="unread", nullable=False)
-    to_read: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
-    owned: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("1"), nullable=False)
-    borrowed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
+    to_read: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    owned: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
+    borrowed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     current_page: Mapped[int | None] = mapped_column(Integer)
     percent: Mapped[float | None] = mapped_column(Float)
     personal_notes: Mapped[str | None] = mapped_column(Text)

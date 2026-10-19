@@ -113,7 +113,7 @@ def test_stale_recovery_does_not_clear_new_active_lease(sessions):
         with sessions() as new_session:
             ex = new_session.get(IntakeCommandExecution,ex_id)
             assert wf._claim_execution_lease(new_session,ex,lease_owner='new-active-worker',now=wf._now())
-            assert new_session.get(IntakeCommandExecution,ex_id).lease_expires_at > wf._now().replace(tzinfo=None)
+            assert wf._as_aware(new_session.get(IntakeCommandExecution,ex_id).lease_expires_at) > wf._now()
         wf.run_command_execution(stale_session,stale_execution,requester_member_id=owner_id)
     with sessions() as db:
         ex = db.get(IntakeCommandExecution,ex_id)

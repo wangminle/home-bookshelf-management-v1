@@ -60,15 +60,16 @@ def _make_copy(s, *, copy_type="physical") -> int:
 
 
 def test_migration_creates_storage_tables(db_engine):
-    """迁移后七张位置表与 book_copies placement 列存在。"""
-    with db_engine.connect() as conn:
-        tables = {r[0] for r in conn.execute(text(
-            "SELECT name FROM sqlite_master WHERE type='table'"))}
-        for t in ("storage_rooms", "storage_shelves", "shelf_layers", "shelf_cells",
-                  "shelf_photos", "location_operations", "location_file_gc_jobs"):
-            assert t in tables, t
-        cols = {r[1] for r in conn.execute(text("PRAGMA table_info(book_copies)"))}
-        assert {"placement_shelf_id", "placement_cell_id", "placement_version"} <= cols
+    """迁移后七张位置表与 book_copies placement 列存在（SQLite/PostgreSQL 通用）。"""
+    from sqlalchemy import inspect
+
+    insp = inspect(db_engine)
+    tables = set(insp.get_table_names())
+    for t in ("storage_rooms", "storage_shelves", "shelf_layers", "shelf_cells",
+              "shelf_photos", "location_operations", "location_file_gc_jobs"):
+        assert t in tables, t
+    cols = {c["name"] for c in insp.get_columns("book_copies")}
+    assert {"placement_shelf_id", "placement_cell_id", "placement_version"} <= cols
 
 
 def test_room_code_and_shelf_code_unique(db_engine):

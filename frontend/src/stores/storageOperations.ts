@@ -95,11 +95,6 @@ export function reuseProvisionIdempotencyKey(_bookId: number, items: unknown): s
   return prepareLocationOperation('provision', { items }, '实体副本补录').key
 }
 
-export function forgetProvisionIdempotencyKey(_bookId: number, items: unknown): void {
-  const op = pendingLocationOperations().find((r) => r.kind === 'provision' && canonical(r.payload) === canonical({ items }))
-  if (op) settleLocationOperation(op, 'completed')
-}
-
 export function resetProvisionIdempotencyKeys(): void {
   // 仅供原测试/显式清理已结束历史使用；绝不能删除未确认操作。
   if (sessionMemberId.value && sessionRole.value === 'owner') {

@@ -17,7 +17,7 @@ def upgrade() -> None:
     op.create_table(
         "llm_settings",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("display_name", sa.String(80), nullable=False, server_default="识书模型"),
         sa.Column("base_url", sa.String(500), nullable=False, server_default=""),
         sa.Column("model_id", sa.String(128), nullable=False, server_default=""),
